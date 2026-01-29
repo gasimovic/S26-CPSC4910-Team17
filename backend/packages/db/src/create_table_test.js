@@ -1,3 +1,7 @@
+
+//To run this test use: cd backend/packages/db
+//                      node src/create_table_test.js
+
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
 
