@@ -1,0 +1,110 @@
+CREATE DATABASE IF NOT EXISTS gdip;
+USE gdip;
+
+-- Migration tracking table
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  filename VARCHAR(255) NOT NULL UNIQUE,
+  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- Core users table
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+
+  email VARCHAR(255) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+
+  -- expected values: 'admin', 'driver', 'sponsor'
+  role ENUM('admin', 'driver', 'sponsor') NOT NULL,
+
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- Driver profile
+CREATE TABLE IF NOT EXISTS driver_profiles (
+  user_id INT NOT NULL PRIMARY KEY,
+
+  first_name VARCHAR(100) NULL,
+  last_name VARCHAR(100) NULL,
+  dob DATE NULL,
+
+  phone VARCHAR(50) NULL,
+
+  address_line1 VARCHAR(255) NULL,
+  address_line2 VARCHAR(255) NULL,
+  city VARCHAR(100) NULL,
+  state VARCHAR(100) NULL,
+  postal_code VARCHAR(20) NULL,
+  country VARCHAR(100) NULL,
+
+  sponsor_org VARCHAR(255) NULL,
+
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_driver_profiles_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+-- Sponsor profile
+CREATE TABLE IF NOT EXISTS sponsor_profiles (
+  user_id INT NOT NULL PRIMARY KEY,
+
+  first_name VARCHAR(100) NULL,
+  last_name VARCHAR(100) NULL,
+  dob DATE NULL,
+
+  phone VARCHAR(50) NULL,
+
+  address_line1 VARCHAR(255) NULL,
+  address_line2 VARCHAR(255) NULL,
+  city VARCHAR(100) NULL,
+  state VARCHAR(100) NULL,
+  postal_code VARCHAR(20) NULL,
+  country VARCHAR(100) NULL,
+
+  company_name VARCHAR(255) NULL,
+
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_sponsor_profiles_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+-- Admin profile
+CREATE TABLE IF NOT EXISTS admin_profiles (
+  user_id INT NOT NULL PRIMARY KEY,
+
+  first_name VARCHAR(100) NULL,
+  last_name VARCHAR(100) NULL,
+  dob DATE NULL,
+
+  phone VARCHAR(50) NULL,
+
+  address_line1 VARCHAR(255) NULL,
+  address_line2 VARCHAR(255) NULL,
+  city VARCHAR(100) NULL,
+  state VARCHAR(100) NULL,
+  postal_code VARCHAR(20) NULL,
+  country VARCHAR(100) NULL,
+
+  display_name VARCHAR(255) NULL,
+
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_admin_profiles_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+-- if index doesnt exist, create it
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
