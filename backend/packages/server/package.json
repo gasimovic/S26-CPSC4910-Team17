@@ -1,0 +1,14 @@
+{
+  "name": "@gdip/server",
+  "version": "0.0.1",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "zod": "^3.23.8"
+  }
+}
