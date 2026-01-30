@@ -87,7 +87,6 @@ function App() {
                 required
               />
             </div>
-
             <button type="submit" className="btn btn-primary btn-block">
               Sign in
             </button>
@@ -95,11 +94,14 @@ function App() {
 
           <p className="form-footer">
             Forgot password? <a href="#" className="link">Reset here</a>
+            <br />
+            Don't have an account? <a href="#" className="link" onClick={() => setCurrentPage('create-account')}>Create one here</a>
           </p>
         </div>
       </div>
     )
   }
+
 
   // ============ NAVIGATION COMPONENT ============
   const Navigation = () => {
@@ -113,6 +115,7 @@ function App() {
           <button type="button" onClick={() => setCurrentPage('leaderboard')} className="nav-link">Leaderboard</button>
           <button type="button" onClick={() => setCurrentPage('achievements')} className="nav-link">Achievements</button>
           <button type="button" onClick={() => setCurrentPage('profile')} className="nav-link">Profile</button>
+          <button type="button" onClick={() => setCurrentPage('create-account')} className="nav-link">Create Account</button>
           <span className="nav-pts">{currentUser?.points} pts</span>
           <button type="button" onClick={handleLogout} className="nav-logout">Log out</button>
         </div>
@@ -324,19 +327,74 @@ function App() {
       </div>
     )
   }
+  // ============ CREATE ACCOUNT PAGE ============
+  const CreateAccountPage = () => {
+    const [formData, setFormData] = useState({
+      name: '',
+      email: '',
+      password: '',
+      miles: 0,
+    })
 
+    const handleSubmit = (e) => {
+      e.preventDefault()
+      // TODO: Call backend POST /api/account or similar
+      setFormData({
+        name: '',
+        DOB: '',
+        email: '',
+        password: '',
+      })
+    }
+
+    return (
+      <div>
+        <main className="app-main">
+          <h1 className="page-title">Create Account</h1>
+          <p className="page-subtitle">Create an account to start earning points</p>
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label className="form-label">Name</label>
+              <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="form-input" placeholder="John Doe" required />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Date of Birth</label>
+              <input type="date" value={formData.DOB} onChange={(e) => setFormData({ ...formData, DOB: e.target.value })}
+                className="form-input" required />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Email</label>
+              <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className="form-input" placeholder="john@example.com" required />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Password</label>
+              <input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                className="form-input" placeholder="Password" required />
+            </div>
+            <button type="submit" className="btn btn-success btn-block">Create account</button>
+          </form>
+        </main>
+      </div>
+    )
+  }
   // ============ MAIN RENDER ============
   return (
-    <div>
-      {!isLoggedIn && <LoginPage />}
-      {isLoggedIn && currentPage === 'dashboard' && <DashboardPage />}
-      {isLoggedIn && currentPage === 'log-trip' && <LogTripPage />}
-      {isLoggedIn && currentPage === 'rewards' && <RewardsPage />}
-      {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
-      {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}
-      {isLoggedIn && currentPage === 'profile' && <ProfilePage />}
-    </div>
-  )
+  <div>
+    {!isLoggedIn && currentPage === 'login' && <LoginPage />}
+    {!isLoggedIn && currentPage === 'create-account' && <CreateAccountPage />}
+
+    {isLoggedIn && currentPage === 'dashboard' && <DashboardPage />}
+    {isLoggedIn && currentPage === 'log-trip' && <LogTripPage />}
+    {isLoggedIn && currentPage === 'rewards' && <RewardsPage />}
+    {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
+    {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}
+    {isLoggedIn && currentPage === 'profile' && <ProfilePage />}
+  </div>
+)
+
 }
 
 export default App
+
