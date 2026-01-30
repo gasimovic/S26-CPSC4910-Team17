@@ -58,85 +58,43 @@ function App() {
     }
 
     return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        minHeight: '100vh',
-        backgroundColor: '#f3f4f6'
-      }}>
-        <div style={{
-          backgroundColor: 'white',
-          padding: '40px',
-          borderRadius: '10px',
-          boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-          width: '400px'
-        }}>
-          <h1 style={{ textAlign: 'center', marginBottom: '30px' }}>
-            🚛 Driver Rewards
-          </h1>
-          
+      <div className="login-wrap">
+        <div className="login-card">
+          <h1 className="login-title">Driver Rewards</h1>
+          <p className="login-subtitle">Sign in to your account</p>
+
           <form onSubmit={onSubmit}>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                Email or Driver ID
-              </label>
+            <div className="form-group">
+              <label className="form-label">Email or Driver ID</label>
               <input
                 type="text"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Enter your email"
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  border: '1px solid #ccc',
-                  borderRadius: '5px',
-                  fontSize: '16px'
-                }}
+                className="form-input"
                 required
               />
             </div>
 
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                Password
-              </label>
+            <div className="form-group">
+              <label className="form-label">Password</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  border: '1px solid #ccc',
-                  borderRadius: '5px',
-                  fontSize: '16px'
-                }}
+                className="form-input"
                 required
               />
             </div>
 
-            <button
-              type="submit"
-              style={{
-                width: '100%',
-                padding: '12px',
-                backgroundColor: '#2563eb',
-                color: 'white',
-                border: 'none',
-                borderRadius: '5px',
-                fontSize: '16px',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              Login
+            <button type="submit" className="btn btn-primary btn-block">
+              Sign in
             </button>
           </form>
 
-          <p style={{ textAlign: 'center', marginTop: '20px', color: '#666' }}>
-            Forgot password? <a href="#" style={{ color: '#2563eb' }}>Reset here</a>
+          <p className="form-footer">
+            Forgot password? <a href="#" className="link">Reset here</a>
           </p>
         </div>
       </div>
@@ -146,49 +104,17 @@ function App() {
   // ============ NAVIGATION COMPONENT ============
   const Navigation = () => {
     return (
-      <nav style={{
-        backgroundColor: '#1f2937',
-        padding: '15px 30px',
-        color: 'white',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center'
-      }}>
-        <div style={{ fontSize: '20px', fontWeight: 'bold' }}>
-          🚛 Driver Rewards
-        </div>
-        <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-          <button onClick={() => setCurrentPage('dashboard')} 
-            style={{ color: 'white', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>
-            Dashboard
-          </button>
-          <button onClick={() => setCurrentPage('log-trip')} 
-            style={{ color: 'white', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>
-            Log Trip
-          </button>
-          <button onClick={() => setCurrentPage('rewards')} 
-            style={{ color: 'white', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>
-            Rewards
-          </button>
-          <button onClick={() => setCurrentPage('leaderboard')} 
-            style={{ color: 'white', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>
-            Leaderboard
-          </button>
-          <button onClick={() => setCurrentPage('achievements')} 
-            style={{ color: 'white', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>
-            Achievements
-          </button>
-          <button onClick={() => setCurrentPage('profile')} 
-            style={{ color: 'white', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>
-            Profile
-          </button>
-          <span style={{ color: '#10b981', fontWeight: 'bold' }}>
-            {currentUser?.points} pts
-          </span>
-          <button onClick={handleLogout} 
-            style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>
-            Logout
-          </button>
+      <nav className="nav">
+        <div className="nav-brand">Driver Rewards</div>
+        <div className="nav-links">
+          <button type="button" onClick={() => setCurrentPage('dashboard')} className="nav-link">Dashboard</button>
+          <button type="button" onClick={() => setCurrentPage('log-trip')} className="nav-link">Log Trip</button>
+          <button type="button" onClick={() => setCurrentPage('rewards')} className="nav-link">Rewards</button>
+          <button type="button" onClick={() => setCurrentPage('leaderboard')} className="nav-link">Leaderboard</button>
+          <button type="button" onClick={() => setCurrentPage('achievements')} className="nav-link">Achievements</button>
+          <button type="button" onClick={() => setCurrentPage('profile')} className="nav-link">Profile</button>
+          <span className="nav-pts">{currentUser?.points} pts</span>
+          <button type="button" onClick={handleLogout} className="nav-logout">Log out</button>
         </div>
       </nav>
     )
@@ -199,50 +125,37 @@ function App() {
     return (
       <div>
         <Navigation />
-        <main style={{ padding: '30px', backgroundColor: '#f3f4f6', minHeight: 'calc(100vh - 70px)' }}>
-          <h1>Welcome back, {currentUser.name}! 👋</h1>
-          
-          {/* Points Display */}
-          <div style={{
-            backgroundColor: '#2563eb',
-            color: 'white',
-            padding: '40px',
-            borderRadius: '10px',
-            textAlign: 'center',
-            marginTop: '20px'
-          }}>
-            <h2 style={{ margin: 0, fontSize: '18px' }}>Your Points</h2>
-            <p style={{ margin: '10px 0 0 0', fontSize: '48px', fontWeight: 'bold' }}>
-              {currentUser.points}
-            </p>
+        <main className="app-main">
+          <h1 className="page-title">Welcome back, {currentUser.name}</h1>
+          <p className="page-subtitle">Here’s your overview</p>
+
+          <div className="pts-hero">
+            <p className="pts-hero-label">Your points</p>
+            <p className="pts-hero-value">{currentUser.points}</p>
           </div>
 
-          {/* Quick Stats */}
-          <section style={{ marginTop: '30px' }}>
-            <h2>Quick Stats</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginTop: '15px' }}>
-              {/* TODO: Fetch from backend */}
-              <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-                <h3 style={{ margin: '0 0 10px 0', color: '#666', fontSize: '14px' }}>Miles This Week</h3>
-                <p style={{ margin: 0, fontSize: '32px', fontWeight: 'bold', color: '#2563eb' }}>{currentUser.miles}</p>
+          <section>
+            <h2 className="section-title">Quick stats</h2>
+            <div className="stats-grid">
+              <div className="stat-card">
+                <p className="stat-label">Miles this week</p>
+                <p className="stat-value stat-value-blue">{currentUser.miles}</p>
               </div>
-              <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-                <h3 style={{ margin: '0 0 10px 0', color: '#666', fontSize: '14px' }}>Safe Days Streak</h3>
-                <p style={{ margin: 0, fontSize: '32px', fontWeight: 'bold', color: '#10b981' }}>{currentUser.streak}</p>
+              <div className="stat-card">
+                <p className="stat-label">Safe days streak</p>
+                <p className="stat-value stat-value-green">{currentUser.streak}</p>
               </div>
-              <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-                <h3 style={{ margin: '0 0 10px 0', color: '#666', fontSize: '14px' }}>Current Rank</h3>
-                <p style={{ margin: 0, fontSize: '32px', fontWeight: 'bold', color: '#f59e0b' }}>#{currentUser.rank}</p>
+              <div className="stat-card">
+                <p className="stat-label">Current rank</p>
+                <p className="stat-value stat-value-amber">#{currentUser.rank}</p>
               </div>
             </div>
           </section>
 
-          {/* Recent Activity */}
-          <section style={{ marginTop: '30px' }}>
-            <h2>Recent Activity</h2>
-            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-              {/* TODO: Map through activities from backend */}
-              <p style={{ color: '#666' }}>No recent activity</p>
+          <section>
+            <h2 className="section-title">Recent activity</h2>
+            <div className="activity-card">
+              <p className="activity-empty">No recent activity</p>
             </div>
           </section>
         </main>
@@ -275,25 +188,22 @@ function App() {
     return (
       <div>
         <Navigation />
-        <main style={{ padding: '30px', backgroundColor: '#f3f4f6', minHeight: 'calc(100vh - 70px)' }}>
-          <h1>Log a Trip</h1>
-          <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', maxWidth: '600px', marginTop: '20px' }}>
+        <main className="app-main">
+          <h1 className="page-title">Log a trip</h1>
+          <p className="page-subtitle">Record your drive details</p>
+          <div className="card form-card">
             <form onSubmit={handleSubmit}>
-              {/* TODO: Add all form fields */}
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Date</label>
-                <input type="date" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})}
-                  style={{ width: '100%', padding: '10px', border: '1px solid #ccc', borderRadius: '5px' }} required />
+              <div className="form-group">
+                <label className="form-label">Date</label>
+                <input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  className="form-input" required />
               </div>
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Miles Driven</label>
-                <input type="number" value={formData.miles} onChange={(e) => setFormData({...formData, miles: e.target.value})}
-                  style={{ width: '100%', padding: '10px', border: '1px solid #ccc', borderRadius: '5px' }} required />
+              <div className="form-group">
+                <label className="form-label">Miles driven</label>
+                <input type="number" value={formData.miles} onChange={(e) => setFormData({ ...formData, miles: e.target.value })}
+                  className="form-input" placeholder="0" required />
               </div>
-              {/* TODO: Add more fields */}
-              <button type="submit" style={{ width: '100%', padding: '12px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer' }}>
-                Submit Trip
-              </button>
+              <button type="submit" className="btn btn-success btn-block">Submit trip</button>
             </form>
           </div>
         </main>
@@ -306,20 +216,15 @@ function App() {
     return (
       <div>
         <Navigation />
-        <main style={{ padding: '30px', backgroundColor: '#f3f4f6', minHeight: 'calc(100vh - 70px)' }}>
-          <h1>Rewards Store</h1>
-          <p>Your balance: <strong>{currentUser.points} points</strong></p>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginTop: '30px' }}>
-            {/* TODO: Map through rewards from backend */}
-            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', textAlign: 'center' }}>
-              <h3>$25 Gas Card</h3>
-              <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#2563eb' }}>500 pts</p>
-              <button style={{ padding: '10px 20px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-                Redeem
-              </button>
+        <main className="app-main">
+          <h1 className="page-title">Rewards</h1>
+          <p className="page-subtitle">Your balance: <strong>{currentUser.points} points</strong></p>
+          <div className="rewards-grid">
+            <div className="reward-card">
+              <h3 className="reward-title">$25 Gas Card</h3>
+              <p className="reward-pts">500 pts</p>
+              <button type="button" className="btn btn-success">Redeem</button>
             </div>
-            {/* Add more reward cards */}
           </div>
         </main>
       </div>
@@ -331,21 +236,22 @@ function App() {
     return (
       <div>
         <Navigation />
-        <main style={{ padding: '30px', backgroundColor: '#f3f4f6', minHeight: 'calc(100vh - 70px)' }}>
-          <h1>Leaderboard</h1>
-          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', marginTop: '30px' }}>
-            {/* TODO: Fetch leaderboard data from backend */}
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <main className="app-main">
+          <h1 className="page-title">Leaderboard</h1>
+          <p className="page-subtitle">Top drivers by points</p>
+          <div className="table-wrap">
+            <table className="table">
               <thead>
-                <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                  <th style={{ padding: '15px', textAlign: 'left' }}>Rank</th>
-                  <th style={{ padding: '15px', textAlign: 'left' }}>Driver</th>
-                  <th style={{ padding: '15px', textAlign: 'right' }}>Points</th>
+                <tr>
+                  <th>Rank</th>
+                  <th>Driver</th>
+                  <th className="text-right">Points</th>
                 </tr>
               </thead>
               <tbody>
-                {/* Map through leaderboard entries */}
-                <tr><td colSpan="3" style={{ padding: '15px', textAlign: 'center', color: '#666' }}>Loading...</td></tr>
+                <tr>
+                  <td colSpan="3" className="table-empty">Loading…</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -359,17 +265,16 @@ function App() {
     return (
       <div>
         <Navigation />
-        <main style={{ padding: '30px', backgroundColor: '#f3f4f6', minHeight: 'calc(100vh - 70px)' }}>
-          <h1>Achievements & Badges</h1>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '20px', marginTop: '30px' }}>
-            {/* TODO: Map through achievements from backend */}
-            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', textAlign: 'center' }}>
-              <div style={{ fontSize: '48px' }}>🏆</div>
-              <h3>Road Warrior</h3>
-              <p style={{ fontSize: '12px', color: '#666' }}>30 days accident-free</p>
-              <p style={{ fontWeight: 'bold', color: '#10b981' }}>Unlocked!</p>
+        <main className="app-main">
+          <h1 className="page-title">Achievements</h1>
+          <p className="page-subtitle">Badges and milestones</p>
+          <div className="badges-grid">
+            <div className="badge-card">
+              <div className="badge-icon">🏆</div>
+              <h3 className="badge-title">Road Warrior</h3>
+              <p className="badge-desc">30 days accident-free</p>
+              <p className="badge-status">Unlocked</p>
             </div>
-            {/* Add more badges */}
           </div>
         </main>
       </div>
@@ -381,30 +286,27 @@ function App() {
     return (
       <div>
         <Navigation />
-        <main style={{ padding: '30px', backgroundColor: '#f3f4f6', minHeight: 'calc(100vh - 70px)' }}>
-          <h1>Profile</h1>
-          <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', maxWidth: '600px', marginTop: '20px' }}>
-            {/* TODO: Fetch user profile from backend */}
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Name</label>
-              <p>{currentUser.name}</p>
+        <main className="app-main">
+          <h1 className="page-title">Profile</h1>
+          <p className="page-subtitle">Your account details</p>
+          <div className="card profile-card">
+            <div className="profile-field">
+              <p className="profile-label">Name</p>
+              <p className="profile-value">{currentUser.name}</p>
             </div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Email</label>
-              <p>{currentUser.email}</p>
+            <div className="profile-field">
+              <p className="profile-label">Email</p>
+              <p className="profile-value">{currentUser.email}</p>
             </div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Driver ID</label>
-              <p>{currentUser.id}</p>
+            <div className="profile-field">
+              <p className="profile-label">Driver ID</p>
+              <p className="profile-value">{currentUser.id}</p>
             </div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Total Points</label>
-              <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#2563eb' }}>{currentUser.points}</p>
+            <div className="profile-field">
+              <p className="profile-label">Total points</p>
+              <p className="profile-value profile-value-lg">{currentUser.points}</p>
             </div>
-            {/* TODO: Add edit functionality */}
-            <button style={{ padding: '10px 20px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-              Edit Profile
-            </button>
+            <button type="button" className="btn btn-primary">Edit profile</button>
           </div>
         </main>
       </div>

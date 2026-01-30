@@ -1,0 +1,567 @@
+/* ============ MODERN MINIMAL DESIGN SYSTEM ============ */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+
+:root {
+  /* Neutrals */
+  --bg-page: #fafafa;
+  --bg-card: #ffffff;
+  --border: #e5e7eb;
+  --border-focus: #d1d5db;
+  --text: #171717;
+  --text-muted: #737373;
+  --text-subtle: #a3a3a3;
+
+  /* Accent - restrained blue */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-muted: #eff6ff;
+
+  /* Semantic */
+  --success: #059669;
+  --success-muted: #d1fae5;
+  --warning: #d97706;
+  --warning-muted: #fef3c7;
+  --danger: #dc2626;
+  --danger-muted: #fee2e2;
+
+  /* Layout */
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --nav-height: 56px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg-page);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============ LAYOUT ============ */
+.app-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg-page);
+}
+
+.app-main {
+  padding: 32px 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  min-height: calc(100vh - var(--nav-height));
+}
+
+/* ============ NAV ============ */
+.nav {
+  height: var(--nav-height);
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.nav-brand {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-link {
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav-link:hover {
+  color: var(--text);
+  background: var(--bg-page);
+}
+
+.nav-pts {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--success);
+  padding: 0 12px;
+}
+
+.nav-logout {
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav-logout:hover {
+  color: var(--danger);
+  background: var(--danger-muted);
+}
+
+/* ============ CARDS & SURFACES ============ */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 24px;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.card-narrow {
+  max-width: 400px;
+  width: 100%;
+}
+
+/* ============ LOGIN ============ */
+.login-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--bg-page);
+}
+
+.login-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 40px;
+  max-width: 400px;
+  width: 100%;
+}
+
+.login-title {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin: 0 0 8px 0;
+  color: var(--text);
+}
+
+.login-subtitle {
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0 0 32px 0;
+}
+
+/* ============ FORMS ============ */
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 15px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.form-input::placeholder {
+  color: var(--text-subtle);
+}
+
+.form-input:hover {
+  border-color: var(--border-focus);
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: var(--radius);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-block {
+  width: 100%;
+  padding: 12px;
+  font-size: 15px;
+}
+
+.btn-primary {
+  background: var(--text);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #404040;
+}
+
+.btn-success {
+  background: var(--success);
+  color: white;
+}
+
+.btn-success:hover {
+  background: #047857;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.btn-ghost:hover {
+  background: var(--bg-page);
+  color: var(--text);
+}
+
+.link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.form-footer {
+  text-align: center;
+  margin-top: 24px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+/* ============ TYPOGRAPHY ============ */
+.page-title {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 4px 0;
+  color: var(--text);
+}
+
+.page-subtitle {
+  font-size: 15px;
+  color: var(--text-muted);
+  margin: 0 0 24px 0;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 16px 0;
+}
+
+/* ============ DASHBOARD ============ */
+.pts-hero {
+  background: var(--text);
+  color: white;
+  padding: 32px;
+  border-radius: var(--radius-lg);
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.pts-hero-label {
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.8;
+  margin: 0 0 4px 0;
+}
+
+.pts-hero-value {
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  transition: box-shadow 0.2s;
+}
+
+.stat-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.stat-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 4px 0;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.stat-value-blue { color: var(--accent); }
+.stat-value-green { color: var(--success); }
+.stat-value-amber { color: var(--warning); }
+
+.activity-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+}
+
+.activity-empty {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+/* ============ LOG TRIP ============ */
+.form-card {
+  max-width: 520px;
+  margin-top: 24px;
+}
+
+/* ============ REWARDS ============ */
+.rewards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.reward-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  text-align: center;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.reward-card:hover {
+  box-shadow: var(--shadow-hover);
+  border-color: var(--border-focus);
+}
+
+.reward-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--text);
+}
+
+.reward-pts {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 0 0 16px 0;
+}
+
+/* ============ LEADERBOARD ============ */
+.table-wrap {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-top: 24px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th {
+  text-align: left;
+  padding: 14px 20px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-page);
+  border-bottom: 1px solid var(--border);
+}
+
+.table td {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.table th.text-right,
+.table td.text-right {
+  text-align: right;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr:hover td {
+  background: var(--bg-page);
+}
+
+.table-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* ============ ACHIEVEMENTS ============ */
+.badges-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.badge-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  text-align: center;
+  transition: box-shadow 0.2s;
+}
+
+.badge-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.badge-icon {
+  font-size: 36px;
+  margin: 0 0 12px 0;
+  line-height: 1;
+}
+
+.badge-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+  color: var(--text);
+}
+
+.badge-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 8px 0;
+}
+
+.badge-status {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--success);
+}
+
+/* ============ PROFILE ============ */
+.profile-card {
+  max-width: 480px;
+  margin-top: 24px;
+}
+
+.profile-field {
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.profile-field:last-of-type {
+  border-bottom: none;
+  margin-bottom: 24px;
+}
+
+.profile-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 0 0 4px 0;
+}
+
+.profile-value {
+  font-size: 15px;
+  color: var(--text);
+  margin: 0;
+}
+
+.profile-value-lg {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent);
+}
