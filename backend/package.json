@@ -1,6 +1,14 @@
 {
-  "dependencies": {
-    "dotenv": "^17.2.3",
-    "mysql2": "^3.16.2"
+  "name": "gdip-backend",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "db:migrate": "node packages/db/scripts/migrate.js",
+    "dev:admin": "node services/admin/src/index.js",
+    "dev:driver": "node services/driver/src/index.js",
+    "dev:sponsor": "node services/sponsor/src/index.js"
   }
 }

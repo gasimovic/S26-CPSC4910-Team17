@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:16
+    container_name: gdip-db
+    environment:
+      POSTGRES_USER: gdip
+      POSTGRES_PASSWORD: gdip
+      POSTGRES_DB: gdip
+    ports:
+      - "5432:5432"
+    volumes:
+      - gdip_pgdata:/var/lib/postgresql/data
+volumes:
+  gdip_pgdata:
