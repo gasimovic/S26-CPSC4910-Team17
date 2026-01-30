@@ -283,6 +283,13 @@ function App() {
 
   // ============ PROFILE PAGE ============
   const ProfilePage = () => {
+    const handleDeleteAccount = () => {
+      if (window.confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
+        // TODO: Call backend DELETE /api/account or similar
+        handleLogout()
+      }
+    }
+
     return (
       <div>
         <Navigation />
@@ -306,7 +313,12 @@ function App() {
               <p className="profile-label">Total points</p>
               <p className="profile-value profile-value-lg">{currentUser.points}</p>
             </div>
-            <button type="button" className="btn btn-primary">Edit profile</button>
+            <div className="profile-actions">
+              <button type="button" className="btn btn-primary">Edit profile</button>
+              <button type="button" className="btn btn-danger" onClick={handleDeleteAccount}>
+                Delete account
+              </button>
+            </div>
           </div>
         </main>
       </div>
