@@ -1,14 +1,14 @@
 services:
   db:
-    image: postgres:16
+    image: mysql:8.0
     container_name: gdip-db
     environment:
-      POSTGRES_USER: gdip
-      POSTGRES_PASSWORD: gdip
-      POSTGRES_DB: gdip
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: gdip
     ports:
-      - "5432:5432"
+      - "3307:3306"
     volumes:
-      - gdip_pgdata:/var/lib/postgresql/data
+      - gdip_mysql_data:/var/lib/mysql
+
 volumes:
-  gdip_pgdata:
+  gdip_mysql_data:

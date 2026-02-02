@@ -1,5 +1,3 @@
-CREATE DATABASE IF NOT EXISTS gdip;
-USE gdip;
 
 -- Migration tracking table
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -107,4 +105,3 @@ CREATE TABLE IF NOT EXISTS admin_profiles (
 ) ENGINE=InnoDB;
 
 -- if index doesnt exist, create it
-CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
