@@ -1,5 +1,5 @@
 const { makeApp } = require("@gdip/server");
-const { query } = require("@gdip/db");
+const { query, exec } = require("@gdip/db");
 const { hashPassword, verifyPassword, signToken, verifyToken } = require("@gdip/auth");
 const { z } = require("zod");
 
@@ -33,7 +33,9 @@ app.post("/auth/register", async (req, res) => {
   const schema = z.object({
     email: z.string().email(),
     password: z.string().min(8),
+    // allow either companyName or company_name
     companyName: z.string().optional(),
+    company_name: z.string().optional(),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -41,34 +43,32 @@ app.post("/auth/register", async (req, res) => {
     return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
   }
 
-  const { email, password, companyName } = parsed.data;
+  const email = parsed.data.email.toLowerCase();
+  const password = parsed.data.password;
+  const company_name = parsed.data.companyName || parsed.data.company_name || null;
 
   try {
     const password_hash = await hashPassword(password);
-    const userRes = await query(
-      //INSERT INTO users(email, password_hash, role)
-      //VALUES (?, ?, ?)
-      `INSERT INTO users(email, password_hash, role)
-       VALUES ($1, $2, $3)
-       RETURNING id, email, role, created_at`,
-      [email.toLowerCase(), password_hash, ROLE]
-    );
-    //const [userRows] = await query(
-      //`SELECT id, email, role, created_at FROM users WHERE id = LAST_INSERT_ID()`
-    //);
-    const user = userRes.rows[0];
 
-    await query(
-      //INSERT INTO sponsor_profiles(user_id, company_name)
-      //VALUES (?, ?)
-      `INSERT INTO sponsor_profiles(user_id, company_name)
-       VALUES ($1, $2)`,
-      [user.id, companyName || null]
+    const userInsert = await exec(
+      "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
+      [email, password_hash, ROLE]
+    );
+    const userId = userInsert.insertId;
+
+    await exec(
+      "INSERT INTO sponsor_profiles (user_id, company_name) VALUES (?, ?)",
+      [userId, company_name]
     );
 
-    return res.status(201).json({ user });
+    const userRows = await query(
+      "SELECT id, email, role, created_at FROM users WHERE id = ?",
+      [userId]
+    );
+
+    return res.status(201).json({ user: userRows[0] });
   } catch (err) {
-    if (String(err).includes("users_email_key")) {
+    if (err && (err.code === "ER_DUP_ENTRY" || String(err.message || err).includes("Duplicate"))) {
       return res.status(409).json({ error: "Email already in use" });
     }
     console.error(err);
@@ -89,19 +89,20 @@ app.post("/auth/login", async (req, res) => {
     return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
   }
 
-  const { email, password } = parsed.data;
+  const email = parsed.data.email.toLowerCase();
+  const password = parsed.data.password;
 
   try {
-    const userRes = await query(
-      // SELECT id, email, password_hash, role FROM users WHERE email = ? AND role = ?
-      `SELECT id, email, password_hash, role
-       FROM users
-       WHERE email = $1 AND role = $2`,
-      [email.toLowerCase(), ROLE]
+    const rows = await query(
+      "SELECT id, email, password_hash, role FROM users WHERE email = ? AND role = ? LIMIT 1",
+      [email, ROLE]
     );
-    if (userRes.rowCount === 0) return res.status(401).json({ error: "Invalid credentials" });
 
-    const user = userRes.rows[0];
+    if (!rows || rows.length === 0) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const user = rows[0];
     const ok = await verifyPassword(password, user.password_hash);
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
@@ -137,15 +138,17 @@ app.post("/auth/logout", (_req, res) => {
  */
 app.get("/me", requireAuth, async (req, res) => {
   try {
-    const userRes = await query(
-      //SELECT id, email, role, created_at FROM users WHERE id = ?
-      `SELECT id, email, role, created_at FROM users WHERE id = $1`,
+    const userRows = await query(
+      "SELECT id, email, role, created_at FROM users WHERE id = ?",
       [req.user.id]
     );
-    const user = userRes.rows[0];
-    //SELECT * FROM sponsor_profiles WHERE user_id = ?
-    const r = await query(`SELECT * FROM sponsor_profiles WHERE user_id = $1`, [req.user.id]);
-    const profile = r.rows[0] || null;
+    const user = userRows[0];
+
+    const profileRows = await query(
+      "SELECT * FROM sponsor_profiles WHERE user_id = ?",
+      [req.user.id]
+    );
+    const profile = profileRows[0] || null;
 
     return res.json({ user, profile });
   } catch (err) {
@@ -160,11 +163,27 @@ app.get("/me", requireAuth, async (req, res) => {
 app.put("/me/profile", requireAuth, async (req, res) => {
   const schema = z.object({
     companyName: z.string().min(1).optional(),
+    company_name: z.string().min(1).optional(),
+
     firstName: z.string().min(1).optional(),
+    first_name: z.string().min(1).optional(),
+
     lastName: z.string().min(1).optional(),
+    last_name: z.string().min(1).optional(),
+
     dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+
     phone: z.string().min(7).max(25).optional(),
+
+    // address can be a single string OR expanded fields
     address: z.string().min(3).max(200).optional(),
+
+    address_line1: z.string().min(1).max(255).optional(),
+    address_line2: z.string().max(255).optional(),
+    city: z.string().max(100).optional(),
+    state: z.string().max(100).optional(),
+    postal_code: z.string().max(20).optional(),
+    country: z.string().max(100).optional(),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -173,38 +192,54 @@ app.put("/me/profile", requireAuth, async (req, res) => {
   }
 
   const d = parsed.data;
+  const company_name = d.companyName || d.company_name || null;
+  const first_name = d.firstName || d.first_name || null;
+  const last_name = d.lastName || d.last_name || null;
+  const address_line1 = d.address_line1 || d.address || null;
 
   try {
-    await query(
-      //UPDATE sponsor_profiles
-      //SET company_name = COALESCE(?, company_name),
-          //first_name   = COALESCE(?, first_name),
-          //last_name    = COALESCE(?, last_name),
-          //dob          = COALESCE(?, dob),
-          //phone        = COALESCE(?, phone),
-          //address      = COALESCE(?, address)
-      //WHERE user_id = ?
+    // Ensure profile exists
+    await exec(
+      "INSERT INTO sponsor_profiles (user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id = user_id",
+      [req.user.id]
+    );
+
+    await exec(
       `UPDATE sponsor_profiles
-       SET company_name = COALESCE($2, company_name),
-           first_name   = COALESCE($3, first_name),
-           last_name    = COALESCE($4, last_name),
-           dob          = COALESCE($5::date, dob),
-           phone        = COALESCE($6, phone),
-           address      = COALESCE($7, address)
-       WHERE user_id = $1`,
+       SET company_name  = COALESCE(?, company_name),
+           first_name    = COALESCE(?, first_name),
+           last_name     = COALESCE(?, last_name),
+           dob           = COALESCE(?, dob),
+           phone         = COALESCE(?, phone),
+           address_line1 = COALESCE(?, address_line1),
+           address_line2 = COALESCE(?, address_line2),
+           city          = COALESCE(?, city),
+           state         = COALESCE(?, state),
+           postal_code   = COALESCE(?, postal_code),
+           country       = COALESCE(?, country)
+       WHERE user_id = ?`,
       [
-        req.user.id,
-        d.companyName || null,
-        d.firstName || null,
-        d.lastName || null,
+        company_name,
+        first_name,
+        last_name,
         d.dob || null,
         d.phone || null,
-        d.address || null,
+        address_line1,
+        d.address_line2 || null,
+        d.city || null,
+        d.state || null,
+        d.postal_code || null,
+        d.country || null,
+        req.user.id,
       ]
     );
 
-    const r = await query(`SELECT * FROM sponsor_profiles WHERE user_id = $1`, [req.user.id]);
-    return res.json({ ok: true, profile: r.rows[0] });
+    const profileRows = await query(
+      "SELECT * FROM sponsor_profiles WHERE user_id = ?",
+      [req.user.id]
+    );
+
+    return res.json({ ok: true, profile: profileRows[0] });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Server error" });
