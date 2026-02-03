@@ -1,14 +1,21 @@
 {
   "name": "gdip-backend",
+  "version": "0.0.1",
   "private": true,
   "workspaces": [
     "packages/*",
     "services/*"
   ],
+  "engines": {
+    "node": ">=18",
+    "npm": ">=8"
+  },
   "scripts": {
     "db:migrate": "node packages/db/scripts/migrate.js",
     "dev:admin": "node services/admin/src/index.js",
     "dev:driver": "node services/driver/src/index.js",
-    "dev:sponsor": "node services/sponsor/src/index.js"
+    "dev:sponsor": "node services/sponsor/src/index.js",
+    "dev:all": "npm run dev:admin & npm run dev:driver & npm run dev:sponsor",
+    "install:clean": "rm -rf node_modules package-lock.json && npm install"
   }
 }

@@ -1,8 +1,8 @@
 {
   "name": "@gdip/server",
   "version": "0.0.1",
+  "private": true,
   "main": "src/index.js",
-  "type": "commonjs",
   "dependencies": {
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",

@@ -1,8 +1,8 @@
 {
   "name": "@gdip/auth",
   "version": "0.0.1",
+  "private": true,
   "main": "src/index.js",
-  "type": "commonjs",
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2"

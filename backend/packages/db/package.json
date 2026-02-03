@@ -1,10 +1,10 @@
 {
-  "name": "db",
-  "version": "1.0.0",
-  "type": "module",
+  "name": "@gdip/db",
+  "version": "0.0.1",
   "private": true,
+  "main": "src/index.js",
   "dependencies": {
-    "mysql2": "^3.9.0",
-    "dotenv": "^16.4.0"
+    "mysql2": "^3.11.0",
+    "dotenv": "^16.4.5"
   }
 }
