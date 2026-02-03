@@ -549,6 +549,10 @@ function App() {
       display_name: currentUser?.profile?.display_name || ''
     })
 
+    const [rawName, setRawName] = useState(
+      `${(currentUser?.profile?.first_name || '').trim()}${currentUser?.profile?.last_name ? ' ' + currentUser.profile.last_name : ''}`
+    )
+
     const onSave = async (e) => {
       e.preventDefault()
       setSaving(true)
@@ -556,23 +560,41 @@ function App() {
       setStatusMsg('')
 
       try {
+        const nameTrimmed = (rawName || '').trim()
+        const parts = nameTrimmed.length ? nameTrimmed.split(/\s+/) : ['']
+        const parsedFirst = parts.shift() || ''
+        const parsedLast = parts.join(' ')
+
+        // Keep formData consistent with what the user typed
+        if (parsedFirst !== formData.first_name || parsedLast !== formData.last_name) {
+          setFormData({ ...formData, first_name: parsedFirst, last_name: parsedLast })
+        }
+        // Only send non-empty fields for optional fields
         const payload = {
-          first_name: formData.first_name,
-          last_name: formData.last_name,
-          dob: formData.dob,
-          phone: formData.phone,
-          address_line1: formData.address_line1,
-          address_line2: formData.address_line2,
-          city: formData.city,
-          state: formData.state,
-          postal_code: formData.postal_code,
-          country: formData.country
+          // required by the form (and backend accepts YYYY-MM-DD)
+          first_name: parsedFirst,
+          last_name: parsedLast,
+          dob: formData.dob
         }
 
-        // role-specific optional fields (no UI change; they simply exist in state)
-        if (activeRole === 'driver') payload.sponsor_org = formData.sponsor_org
-        if (activeRole === 'sponsor') payload.company_name = formData.company_name
-        if (activeRole === 'admin') payload.display_name = formData.display_name
+        // Only include optional fields if non-empty after trimming.
+        const addIfNonEmpty = (key, value) => {
+          const v = (value ?? '').toString().trim()
+          if (v.length > 0) payload[key] = v
+        }
+
+        addIfNonEmpty('phone', formData.phone)
+        addIfNonEmpty('address_line1', formData.address_line1)
+        addIfNonEmpty('address_line2', formData.address_line2)
+        addIfNonEmpty('city', formData.city)
+        addIfNonEmpty('state', formData.state)
+        addIfNonEmpty('postal_code', formData.postal_code)
+        addIfNonEmpty('country', formData.country)
+
+        // role-specific optional fields (only send if non-empty)
+        if (activeRole === 'driver') addIfNonEmpty('sponsor_org', formData.sponsor_org)
+        if (activeRole === 'sponsor') addIfNonEmpty('company_name', formData.company_name)
+        if (activeRole === 'admin') addIfNonEmpty('display_name', formData.display_name)
 
         await api('/me/profile', {
           method: 'PUT',
@@ -608,12 +630,10 @@ function App() {
                 <label className="form-label">Name</label>
                 <input
                   type="text"
-                  value={`${formData.first_name}${formData.last_name ? ' ' + formData.last_name : ''}`}
+                  value={rawName}
                   onChange={(e) => {
-                    const parts = e.target.value.trim().split(/\s+/)
-                    const first = parts.shift() || ''
-                    const last = parts.join(' ')
-                    setFormData({ ...formData, first_name: first, last_name: last })
+                    // Let the user type freely (including spaces)
+                    setRawName(e.target.value)
                   }}
                   className="form-input"
                   placeholder="John Doe"

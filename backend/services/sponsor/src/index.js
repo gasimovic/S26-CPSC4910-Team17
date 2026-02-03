@@ -233,7 +233,7 @@ app.put("/me/profile", requireAuth, async (req, res) => {
         req.user.id,
       ]
     );
-
+ 
     const profileRows = await query(
       "SELECT * FROM sponsor_profiles WHERE user_id = ?",
       [req.user.id]
