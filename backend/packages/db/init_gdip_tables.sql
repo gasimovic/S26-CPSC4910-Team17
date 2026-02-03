@@ -103,5 +103,21 @@ CREATE TABLE IF NOT EXISTS admin_profiles (
     ON DELETE CASCADE
     ON UPDATE CASCADE
 ) ENGINE=InnoDB;
-
 -- if index doesnt exist, create it
+
+CREATE TABLE IF NOT EXISTS applications (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  driver_id INT NOT NULL,
+  status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+  submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_at TIMESTAMP NULL,
+  review_notes TEXT NULL,
+  CONSTRAINT applications_driver
+    FOREIGN KEY (driver_id) REFERENCES users(id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE
+  CONSTRAINT fk_applications_sponsor
+    FOREIGN KEY (sponsor_id) REFERENCES users(id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE
+) ENGINE=InnoDB;
