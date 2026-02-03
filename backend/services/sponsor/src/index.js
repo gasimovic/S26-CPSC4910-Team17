@@ -46,14 +46,21 @@ app.post("/auth/register", async (req, res) => {
   try {
     const password_hash = await hashPassword(password);
     const userRes = await query(
+      //INSERT INTO users(email, password_hash, role)
+      //VALUES (?, ?, ?)
       `INSERT INTO users(email, password_hash, role)
        VALUES ($1, $2, $3)
        RETURNING id, email, role, created_at`,
       [email.toLowerCase(), password_hash, ROLE]
     );
+    //const [userRows] = await query(
+      //`SELECT id, email, role, created_at FROM users WHERE id = LAST_INSERT_ID()`
+    //);
     const user = userRes.rows[0];
 
     await query(
+      //INSERT INTO sponsor_profiles(user_id, company_name)
+      //VALUES (?, ?)
       `INSERT INTO sponsor_profiles(user_id, company_name)
        VALUES ($1, $2)`,
       [user.id, companyName || null]
@@ -86,6 +93,7 @@ app.post("/auth/login", async (req, res) => {
 
   try {
     const userRes = await query(
+      // SELECT id, email, password_hash, role FROM users WHERE email = ? AND role = ?
       `SELECT id, email, password_hash, role
        FROM users
        WHERE email = $1 AND role = $2`,
@@ -130,11 +138,12 @@ app.post("/auth/logout", (_req, res) => {
 app.get("/me", requireAuth, async (req, res) => {
   try {
     const userRes = await query(
+      //SELECT id, email, role, created_at FROM users WHERE id = ?
       `SELECT id, email, role, created_at FROM users WHERE id = $1`,
       [req.user.id]
     );
     const user = userRes.rows[0];
-
+    //SELECT * FROM sponsor_profiles WHERE user_id = ?
     const r = await query(`SELECT * FROM sponsor_profiles WHERE user_id = $1`, [req.user.id]);
     const profile = r.rows[0] || null;
 
@@ -167,6 +176,14 @@ app.put("/me/profile", requireAuth, async (req, res) => {
 
   try {
     await query(
+      //UPDATE sponsor_profiles
+      //SET company_name = COALESCE(?, company_name),
+          //first_name   = COALESCE(?, first_name),
+          //last_name    = COALESCE(?, last_name),
+          //dob          = COALESCE(?, dob),
+          //phone        = COALESCE(?, phone),
+          //address      = COALESCE(?, address)
+      //WHERE user_id = ?
       `UPDATE sponsor_profiles
        SET company_name = COALESCE($2, company_name),
            first_name   = COALESCE($3, first_name),
