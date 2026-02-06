@@ -331,6 +331,42 @@ app.get("/applications", requireAuth, async (req, res) => {
 });
 
 /**
+ * POST /driver/profile
+ * Save driver profile information
+ */
+app.post('/driver/profile', requireAuth, async (req, res) => {
+  const schema = z.object({
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    email: z.string().email().optional(),
+    phone: z.string().optional(),
+    licenseNumber: z.string(),
+    licenseState: z.string(),
+    licenseExpiry: z.string(),
+    dateOfBirth: z.string().optional(),
+    vehicleType: z.string(),
+    vehicleMake: z.string(),
+    vehicleModel: z.string(),
+    vehicleYear: z.string(),
+    insuranceProvider: z.string(),
+    insurancePolicyNumber: z.string()
+  })
+
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+  }
+
+  try {
+    // TODO: Insert into driver profile table
+    // await exec('INSERT INTO driver_profiles ...')
+    return res.status(200).json({ message: 'Profile saved successfully' })
+  } catch (err) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+/**
  * GET /sponsors
  * Public endpoint: returns a list of sponsors (id, email, company_name)
  */

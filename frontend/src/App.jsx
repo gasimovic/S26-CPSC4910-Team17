@@ -144,7 +144,7 @@ function App() {
     }
 
     if (role === 'sponsor') {
-      return ['dashboard', 'rewards', 'leaderboard', 'profile', 'account-details', 'sponsor-affiliation']
+      return ['dashboard', 'applications', 'rewards', 'leaderboard', 'profile', 'account-details', 'sponsor-affiliation']
     }
 
     // driver

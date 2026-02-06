@@ -246,6 +246,118 @@ app.put("/me/profile", requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * GET /applications
+ * Get all applications for this sponsor
+ */
+app.get('/applications', requireAuth, async (req, res) => {
+  try {
+    const applications = await query(
+      `SELECT 
+        a.id,
+        a.driver_id,
+        a.status,
+        a.applied_at,
+        a.reviewed_at,
+        a.notes,
+        u.email,
+        dp.first_name,
+        dp.last_name,
+        dp.phone,
+        dp.dob
+      FROM applications a
+      JOIN users u ON a.driver_id = u.id
+      LEFT JOIN driver_profiles dp ON a.driver_id = dp.user_id
+      WHERE a.sponsor_id = ?
+      ORDER BY a.applied_at DESC`,
+      [req.user.id]
+    )
+
+    return res.json({ applications })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+/**
+ * GET /applications/:applicationId
+ * Get full details of a specific application
+ */
+app.get('/applications/:applicationId', requireAuth, async (req, res) => {
+  try {
+    const applicationRows = await query(
+      `SELECT 
+        a.id,
+        a.driver_id,
+        a.status,
+        a.applied_at,
+        a.reviewed_at,
+        a.notes,
+        u.email,
+        dp.first_name,
+        dp.last_name,
+        dp.phone,
+        dp.dob,
+        dp.address_line1,
+        dp.address_line2,
+        dp.city,
+        dp.state,
+        dp.postal_code,
+        dp.country
+      FROM applications a
+      JOIN users u ON a.driver_id = u.id
+      LEFT JOIN driver_profiles dp ON a.driver_id = dp.user_id
+      WHERE a.id = ? AND a.sponsor_id = ?`,
+      [req.params.applicationId, req.user.id]
+    )
+
+    if (!applicationRows || applicationRows.length === 0) {
+      return res.status(404).json({ error: 'Application not found' })
+    }
+
+    return res.json({ application: applicationRows[0] })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+/**
+ * PUT /applications/:applicationId/review
+ * Review and update application status
+ */
+app.put('/applications/:applicationId/review', requireAuth, async (req, res) => {
+  const schema = z.object({
+    status: z.enum(['accepted', 'rejected']),
+    notes: z.string().optional()
+  })
+
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+  }
+
+  try {
+    await exec(
+      `UPDATE applications 
+       SET status = ?, notes = ?, reviewed_at = NOW(), reviewed_by = ?
+       WHERE id = ? AND sponsor_id = ?`,
+      [parsed.data.status, parsed.data.notes || null, req.user.id, req.params.applicationId, req.user.id]
+    )
+
+    const updated = await query(
+      'SELECT * FROM applications WHERE id = ?',
+      [req.params.applicationId]
+    )
+
+    return res.json({ ok: true, application: updated[0] })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`[sponsor] listening on :${PORT}`);
 });
