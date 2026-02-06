@@ -170,7 +170,7 @@ function App() {
     if (!allowed.includes(currentPage)) {
       setCurrentPage(allowed[0] || 'dashboard')
     }
-  }, [currentUser, isLoggedIn])
+  }, [currentUser, isLoggedIn, currentPage])
 
   // ============ AUTH FUNCTIONS ============
   const handleLogin = async (email, password) => {
@@ -340,20 +340,54 @@ function App() {
     )
   }
 
-  // ============ NAVIGATION COMPONENT ============
+// ============ NAVIGATION COMPONENT ============
   const Navigation = () => {
+    const allowed = getAllowedPages(currentUser)
+    
     return (
       <nav className="nav">
         <div className="nav-brand">Driver Rewards</div>
         <div className="nav-links">
-          <button type="button" onClick={() => setCurrentPage('dashboard')} className="nav-link">Dashboard</button>
-          <button type="button" onClick={() => setCurrentPage('log-trip')} className="nav-link">Log Trip</button>
-          <button type="button" onClick={() => setCurrentPage('rewards')} className="nav-link">Rewards</button>
-          <button type="button" onClick={() => setCurrentPage('leaderboard')} className="nav-link">Leaderboard</button>
-          <button type="button" onClick={() => setCurrentPage('achievements')} className="nav-link">Achievements</button>
-          <button type="button" onClick={() => setCurrentPage('profile')} className="nav-link">Profile</button>
-          <button type="button" onClick={() => setCurrentPage('sponsor-affiliation')} className="nav-link">Sponsor</button>
-          <button type="button" onClick={() => setCurrentPage('create-account')} className="nav-link">Create Account</button>
+          {allowed.includes('dashboard') && (
+            <button type="button" onClick={() => setCurrentPage('dashboard')} className="nav-link">
+              Dashboard
+            </button>
+          )}
+          {allowed.includes('log-trip') && (
+            <button type="button" onClick={() => setCurrentPage('log-trip')} className="nav-link">
+              Log Trip
+            </button>
+          )}
+          {allowed.includes('applications') && (
+            <button type="button" onClick={() => setCurrentPage('applications')} className="nav-link">
+              Applications
+            </button>
+          )}
+          {allowed.includes('rewards') && (
+            <button type="button" onClick={() => setCurrentPage('rewards')} className="nav-link">
+              Rewards
+            </button>
+          )}
+          {allowed.includes('leaderboard') && (
+            <button type="button" onClick={() => setCurrentPage('leaderboard')} className="nav-link">
+              Leaderboard
+            </button>
+          )}
+          {allowed.includes('achievements') && (
+            <button type="button" onClick={() => setCurrentPage('achievements')} className="nav-link">
+              Achievements
+            </button>
+          )}
+          {allowed.includes('profile') && (
+            <button type="button" onClick={() => setCurrentPage('profile')} className="nav-link">
+              Profile
+            </button>
+          )}
+          {allowed.includes('sponsor-affiliation') && (
+            <button type="button" onClick={() => setCurrentPage('sponsor-affiliation')} className="nav-link">
+              Sponsor
+            </button>
+          )}
           <span className="nav-pts">{currentUser?.points ?? 0} pts</span>
           <button type="button" onClick={handleLogout} className="nav-logout">Log out</button>
         </div>
@@ -552,8 +586,12 @@ function App() {
               <p className="profile-value">{currentUser?.email || ''}</p>
             </div>
             <div className="profile-field">
-              <p className="profile-label">Driver ID</p>
+              <p className="profile-label">User ID</p>
               <p className="profile-value">{currentUser?.id || ''}</p>
+            </div>
+            <div className="profile-field">
+              <p className="profile-label">Role</p>
+              <p className="profile-value">{currentUser?.role || ''}</p>
             </div>
             <div className="profile-field">
               <p className="profile-label">Total points</p>
@@ -1090,6 +1128,276 @@ function App() {
     )
   }
 
+
+  // ============ APPLICATIONS PAGE (for sponsors) ============
+  const ApplicationsPage = () => {
+    const [ads, setAds] = useState([])
+    const [applications, setApplications] = useState([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState('')
+    const [showCreateForm, setShowCreateForm] = useState(false)
+    const [formData, setFormData] = useState({
+      title: '',
+      description: '',
+      requirements: '',
+      benefits: ''
+    })
+
+    const loadAds = async () => {
+      setError('')
+      setLoading(true)
+      try {
+        const data = await api('/ads', { method: 'GET' })
+        setAds(data.ads || [])
+      } catch (err) {
+        setError(err.message || 'Failed to load ads')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    const loadApplications = async () => {
+      try {
+        const data = await api('/applications', { method: 'GET' })
+        setApplications(data.applications || [])
+      } catch (err) {
+        console.error('Failed to load applications:', err)
+      }
+    }
+
+    useEffect(() => {
+      loadAds()
+      loadApplications()
+    }, [])
+
+    const handleCreateAd = async (e) => {
+      e.preventDefault()
+      setError('')
+      
+      try {
+        await api('/ads', {
+          method: 'POST',
+          body: JSON.stringify(formData)
+        })
+        
+        setFormData({ title: '', description: '', requirements: '', benefits: '' })
+        setShowCreateForm(false)
+        await loadAds()
+      } catch (err) {
+        setError(err.message || 'Failed to create ad')
+      }
+    }
+
+    const handleDeleteAd = async (adId) => {
+      if (!window.confirm('Are you sure you want to delete this ad?')) return
+      
+      try {
+        await api(`/ads/${adId}`, { method: 'DELETE' })
+        await loadAds()
+      } catch (err) {
+        setError(err.message || 'Failed to delete ad')
+      }
+    }
+
+    const handleApplicationAction = async (applicationId, action) => {
+      try {
+        await api(`/applications/${applicationId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ status: action })
+        })
+        await loadApplications()
+      } catch (err) {
+        setError(err.message || `Failed to ${action} application`)
+      }
+    }
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Driver Applications</h1>
+          <p className="page-subtitle">Manage your sponsorship ads and applications</p>
+
+          {error && <p style={{ color: 'crimson', marginBottom: 20 }}>{error}</p>}
+
+          <section>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 className="section-title">Your Sponsorship Ads</h2>
+              <button 
+                className="btn btn-primary" 
+                onClick={() => setShowCreateForm(!showCreateForm)}
+              >
+                {showCreateForm ? 'Cancel' : 'Create New Ad'}
+              </button>
+            </div>
+
+            {showCreateForm && (
+              <div className="card form-card" style={{ marginBottom: 20 }}>
+                <h3>Create Sponsorship Ad</h3>
+                <form onSubmit={handleCreateAd}>
+                  <div className="form-group">
+                    <label className="form-label">Title</label>
+                    <input
+                      type="text"
+                      value={formData.title}
+                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      className="form-input"
+                      placeholder="e.g., Join Our Driver Program"
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Description</label>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      className="form-input"
+                      placeholder="Describe your sponsorship program..."
+                      rows="3"
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Requirements</label>
+                    <textarea
+                      value={formData.requirements}
+                      onChange={(e) => setFormData({ ...formData, requirements: e.target.value })}
+                      className="form-input"
+                      placeholder="What do you require from drivers?"
+                      rows="2"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Benefits</label>
+                    <textarea
+                      value={formData.benefits}
+                      onChange={(e) => setFormData({ ...formData, benefits: e.target.value })}
+                      className="form-input"
+                      placeholder="What benefits do you offer?"
+                      rows="2"
+                    />
+                  </div>
+                  <button type="submit" className="btn btn-success btn-block">
+                    Create Ad
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {loading ? (
+              <p>Loading ads...</p>
+            ) : ads.length === 0 ? (
+              <div className="card">
+                <p className="activity-empty">No ads created yet. Create one to start receiving applications!</p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 16 }}>
+                {ads.map(ad => (
+                  <div key={ad.id} className="card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                      <div style={{ flex: 1 }}>
+                        <h3>{ad.title}</h3>
+                        <p style={{ margin: '8px 0' }}>{ad.description}</p>
+                        {ad.requirements && (
+                          <p style={{ fontSize: '0.9em', color: '#666' }}>
+                            <strong>Requirements:</strong> {ad.requirements}
+                          </p>
+                        )}
+                        {ad.benefits && (
+                          <p style={{ fontSize: '0.9em', color: '#666' }}>
+                            <strong>Benefits:</strong> {ad.benefits}
+                          </p>
+                        )}
+                        <p style={{ fontSize: '0.85em', color: '#999', marginTop: 8 }}>
+                          Created: {ad.created_at ? new Date(ad.created_at).toLocaleDateString() : '-'}
+                        </p>
+                      </div>
+                      <button 
+                        className="btn btn-danger" 
+                        onClick={() => handleDeleteAd(ad.id)}
+                        style={{ marginLeft: 16 }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section style={{ marginTop: 32 }}>
+            <h2 className="section-title">Received Applications</h2>
+            {applications.length === 0 ? (
+              <p className="activity-empty">No applications received yet</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Driver</th>
+                      <th>Email</th>
+                      <th>Status</th>
+                      <th>Applied</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {applications.map(app => (
+                      <tr key={app.id}>
+                        <td>{app.driver_name || 'Unknown'}</td>
+                        <td>{app.driver_email || '-'}</td>
+                        <td>
+                          <span style={{ 
+                            padding: '4px 8px', 
+                            borderRadius: 4, 
+                            fontSize: '0.85em',
+                            backgroundColor: 
+                              app.status === 'approved' ? '#d4edda' : 
+                              app.status === 'rejected' ? '#f8d7da' : 
+                              '#fff3cd',
+                            color:
+                              app.status === 'approved' ? '#155724' : 
+                              app.status === 'rejected' ? '#721c24' : 
+                              '#856404'
+                          }}>
+                            {app.status || 'pending'}
+                          </span>
+                        </td>
+                        <td>{app.applied_at ? new Date(app.applied_at).toLocaleDateString() : '-'}</td>
+                        <td>
+                          {app.status === 'pending' && (
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button 
+                                className="btn btn-success" 
+                                style={{ fontSize: '0.85em', padding: '4px 12px' }}
+                                onClick={() => handleApplicationAction(app.id, 'approved')}
+                              >
+                                Approve
+                              </button>
+                              <button 
+                                className="btn btn-danger" 
+                                style={{ fontSize: '0.85em', padding: '4px 12px' }}
+                                onClick={() => handleApplicationAction(app.id, 'rejected')}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </main>
+      </div>
+    )
+  }
+
+
   // ============ MAIN RENDER ============
   return (
     <div>
@@ -1109,13 +1417,16 @@ function App() {
             {allowed.includes('sponsor-affiliation') && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
             {allowed.includes('account-details') && currentPage === 'account-details' && <AccountDetailsPage />}
             {allowed.includes('change-password') && currentPage === 'change-password' && <ChangePasswordPage />}
+            {allowed.includes('applications') && currentPage === 'applications' && <ApplicationsPage />}
             {/* Safety fallback: render dashboard if currentPage somehow invalid */}
-            {(!['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'profile', 'account-details', 'change-password', 'sponsor-affiliation'].includes(currentPage)) && <DashboardPage />}
+            {(!allowed.includes(currentPage)) && <DashboardPage />}
           </>
         )
       })()}
     </div>
   )
 }
+
+
 
 export default App
