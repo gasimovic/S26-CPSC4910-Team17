@@ -561,7 +561,7 @@ function App() {
             </div>
             <div className="profile-actions">
               <button type="button" className="btn btn-primary" onClick={() => setCurrentPage('account-details')}>Edit profile</button>
-              <button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('change-password')}>Change password</button>
+              <button type="button" className="btn btn-primary" onClick={() => setCurrentPage('change-password')}>Change password</button>
               <button type="button" className="btn btn-danger" onClick={handleDeleteAccount}>
                 Delete account
               </button>
@@ -996,7 +996,7 @@ function App() {
                 <button type="submit" className="btn btn-primary" disabled={saving}>
                   {saving ? 'Updating…' : 'Update password'}
                 </button>
-                <button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('profile')}>
+                <button type="button" className="btn btn-primary" onClick={() => setCurrentPage('profile')}>
                   Back to profile
                 </button>
               </div>
