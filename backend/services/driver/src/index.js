@@ -330,6 +330,53 @@ app.get("/applications", requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * GET /sponsors
+ * Public endpoint: returns a list of sponsors (id, email, company_name)
+ */
+app.get("/sponsors", async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT u.id, u.email, sp.company_name, sp.first_name, sp.last_name
+       FROM users u
+       LEFT JOIN sponsor_profiles sp ON u.id = sp.user_id
+       WHERE u.role = 'sponsor'
+       ORDER BY sp.company_name IS NULL, sp.company_name ASC, u.email ASC`
+    );
+
+    return res.json({ sponsors: rows });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * GET /sponsors/:id
+ * Public endpoint: returns detailed sponsor profile for the given sponsor id.
+ */
+app.get("/sponsors/:id", async (req, res) => {
+  const id = Number(req.params.id || 0);
+  if (!id) return res.status(400).json({ error: "Invalid sponsor id" });
+
+  try {
+    const rows = await query(
+      `SELECT u.id, u.email, sp.*
+       FROM users u
+       LEFT JOIN sponsor_profiles sp ON u.id = sp.user_id
+       WHERE u.role = 'sponsor' AND u.id = ? LIMIT 1`,
+      [id]
+    );
+
+    if (!rows || rows.length === 0) return res.status(404).json({ error: "Sponsor not found" });
+
+    return res.json({ sponsor: rows[0] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`[driver] listening on :${PORT}`);
 });

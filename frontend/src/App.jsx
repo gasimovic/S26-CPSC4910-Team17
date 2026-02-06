@@ -131,6 +131,47 @@ function App() {
     )
   }
 
+  // ===== Role-based page access =====
+  const getAllowedPages = (user) => {
+    // Default conservative set for anonymous/unknown
+    if (!user) return ['dashboard']
+
+    const role = (user.role || activeRole || 'driver').toLowerCase()
+    const hasSponsor = Boolean((user.profile?.sponsor_org || '').toString().trim())
+
+    if (role === 'admin') {
+      return ['dashboard', 'profile', 'account-details']
+    }
+
+    if (role === 'sponsor') {
+      return ['dashboard', 'rewards', 'leaderboard', 'profile', 'account-details', 'sponsor-affiliation']
+    }
+
+    // driver
+    if (role === 'driver') {
+      if (hasSponsor) {
+        return ['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'profile', 'account-details', 'sponsor-affiliation']
+      }
+      // Unaffiliated drivers get a minimal view
+      return ['dashboard', 'profile', 'account-details', 'sponsor-affiliation']
+    }
+
+    // Fallback
+    return ['dashboard', 'profile']
+  }
+
+  // Ensure currentPage is valid for the current user
+  useEffect(() => {
+    // Only enforce allowed pages when the user is logged in to avoid
+    // changing the login/create-account flow for unauthenticated users.
+    if (!isLoggedIn) return
+
+    const allowed = getAllowedPages(currentUser)
+    if (!allowed.includes(currentPage)) {
+      setCurrentPage(allowed[0] || 'dashboard')
+    }
+  }, [currentUser, isLoggedIn])
+
   // ============ AUTH FUNCTIONS ============
   const handleLogin = async (email, password) => {
     setAuthError('')
@@ -311,6 +352,7 @@ function App() {
           <button type="button" onClick={() => setCurrentPage('leaderboard')} className="nav-link">Leaderboard</button>
           <button type="button" onClick={() => setCurrentPage('achievements')} className="nav-link">Achievements</button>
           <button type="button" onClick={() => setCurrentPage('profile')} className="nav-link">Profile</button>
+          <button type="button" onClick={() => setCurrentPage('sponsor-affiliation')} className="nav-link">Sponsor</button>
           <button type="button" onClick={() => setCurrentPage('create-account')} className="nav-link">Create Account</button>
           <span className="nav-pts">{currentUser?.points ?? 0} pts</span>
           <button type="button" onClick={handleLogout} className="nav-logout">Log out</button>
@@ -524,6 +566,132 @@ function App() {
               </button>
             </div>
           </div>
+        </main>
+      </div>
+    )
+  }
+
+  // ============ SPONSOR AFFILIATION PAGE ============
+  const SponsorAffiliationPage = () => {
+    const [loading, setLoading] = useState(false)
+    const [sponsors, setSponsors] = useState([])
+    const [error, setError] = useState('')
+    const [apps, setApps] = useState([])
+    const [statusMsgLocal, setStatusMsgLocal] = useState('')
+
+    const loadSponsors = async () => {
+      setError('')
+      setLoading(true)
+      try {
+        const data = await api('/sponsors', { method: 'GET' })
+        setSponsors(data.sponsors || [])
+      } catch (err) {
+        setError(err.message || 'Failed to load sponsors')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    const loadApplications = async () => {
+      try {
+        const data = await api('/applications', { method: 'GET' })
+        setApps(data.applications || [])
+      } catch (err) {
+        // ignore silently
+      }
+    }
+
+    useEffect(() => {
+      // load applications on mount
+      loadApplications()
+    }, [])
+
+    const applyTo = async (sponsorId) => {
+      setStatusMsgLocal('')
+      try {
+        await api('/applications', { method: 'POST', body: JSON.stringify({ sponsorId }) })
+        setStatusMsgLocal('Application submitted')
+        await loadApplications()
+      } catch (err) {
+        setStatusMsgLocal(err.message || 'Failed to apply')
+      }
+    }
+
+    const currentSponsor = currentUser?.profile?.sponsor_org || ''
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Sponsor Affiliation</h1>
+          <p className="page-subtitle">View or join a sponsor program</p>
+
+          {currentSponsor ? (
+            <div className="card">
+              <h3>Your Sponsor</h3>
+              <p>{currentSponsor}</p>
+            </div>
+          ) : (
+            <div className="card">
+              <h3>No sponsor affiliated</h3>
+              <p>You are not currently affiliated with a sponsor. Browse available sponsors below.</p>
+              <div style={{ marginTop: 12 }}>
+                <button className="btn btn-primary" onClick={loadSponsors} disabled={loading}>
+                  {loading ? 'Loading…' : 'Find sponsors'}
+                </button>
+              </div>
+
+              {error ? <p style={{ color: 'crimson' }}>{error}</p> : null}
+
+              {sponsors.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <h4>Available sponsors</h4>
+                  <ul className="list">
+                    {sponsors.map(s => (
+                      <li key={s.id} className="list-item">
+                        <div>
+                          <strong>{s.company_name || `${s.first_name || ''} ${s.last_name || ''}`.trim() || s.email}</strong>
+                          <div className="muted">{s.email}</div>
+                        </div>
+                        <div>
+                          <button className="btn btn-success" onClick={() => applyTo(s.id)}>Apply</button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          <section style={{ marginTop: 20 }}>
+            <h2 className="section-title">Your applications</h2>
+            {statusMsgLocal ? <p className="form-footer" style={{ color: 'green' }}>{statusMsgLocal}</p> : null}
+            {apps.length === 0 ? (
+              <p className="activity-empty">No applications found</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Company</th>
+                      <th>Status</th>
+                      <th>Applied</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {apps.map(a => (
+                      <tr key={a.id}>
+                        <td>{a.sponsor_company || a.sponsor_email}</td>
+                        <td>{a.status}</td>
+                        <td>{a.applied_at ? new Date(a.applied_at).toLocaleString() : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
         </main>
       </div>
     )
@@ -828,18 +996,23 @@ function App() {
       {!isLoggedIn && currentPage === 'login' && <LoginPage />}
       {!isLoggedIn && currentPage === 'create-account' && <CreateAccountPage />}
 
-      {isLoggedIn && currentPage === 'dashboard' && <DashboardPage />}
-      {isLoggedIn && currentPage === 'log-trip' && <LogTripPage />}
-      {isLoggedIn && currentPage === 'rewards' && <RewardsPage />}
-      {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
-      {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}
-      {isLoggedIn && currentPage === 'profile' && <ProfilePage />}
-      {isLoggedIn && currentPage === 'account-details' && <AccountDetailsPage />}
-
-      {/* Safety fallback */}
-      {isLoggedIn && !['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'profile', 'account-details'].includes(currentPage) && (
-        <DashboardPage />
-      )}
+      {isLoggedIn && (() => {
+        const allowed = getAllowedPages(currentUser)
+        return (
+          <>
+            {allowed.includes('dashboard') && currentPage === 'dashboard' && <DashboardPage />}
+            {allowed.includes('log-trip') && currentPage === 'log-trip' && <LogTripPage />}
+            {allowed.includes('rewards') && currentPage === 'rewards' && <RewardsPage />}
+            {allowed.includes('leaderboard') && currentPage === 'leaderboard' && <LeaderboardPage />}
+            {allowed.includes('achievements') && currentPage === 'achievements' && <AchievementsPage />}
+            {allowed.includes('profile') && currentPage === 'profile' && <ProfilePage />}
+            {allowed.includes('sponsor-affiliation') && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
+            {allowed.includes('account-details') && currentPage === 'account-details' && <AccountDetailsPage />}
+            {/* Safety fallback: render dashboard if currentPage somehow invalid */}
+            {(!['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'profile', 'account-details', 'sponsor-affiliation'].includes(currentPage)) && <DashboardPage />}
+          </>
+        )
+      })()}
     </div>
   )
 }
