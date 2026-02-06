@@ -140,20 +140,20 @@ function App() {
     const hasSponsor = Boolean((user.profile?.sponsor_org || '').toString().trim())
 
     if (role === 'admin') {
-      return ['dashboard', 'profile', 'account-details']
+      return ['dashboard', 'profile', 'account-details', 'change-password']
     }
 
     if (role === 'sponsor') {
-      return ['dashboard', 'applications', 'rewards', 'leaderboard', 'profile', 'account-details', 'sponsor-affiliation']
+      return ['dashboard', 'applications', 'rewards', 'leaderboard', 'profile', 'account-details', 'change-password', 'sponsor-affiliation']
     }
 
     // driver
     if (role === 'driver') {
       if (hasSponsor) {
-        return ['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'profile', 'account-details', 'sponsor-affiliation']
+        return ['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'profile', 'account-details', 'change-password', 'sponsor-affiliation']
       }
       // Unaffiliated drivers get a minimal view
-      return ['dashboard', 'profile', 'account-details', 'sponsor-affiliation']
+      return ['dashboard', 'profile', 'account-details', 'change-password', 'sponsor-affiliation']
     }
 
     // Fallback
@@ -561,6 +561,7 @@ function App() {
             </div>
             <div className="profile-actions">
               <button type="button" className="btn btn-primary" onClick={() => setCurrentPage('account-details')}>Edit profile</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('change-password')}>Change password</button>
               <button type="button" className="btn btn-danger" onClick={handleDeleteAccount}>
                 Delete account
               </button>
@@ -907,6 +908,105 @@ function App() {
     )
   }
 
+  // ============ CHANGE PASSWORD PAGE ============
+  const ChangePasswordPage = () => {
+    const [currentPassword, setCurrentPassword] = useState('')
+    const [newPassword, setNewPassword] = useState('')
+    const [confirmPassword, setConfirmPassword] = useState('')
+    const [saving, setSaving] = useState(false)
+    const [message, setMessage] = useState('')
+    const [error, setError] = useState('')
+
+    const handleSubmit = async (e) => {
+      e.preventDefault()
+      setError('')
+      setMessage('')
+      if (newPassword !== confirmPassword) {
+        setError('New password and confirmation do not match')
+        return
+      }
+      if (newPassword.length < 8) {
+        setError('New password must be at least 8 characters')
+        return
+      }
+      setSaving(true)
+      try {
+        await api('/me/password', {
+          method: 'PUT',
+          body: JSON.stringify({
+            currentPassword,
+            newPassword
+          })
+        })
+        setMessage('Password updated successfully.')
+        setCurrentPassword('')
+        setNewPassword('')
+        setConfirmPassword('')
+      } catch (err) {
+        setError(err.message || 'Failed to change password')
+      } finally {
+        setSaving(false)
+      }
+    }
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Change password</h1>
+          <p className="page-subtitle">Update your account password</p>
+          <div className="card">
+            <form onSubmit={handleSubmit}>
+              <div className="form-group">
+                <label className="form-label">Current password</label>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="form-input"
+                  placeholder="Enter current password"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">New password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="form-input"
+                  placeholder="Enter new password (min 8 characters)"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Confirm new password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="form-input"
+                  placeholder="Confirm new password"
+                  required
+                />
+              </div>
+              {error ? <p className="form-footer" style={{ color: 'crimson' }}>{error}</p> : null}
+              {message ? <p className="form-footer" style={{ color: 'green' }}>{message}</p> : null}
+              <div className="profile-actions" style={{ marginTop: '1rem' }}>
+                <button type="submit" className="btn btn-primary" disabled={saving}>
+                  {saving ? 'Updating…' : 'Update password'}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('profile')}>
+                  Back to profile
+                </button>
+              </div>
+            </form>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
   // ============ CREATE ACCOUNT PAGE ============
   const CreateAccountPage = () => {
     const [formData, setFormData] = useState({
@@ -1008,8 +1108,9 @@ function App() {
             {allowed.includes('profile') && currentPage === 'profile' && <ProfilePage />}
             {allowed.includes('sponsor-affiliation') && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
             {allowed.includes('account-details') && currentPage === 'account-details' && <AccountDetailsPage />}
+            {allowed.includes('change-password') && currentPage === 'change-password' && <ChangePasswordPage />}
             {/* Safety fallback: render dashboard if currentPage somehow invalid */}
-            {(!['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'profile', 'account-details', 'sponsor-affiliation'].includes(currentPage)) && <DashboardPage />}
+            {(!['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'profile', 'account-details', 'change-password', 'sponsor-affiliation'].includes(currentPage)) && <DashboardPage />}
           </>
         )
       })()}

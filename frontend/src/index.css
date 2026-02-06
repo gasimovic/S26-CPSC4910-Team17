@@ -275,6 +275,17 @@ body {
   color: var(--text);
 }
 
+.btn-secondary {
+  background: #505050;
+  color: white;
+  border: none;
+}
+
+.btn-secondary:hover {
+  background: #404040;
+  color: white;
+}
+
 .btn-danger {
   background: var(--danger-muted);
   color: var(--danger);
