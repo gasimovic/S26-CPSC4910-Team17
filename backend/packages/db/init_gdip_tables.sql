@@ -106,18 +106,24 @@ CREATE TABLE IF NOT EXISTS admin_profiles (
 -- if index doesnt exist, create it
 
 CREATE TABLE IF NOT EXISTS applications (
-  app_id INT AUTO_INCREMENT PRIMARY KEY,
+  id INT AUTO_INCREMENT PRIMARY KEY,
   driver_id INT NOT NULL,
-  status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
-  submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  sponsor_id INT NOT NULL,
+  status ENUM('pending', 'accepted', 'rejected') NOT NULL DEFAULT 'pending',
+  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   reviewed_at TIMESTAMP NULL,
-  review_notes TEXT NULL,
+  reviewed_by INT NULL,
+  notes TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_driver_id (driver_id),
+  INDEX idx_sponsor_id (sponsor_id),
+  INDEX idx_status (status),
   CONSTRAINT fk_applications_driver
     FOREIGN KEY (driver_id) REFERENCES users(id)
-    ON DELETE CASCADE
-    ON UPDATE CASCADE
+    ON DELETE CASCADE, 
   CONSTRAINT fk_applications_sponsor
     FOREIGN KEY (sponsor_id) REFERENCES users(id)
     ON DELETE CASCADE
-    ON UPDATE CASCADE
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
