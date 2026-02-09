@@ -172,81 +172,87 @@ function App() {
     }
   }, [currentUser, isLoggedIn, currentPage])
 
-  // ============ AUTH FUNCTIONS ============
-  const handleLogin = async (email, password) => {
-    setAuthError('')
-    setStatusMsg('')
+const handleLogin = async (email, password) => {
+  setAuthError('')
+  setStatusMsg('')
 
-    try {
-      await api('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      })
+  try {
+    await api('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password })
+    })
 
-      setIsLoggedIn(true)
+    setIsLoggedIn(true)
 
-      const u = await loadMe()
+    const u = await loadMe()
 
-      // If user has no details yet, send them to the details prompt
-      if (profileLooksEmpty(u)) {
-        setCurrentPage('account-details')
-        setStatusMsg('Welcome! Please complete your account details.')
-      } else {
-        setCurrentPage('dashboard')
-      }
-    } catch (err) {
-      setIsLoggedIn(false)
-      setCurrentUser(null)
-      setAuthError(err.message || 'Login failed')
-      if (err?.responseBody) console.error('Login error response:', err.responseBody)
-    }
-  }
-
-  const handleRegister = async ({ email, password, name, dob }) => {
-    setAuthError('')
-    setStatusMsg('')
-
-    try {
-      // Backend Sprint 1 expects email/password only
-      await api('/auth/register', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      })
-
-      // Log in immediately
-      await api('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      })
-
-      setIsLoggedIn(true)
-
-      // Load profile + prefill if provided
-      const u = await loadMe()
-
-      // If they provided name/DOB at registration, prefill in the prompt
-      const [first_name, ...rest] = (name || '').trim().split(/\s+/)
-      const last_name = rest.join(' ')
-
-      setCurrentUser({
-        ...u,
-        profile: {
-          ...u.profile,
-          first_name: u.profile.first_name || first_name || '',
-          last_name: u.profile.last_name || last_name || '',
-          dob: u.profile.dob || dob || ''
-        }
-      })
-
+    // If user has no details yet, send them to the details prompt
+    if (profileLooksEmpty(u)) {
       setCurrentPage('account-details')
-      setStatusMsg('Account created. Please complete your account details.')
-    } catch (err) {
-      setIsLoggedIn(false)
-      setCurrentUser(null)
-      setAuthError(err.message || 'Registration failed')
-      if (err?.responseBody) console.error('Register error response:', err.responseBody)
+      setStatusMsg('Welcome! Please complete your account details.')
+    } else {
+      setCurrentPage('dashboard')
     }
+  } catch (err) {
+    setIsLoggedIn(false)
+    setCurrentUser(null)
+    setAuthError(err.message || 'Login failed')
+    if (err?.responseBody) console.error('Login error response:', err.responseBody)
   }
+}
+
+const handleRegister = async ({ email, password, name, dob, company_name }) => {
+  setAuthError('')
+  setStatusMsg('')
+
+  try {
+    // Parse name into first_name and last_name
+    const nameTrimmed = (name || '').trim()
+    const parts = nameTrimmed.length ? nameTrimmed.split(/\s+/) : []
+    const first_name = parts.shift() || ''
+    const last_name = parts.join(' ')
+
+    // Build registration payload
+    const registrationData = { 
+      email, 
+      password,
+      first_name,
+      last_name,
+      dob
+    }
+
+    // Add company_name for sponsors (not used for drivers)
+    if (activeRole === 'sponsor' && company_name) {
+      registrationData.company_name = company_name
+    }
+
+    // Send all required data to backend registration
+    await api('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(registrationData)
+    })
+
+    // Log in immediately
+    await api('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password })
+    })
+
+    setIsLoggedIn(true)
+
+    // Load the user profile from backend
+    await loadMe()
+
+    // Always send new users to complete their profile with phone/address
+    setCurrentPage('account-details')
+    setStatusMsg('Account created. Please complete your account details.')
+  } catch (err) {
+    setIsLoggedIn(false)
+    setCurrentUser(null)
+    setAuthError(err.message || 'Registration failed')
+    if (err?.responseBody) console.error('Register error response:', err.responseBody)
+  }
+}
 
   const handleLogout = async () => {
     setAuthError('')
