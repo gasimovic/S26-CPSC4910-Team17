@@ -1,3 +1,4 @@
+
 const { makeApp } = require("@gdip/server");
 const { query, exec } = require("@gdip/db");
 const { hashPassword, verifyPassword, signToken, verifyToken } = require("@gdip/auth");
@@ -25,6 +26,8 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: "Invalid token" });
   }
 }
+
+app.get("/healthz", (_req, res) => res.json({ ok: true }));
 
 /**
  * POST /auth/register
@@ -56,24 +59,18 @@ app.post("/auth/register", async (req, res) => {
   try {
     const password_hash = await hashPassword(password);
 
-    // Insert user (MySQL)
     const userInsert = await exec(
       "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
       [email, password_hash, ROLE]
     );
     const userId = userInsert.insertId;
 
-    // Create profile row
     await exec(
       "INSERT INTO driver_profiles (user_id, first_name, last_name, sponsor_org) VALUES (?, ?, ?, ?)",
       [userId, first_name, last_name, sponsor_org]
     );
 
-    const userRows = await query(
-      "SELECT id, email, role, created_at FROM users WHERE id = ?",
-      [userId]
-    );
-
+    const userRows = await query("SELECT id, email, role, created_at FROM users WHERE id = ?", [userId]);
     return res.status(201).json({ user: userRows[0] });
   } catch (err) {
     if (err && (err.code === "ER_DUP_ENTRY" || String(err.message || err).includes("Duplicate"))) {
@@ -86,13 +83,13 @@ app.post("/auth/register", async (req, res) => {
 
 /**
  * POST /auth/login
- * Validates credentials and sets an HttpOnly cookie with a JWT.
  */
 app.post("/auth/login", async (req, res) => {
   const schema = z.object({
     email: z.string().email(),
     password: z.string().min(1),
   });
+
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
@@ -134,7 +131,6 @@ app.post("/auth/login", async (req, res) => {
 
 /**
  * POST /auth/logout
- * Clears the auth cookie.
  */
 app.post("/auth/logout", (_req, res) => {
   res.clearCookie(COOKIE_NAME, {
@@ -147,20 +143,13 @@ app.post("/auth/logout", (_req, res) => {
 
 /**
  * GET /me
- * Returns the logged-in user + profile.
  */
 app.get("/me", requireAuth, async (req, res) => {
   try {
-    const userRows = await query(
-      "SELECT id, email, role, created_at FROM users WHERE id = ?",
-      [req.user.id]
-    );
+    const userRows = await query("SELECT id, email, role, created_at FROM users WHERE id = ?", [req.user.id]);
     const user = userRows[0];
 
-    const profileRows = await query(
-      "SELECT * FROM driver_profiles WHERE user_id = ?",
-      [req.user.id]
-    );
+    const profileRows = await query("SELECT * FROM driver_profiles WHERE user_id = ?", [req.user.id]);
     const profile = profileRows[0] || null;
 
     return res.json({ user, profile });
@@ -172,7 +161,6 @@ app.get("/me", requireAuth, async (req, res) => {
 
 /**
  * PUT /me/profile
- * Updates name + DOB + contact info (phone/address).
  */
 app.put("/me/profile", requireAuth, async (req, res) => {
   const schema = z.object({
@@ -205,7 +193,6 @@ app.put("/me/profile", requireAuth, async (req, res) => {
   const address_line1 = d.address_line1 || d.address || null;
 
   try {
-    // Ensure profile exists
     await exec(
       "INSERT INTO driver_profiles (user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id = user_id",
       [req.user.id]
@@ -241,10 +228,7 @@ app.put("/me/profile", requireAuth, async (req, res) => {
       ]
     );
 
-    const profileRows = await query(
-      "SELECT * FROM driver_profiles WHERE user_id = ?",
-      [req.user.id]
-    );
+    const profileRows = await query("SELECT * FROM driver_profiles WHERE user_id = ?", [req.user.id]);
     return res.json({ ok: true, profile: profileRows[0] });
   } catch (err) {
     console.error(err);
@@ -253,14 +237,14 @@ app.put("/me/profile", requireAuth, async (req, res) => {
 });
 
 /**
- * POST /applications
- * Allows a driver to apply to join a sponsor program.
- * Expects: { sponsorId: number } in the request body.
- * Creates a new application with status 'pending'.
+ * PUT /me/password
+ * Changes the logged-in user's password.
+ * Body: { currentPassword: string, newPassword: string }
  */
-app.post("/applications", requireAuth, async (req, res) => {
+app.put("/me/password", requireAuth, async (req, res) => {
   const schema = z.object({
-    sponsorId: z.number().int().positive(),  // ID of the sponsor (from users table where role='sponsor')
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(8),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -268,145 +252,38 @@ app.post("/applications", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
   }
 
-  const { sponsorId } = parsed.data;
-
-  try {
-    // Check if sponsor exists and is a sponsor
-    const sponsorRows = await query(
-      "SELECT id FROM users WHERE id = ? AND role = 'sponsor' LIMIT 1",
-      [sponsorId]
-    );
-    if (sponsorRows.length === 0) {
-      return res.status(404).json({ error: "Sponsor not found" });
-    }
-
-    // Check if driver already has a pending/accepted application to this sponsor
-    const existingApp = await query(
-      "SELECT id FROM applications WHERE driver_id = ? AND sponsor_id = ? AND status IN ('pending', 'accepted') LIMIT 1",
-      [req.user.id, sponsorId]
-    );
-    if (existingApp.length > 0) {
-      return res.status(409).json({ error: "You already have an active application to this sponsor" });
-    }
-
-    // Insert new application
-    const insertResult = await exec(
-      "INSERT INTO applications (driver_id, sponsor_id, status) VALUES (?, ?, 'pending')",
-      [req.user.id, sponsorId]
-    );
-
-    return res.status(201).json({ 
-      ok: true, 
-      applicationId: insertResult.insertId, 
-      message: "Application submitted successfully" 
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Server error" });
-  }
-});
-
-/**
- * GET /applications
- * Returns the driver's applications with status.
- * Returns: Array of applications with sponsor details and status.
- */
-app.get("/applications", requireAuth, async (req, res) => {
-  try {
-    const applications = await query(`
-      SELECT a.id, a.status, a.applied_at, a.reviewed_at, a.notes,
-             u.email AS sponsor_email, sp.company_name AS sponsor_company
-      FROM applications a
-      JOIN users u ON a.sponsor_id = u.id
-      LEFT JOIN sponsor_profiles sp ON a.sponsor_id = sp.user_id
-      WHERE a.driver_id = ?
-      ORDER BY a.applied_at DESC
-    `, [req.user.id]);
-
-    return res.json({ applications });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Server error" });
-  }
-});
-
-/**
- * POST /driver/profile
- * Save driver profile information
- */
-app.post('/driver/profile', requireAuth, async (req, res) => {
-  const schema = z.object({
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    email: z.string().email().optional(),
-    phone: z.string().optional(),
-    licenseNumber: z.string(),
-    licenseState: z.string(),
-    licenseExpiry: z.string(),
-    dateOfBirth: z.string().optional(),
-    vehicleType: z.string(),
-    vehicleMake: z.string(),
-    vehicleModel: z.string(),
-    vehicleYear: z.string(),
-    insuranceProvider: z.string(),
-    insurancePolicyNumber: z.string()
-  })
-
-  const parsed = schema.safeParse(req.body)
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
-  }
-
-  try {
-    // TODO: Insert into driver profile table
-    // await exec('INSERT INTO driver_profiles ...')
-    return res.status(200).json({ message: 'Profile saved successfully' })
-  } catch (err) {
-    return res.status(500).json({ error: err.message })
-  }
-})
-
-/**
- * GET /sponsors
- * Public endpoint: returns a list of sponsors (id, email, company_name)
- */
-app.get("/sponsors", async (req, res) => {
-  try {
-    const rows = await query(
-      `SELECT u.id, u.email, sp.company_name, sp.first_name, sp.last_name
-       FROM users u
-       LEFT JOIN sponsor_profiles sp ON u.id = sp.user_id
-       WHERE u.role = 'sponsor'
-       ORDER BY sp.company_name IS NULL, sp.company_name ASC, u.email ASC`
-    );
-
-    return res.json({ sponsors: rows });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Server error" });
-  }
-});
-
-/**
- * GET /sponsors/:id
- * Public endpoint: returns detailed sponsor profile for the given sponsor id.
- */
-app.get("/sponsors/:id", async (req, res) => {
-  const id = Number(req.params.id || 0);
-  if (!id) return res.status(400).json({ error: "Invalid sponsor id" });
+  const { currentPassword, newPassword } = parsed.data;
 
   try {
     const rows = await query(
-      `SELECT u.id, u.email, sp.*
-       FROM users u
-       LEFT JOIN sponsor_profiles sp ON u.id = sp.user_id
-       WHERE u.role = 'sponsor' AND u.id = ? LIMIT 1`,
-      [id]
+      "SELECT id, password_hash, role FROM users WHERE id = ? AND role = ? LIMIT 1",
+      [req.user.id, ROLE]
     );
 
-    if (!rows || rows.length === 0) return res.status(404).json({ error: "Sponsor not found" });
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
 
-    return res.json({ sponsor: rows[0] });
+    const user = rows[0];
+
+    const ok = await verifyPassword(currentPassword, user.password_hash);
+    if (!ok) {
+      return res.status(401).json({ error: "Invalid current password" });
+    }
+
+    const same = await verifyPassword(newPassword, user.password_hash);
+    if (same) {
+      return res.status(400).json({ error: "New password must be different" });
+    }
+
+    const newHash = await hashPassword(newPassword);
+    await exec("UPDATE users SET password_hash = ? WHERE id = ? AND role = ?", [
+      newHash,
+      req.user.id,
+      ROLE,
+    ]);
+
+    return res.json({ ok: true });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Server error" });
@@ -416,4 +293,3 @@ app.get("/sponsors/:id", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`[driver] listening on :${PORT}`);
 });
-
