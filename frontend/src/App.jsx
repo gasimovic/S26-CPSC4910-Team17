@@ -5,6 +5,8 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [currentPage, setCurrentPage] = useState('login')
   const [currentUser, setCurrentUser] = useState(null)
+  // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
+  const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
 
   // Keep UI the same: no role selector in the UI.
   // Choose which microservice to hit via env var. Defaults to driver.
@@ -323,8 +325,23 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
 
   // Optional: if user refreshes while logged in, try to restore
   useEffect(() => {
-    // We only attempt restore if they land somewhere inside the app.
-    // To avoid UI changes, we don't auto-run on first load.
+    // Support reset-password deep links like:
+    //   /?page=reset-password&email=...&token=...
+    // This enables the forgot/reset flow without changing the UI elsewhere.
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const page = (params.get('page') || '').toLowerCase()
+      if (page === 'reset-password') {
+        const email = params.get('email') || ''
+        const token = params.get('token') || ''
+        setResetPrefill({ email, token })
+        setAuthError('')
+        setStatusMsg('')
+        setCurrentPage('reset-password')
+      }
+    } catch {
+      // ignore
+    }
   }, [])
 
   // ============ LOGIN PAGE ============
@@ -1115,14 +1132,120 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
   }
 
   // ============ RESET PASSWORD PAGE ============
-  const ResetPasswordPage = () => {
-    const [email, setEmail] = useState('')
-    const [submitted, setSubmitted] = useState(false)
+  const ResetPasswordPage = ({ prefill }) => {
+    const [email, setEmail] = useState(prefill?.email || '')
+    const [token, setToken] = useState(prefill?.token || '')
 
-    const handleSubmit = (e) => {
+    const [newPassword, setNewPassword] = useState('')
+    const [confirmPassword, setConfirmPassword] = useState('')
+
+    const [submitting, setSubmitting] = useState(false)
+    const [submitted, setSubmitted] = useState(false)
+    const [message, setMessage] = useState('')
+    const [localError, setLocalError] = useState('')
+    const [resetUrl, setResetUrl] = useState('')
+
+    // Keep in sync if the app updates prefill (deep-link)
+    useEffect(() => {
+      if (prefill?.email) setEmail(prefill.email)
+      if (prefill?.token) setToken(prefill.token)
+    }, [prefill?.email, prefill?.token])
+
+    const hasToken = Boolean((token || '').trim())
+
+    const toCurrentOrigin = (maybeUrl) => {
+      // Backend currently returns http://localhost:5173/... for dev.
+      // When deployed, rewrite to the current origin so clicking works.
+      try {
+        const u = new URL(maybeUrl)
+        return `${window.location.origin}${u.pathname}${u.search}${u.hash}`
+      } catch {
+        return maybeUrl
+      }
+    }
+
+    const handleSubmit = async (e) => {
       e.preventDefault()
-      // Frontend-only for now: no backend call
-      setSubmitted(true)
+      setLocalError('')
+      setMessage('')
+      setResetUrl('')
+
+      if (!email.trim()) {
+        setLocalError('Please enter your email')
+        return
+      }
+
+      // STEP 1: request reset link
+      if (!hasToken) {
+        setSubmitting(true)
+        try {
+          const data = await api('/auth/forgot-password', {
+            method: 'POST',
+            body: JSON.stringify({ email: email.trim() })
+          })
+
+          setSubmitted(true)
+          setMessage('If that account exists, a reset link has been generated.')
+
+          // Your backend returns resetUrl (since no email system yet)
+          if (data?.resetUrl) {
+            const fixed = toCurrentOrigin(data.resetUrl)
+            setResetUrl(fixed)
+
+            // auto-fill token/email from returned link
+            try {
+              const u = new URL(fixed)
+              const p = new URLSearchParams(u.search)
+              const nextEmail = p.get('email') || email.trim()
+              const nextToken = p.get('token') || ''
+              if (nextToken) {
+                setEmail(nextEmail)
+                setToken(nextToken)
+              }
+            } catch {
+              // ignore
+            }
+          }
+        } catch (err) {
+          setLocalError(err.message || 'Failed to send reset link')
+          if (err?.responseBody) console.error('Forgot-password error response:', err.responseBody)
+        } finally {
+          setSubmitting(false)
+        }
+        return
+      }
+
+      // STEP 2: reset password using token
+      if (newPassword.length < 8) {
+        setLocalError('New password must be at least 8 characters')
+        return
+      }
+      if (newPassword !== confirmPassword) {
+        setLocalError('New password and confirmation do not match')
+        return
+      }
+
+      setSubmitting(true)
+      try {
+        await api('/auth/reset-password', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: email.trim(),
+            token: token.trim(),
+            newPassword
+          })
+        })
+
+        setSubmitted(true)
+        setMessage('Password reset successful. You can now sign in with your new password.')
+        setNewPassword('')
+        setConfirmPassword('')
+      } catch (err) {
+        setLocalError(err.message || 'Failed to reset password')
+        if (err?.responseBody) console.error('Reset-password error response:', err.responseBody)
+      } finally {
+        setSubmitting(false)
+      }
     }
 
     return (
@@ -1144,16 +1267,66 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
               />
             </div>
 
-            <button type="submit" className="btn btn-primary btn-block">
-              Send reset link
+            {hasToken ? (
+              <>
+                <div className="form-group">
+                  <label className="form-label">Reset token</label>
+                  <input
+                    type="text"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    placeholder="Paste token from reset link"
+                    className="form-input"
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">New password</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Enter new password (min 8 characters)"
+                    className="form-input"
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Confirm new password</label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm new password"
+                    className="form-input"
+                    required
+                  />
+                </div>
+              </>
+            ) : null}
+
+            {localError ? <p className="form-footer" style={{ color: 'crimson' }}>{localError}</p> : null}
+            {message ? <p className="form-footer" style={{ color: 'green' }}>{message}</p> : null}
+
+            <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
+              {submitting ? (hasToken ? 'Resetting…' : 'Sending…') : (hasToken ? 'Reset password' : 'Send reset link')}
             </button>
           </form>
 
-          {submitted && (
+          {resetUrl ? (
             <p className="form-footer">
-              This reset form is not yet connected to the backend. Once implemented, you&apos;ll receive an email with reset instructions.
+              Reset link (dev):{' '}
+              <a className="link" href={resetUrl} target="_blank" rel="noreferrer">Open reset link</a>
             </p>
-          )}
+          ) : null}
+
+          {!hasToken && submitted ? (
+            <p className="form-footer">
+              If email sending isn&apos;t configured, the server returns a reset link for testing.
+            </p>
+          ) : null}
 
           <p className="form-footer">
             Remembered your password?{' '}
@@ -1533,7 +1706,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     <div>
       {!isLoggedIn && currentPage === 'login' && <LoginPage />}
       {!isLoggedIn && currentPage === 'create-account' && <CreateAccountPage />}
-      {!isLoggedIn && currentPage === 'reset-password' && <ResetPasswordPage />}
+      {!isLoggedIn && currentPage === 'reset-password' && <ResetPasswordPage prefill={resetPrefill} />}
 
       {isLoggedIn && (() => {
         const allowed = getAllowedPages(currentUser)
