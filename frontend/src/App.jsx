@@ -11,17 +11,40 @@ function App() {
   // Valid: admin | driver | sponsor
   const activeRole = (import.meta.env.VITE_ACTIVE_ROLE || 'driver').toLowerCase()
 
-  const API_BASE = useMemo(
-    () => ({
-      // Defaults match your current running ports (admin=4001, driver=4002, sponsor=4003)
-      admin: import.meta.env.VITE_ADMIN_API_BASE || 'http://localhost:4001',
-      driver: import.meta.env.VITE_DRIVER_API_BASE || 'http://localhost:4002',
-      sponsor: import.meta.env.VITE_SPONSOR_API_BASE || 'http://localhost:4003'
-    }),
-    []
-  )
+  // IMPORTANT (EC2 + browser): if the frontend calls :4001/:4002/:4003 directly from the browser,
+  // it can fail due to Security Group rules and/or CORS.
+  // Instead, call the Vite dev server (same-origin) and let Vite proxy to the backend ports.
+  // See `vite.config.js` proxy rules for /api/admin, /api/driver, /api/sponsor.
 
-  const baseUrl = API_BASE[activeRole] || API_BASE.driver
+  // Prefer relative (same-origin) API bases so the browser never tries to call localhost:400x.
+  // On EC2, the browser is your laptop, so `localhost` would be WRONG.
+  const DRIVER_API_BASE = (import.meta.env.VITE_DRIVER_API_BASE || '/api/driver').replace(/\/$/, '')
+  const ADMIN_API_BASE = (import.meta.env.VITE_ADMIN_API_BASE || '/api/admin').replace(/\/$/, '')
+  const SPONSOR_API_BASE = (import.meta.env.VITE_SPONSOR_API_BASE || '/api/sponsor').replace(/\/$/, '')
+
+  // Back-compat: allow a single override (VITE_API_PREFIX), but if it points at localhost and
+  // we're not actually browsing from localhost, ignore it and use the proxy paths.
+  const API_PREFIX = useMemo(() => {
+    const role = (activeRole || 'driver').toLowerCase()
+    const defaultPrefix =
+      role === 'admin' ? ADMIN_API_BASE :
+      role === 'sponsor' ? SPONSOR_API_BASE :
+      DRIVER_API_BASE
+
+    const raw = (import.meta.env.VITE_API_PREFIX || '').trim()
+    if (!raw) return defaultPrefix
+
+    const isLocalhostBrowser =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+
+    const pointsToLocalhost = raw.includes('localhost') || raw.includes('127.0.0.1')
+    if (pointsToLocalhost && !isLocalhostBrowser) return defaultPrefix
+
+    return raw.replace(/\/$/, '')
+  }, [activeRole])
+
+  const baseUrl = API_PREFIX
 
   // Simple message state (keeps appearance: uses existing footer style)
   const [authError, setAuthError] = useState('')
@@ -39,25 +62,50 @@ function App() {
 
   const api = async (path, options = {}) => {
     let res
+    const controller = new AbortController()
+    const timeoutMs = Number(import.meta.env.VITE_API_TIMEOUT_MS || 12000)
+    const t = setTimeout(() => controller.abort(), timeoutMs)
+
     try {
-      res = await fetch(`${baseUrl}${path}`,
+      const safePath = path.startsWith('/') ? path : `/${path}`
+      res = await fetch(`${baseUrl}${safePath}`,
         {
           credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
             ...(options.headers || {})
           },
+          signal: controller.signal,
           ...options
         }
       )
     } catch (e) {
-      // Browser/network/CORS failures land here
-      const err = new Error('Network error: could not reach the server')
+      // Browser/network/CORS/timeouts land here
+      const isAbort = e?.name === 'AbortError'
+      const err = new Error(
+        isAbort
+          ? `Request timed out after ${Math.round(timeoutMs / 1000)}s (could not reach the server)`
+          : 'Network error: could not reach the server'
+      )
       err.cause = e
       throw err
+    } finally {
+      clearTimeout(t)
     }
 
     const data = await safeJson(res)
+    // If we accidentally hit the Vite SPA (index.html) instead of the API (proxy not working),
+    // the response will be text/html and often contains a full HTML document.
+    const ct = (res.headers.get('content-type') || '').toLowerCase()
+    const rawText = typeof data?.raw === 'string' ? data.raw : ''
+    if (ct.includes('text/html') || rawText.includes('<!doctype html') || rawText.includes('<html')) {
+      const err = new Error(
+        'Received HTML from the server instead of API JSON. This usually means the Vite proxy for /api/* is not configured or not being loaded by the dev server.'
+      )
+      err.status = res.status
+      err.responseBody = rawText
+      throw err
+    }
     if (!res.ok) {
       const bodyText = typeof data?.raw === 'string' ? data.raw : JSON.stringify(data || {})
       const msg = data?.error || data?.message || res.statusText || 'Server error'
@@ -175,6 +223,7 @@ function App() {
 const handleLogin = async (email, password) => {
   setAuthError('')
   setStatusMsg('')
+  setStatusMsg('Signing in…')
 
   try {
     await api('/auth/login', {
@@ -183,6 +232,7 @@ const handleLogin = async (email, password) => {
     })
 
     setIsLoggedIn(true)
+    setStatusMsg('Signed in. Loading your profile…')
 
     const u = await loadMe()
 
@@ -204,6 +254,7 @@ const handleLogin = async (email, password) => {
 const handleRegister = async ({ email, password, name, dob, company_name }) => {
   setAuthError('')
   setStatusMsg('')
+  setStatusMsg('Creating account…')
 
   try {
     // Parse name into first_name and last_name
@@ -239,6 +290,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     })
 
     setIsLoggedIn(true)
+    setStatusMsg('Account created. Loading your profile…')
 
     // Load the user profile from backend
     await loadMe()
