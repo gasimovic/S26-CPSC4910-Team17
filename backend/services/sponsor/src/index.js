@@ -247,6 +247,60 @@ app.put("/me/profile", requireAuth, async (req, res) => {
 });
 
 /**
+ * PUT /me/password
+ * Changes the logged-in user's password.
+ * Body: { currentPassword: string, newPassword: string }
+ */
+app.put("/me/password", requireAuth, async (req, res) => {
+  const schema = z.object({
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(8),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+  }
+
+  const { currentPassword, newPassword } = parsed.data;
+
+  try {
+    const rows = await query(
+      "SELECT id, password_hash, role FROM users WHERE id = ? AND role = ? LIMIT 1",
+      [req.user.id, ROLE]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const user = rows[0];
+
+    const ok = await verifyPassword(currentPassword, user.password_hash);
+    if (!ok) {
+      return res.status(401).json({ error: "Invalid current password" });
+    }
+
+    const same = await verifyPassword(newPassword, user.password_hash);
+    if (same) {
+      return res.status(400).json({ error: "New password must be different" });
+    }
+
+    const newHash = await hashPassword(newPassword);
+    await exec("UPDATE users SET password_hash = ? WHERE id = ? AND role = ?", [
+      newHash,
+      req.user.id,
+      ROLE,
+    ]);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
  * GET /applications
  * Get all applications for this sponsor
  */
