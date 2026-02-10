@@ -3,6 +3,7 @@ const { makeApp } = require("@gdip/server");
 const { query, exec } = require("@gdip/db");
 const { hashPassword, verifyPassword, signToken, verifyToken } = require("@gdip/auth");
 const { z } = require("zod");
+const crypto = require("crypto");
 
 const app = makeApp();
 
@@ -139,6 +140,128 @@ app.post("/auth/logout", (_req, res) => {
     sameSite: "lax",
   });
   return res.json({ ok: true });
+});
+
+/**
+ * POST /auth/forgot-password
+ * Body: { email: string }
+ * Dev-mode behavior: returns a resetUrl instead of sending email.
+ */
+app.post("/auth/forgot-password", async (req, res) => {
+  const schema = z.object({ email: z.string().email() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+  }
+
+  const email = parsed.data.email.toLowerCase();
+
+  try {
+    // Only allow driver accounts in this service
+    const rows = await query(
+      "SELECT id FROM users WHERE email = ? AND role = ? LIMIT 1",
+      [email, ROLE]
+    );
+
+    // Always return ok (prevents user-enumeration)
+    if (!rows || rows.length === 0) {
+      return res.json({ ok: true });
+    }
+
+    const userId = rows[0].id;
+
+    // Create token + store hash
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    // 30 minute expiry
+    await exec(
+      `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+       VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))`,
+      [userId, tokenHash]
+    );
+
+    // Dev-mode: return link instead of email
+    const publicBase =
+      process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.FRONTEND_PORT || 5173}`;
+
+    const resetUrl = `${publicBase}/?page=reset-password&email=${encodeURIComponent(
+      email
+    )}&token=${encodeURIComponent(token)}`;
+
+    return res.json({ ok: true, resetUrl });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * POST /auth/reset-password
+ * Body: { email: string, token: string, newPassword: string }
+ */
+app.post("/auth/reset-password", async (req, res) => {
+  const schema = z.object({
+    email: z.string().email(),
+    token: z.string().min(10),
+    newPassword: z.string().min(8),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+  }
+
+  const email = parsed.data.email.toLowerCase();
+  const token = parsed.data.token;
+  const newPassword = parsed.data.newPassword;
+
+  try {
+    const userRows = await query(
+      "SELECT id FROM users WHERE email = ? AND role = ? LIMIT 1",
+      [email, ROLE]
+    );
+
+    // don’t leak whether user exists
+    if (!userRows || userRows.length === 0) {
+      return res.json({ ok: true });
+    }
+
+    const userId = userRows[0].id;
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    const tokenRows = await query(
+      `SELECT id
+       FROM password_reset_tokens
+       WHERE user_id = ?
+         AND token_hash = ?
+         AND used_at IS NULL
+         AND expires_at > NOW()
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId, tokenHash]
+    );
+
+    if (!tokenRows || tokenRows.length === 0) {
+      return res.status(400).json({ error: "Invalid or expired reset token" });
+    }
+
+    const resetId = tokenRows[0].id;
+
+    const newHash = await hashPassword(newPassword);
+    await exec("UPDATE users SET password_hash = ? WHERE id = ? AND role = ?", [
+      newHash,
+      userId,
+      ROLE,
+    ]);
+
+    await exec("UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?", [resetId]);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
 });
 
 /**
