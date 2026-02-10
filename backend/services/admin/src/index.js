@@ -1,5 +1,5 @@
 const { makeApp } = require("@gdip/server");
-const { query } = require("@gdip/db");
+const { query, exec } = require("@gdip/db");
 const { hashPassword, verifyPassword, signToken, verifyToken } = require("@gdip/auth");
 const { z } = require("zod");
 
@@ -26,6 +26,8 @@ function requireAuth(req, res, next) {
   }
 }
 
+app.get("/healthz", (_req, res) => res.json({ ok: true }));
+
 /**
  * POST /auth/register
  */
@@ -41,32 +43,30 @@ app.post("/auth/register", async (req, res) => {
     return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
   }
 
-  const { email, password, displayName } = parsed.data;
+  const email = parsed.data.email.toLowerCase();
+  const password = parsed.data.password;
+  const displayName = parsed.data.displayName || null;
 
   try {
     const password_hash = await hashPassword(password);
-    const userRes = await query(
-      //INSERT INTO users(email, password_hash, role) VALUES (?, ?, ?) mySQL
-      `INSERT INTO users(email, password_hash, role)
-       VALUES ($1, $2, $3) 
-       RETURNING id, email, role, created_at`,
-      [email.toLowerCase(), password_hash, ROLE]
-    );
-    //const [userRows] = await query(
-    //`SELECT id, email, role, created_at FROM users WHERE id = LAST_INSERT_ID()`
-    //);
-    const user = userRes.rows[0];
 
-    await query(
-      //INSERT INTO admin_profiles(user_id, display_name) VALUES (?, ?)
-      `INSERT INTO admin_profiles(user_id, display_name)
-       VALUES ($1, $2)`,
-      [user.id, displayName || null]
+    // Create user
+    const userInsert = await exec(
+      "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
+      [email, password_hash, ROLE]
+    );
+    const userId = userInsert.insertId;
+
+    // Create admin profile row
+    await exec(
+      "INSERT INTO admin_profiles (user_id, display_name) VALUES (?, ?)",
+      [userId, displayName]
     );
 
-    return res.status(201).json({ user });
+    const userRows = await query("SELECT id, email, role, created_at FROM users WHERE id = ?", [userId]);
+    return res.status(201).json({ user: userRows[0] });
   } catch (err) {
-    if (String(err).includes("users_email_key")) {
+    if (err && (err.code === "ER_DUP_ENTRY" || String(err.message || err).includes("Duplicate"))) {
       return res.status(409).json({ error: "Email already in use" });
     }
     console.error(err);
@@ -87,19 +87,17 @@ app.post("/auth/login", async (req, res) => {
     return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
   }
 
-  const { email, password } = parsed.data;
+  const email = parsed.data.email.toLowerCase();
+  const password = parsed.data.password;
 
   try {
-    const userRes = await query(
-      // SELECT id, email, password_hash, role FROM users WHERE email = ? AND role = ?
-      `SELECT id, email, password_hash, role
-       FROM users
-       WHERE email = $1 AND role = $2`,
-      [email.toLowerCase(), ROLE]
+    const rows = await query(
+      "SELECT id, email, password_hash, role FROM users WHERE email = ? AND role = ? LIMIT 1",
+      [email, ROLE]
     );
-    if (userRes.rowCount === 0) return res.status(401).json({ error: "Invalid credentials" });
+    if (!rows || rows.length === 0) return res.status(401).json({ error: "Invalid credentials" });
 
-    const user = userRes.rows[0];
+    const user = rows[0];
     const ok = await verifyPassword(password, user.password_hash);
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
@@ -135,15 +133,11 @@ app.post("/auth/logout", (_req, res) => {
  */
 app.get("/me", requireAuth, async (req, res) => {
   try {
-    const userRes = await query(
-      //SELECT id, email, role, created_at FROM users WHERE id = ?
-      `SELECT id, email, role, created_at FROM users WHERE id = $1`,
-      [req.user.id]
-    );
-    const user = userRes.rows[0];
-    //SELECT * FROM admin_profiles WHERE user_id = ?
-    const r = await query(`SELECT * FROM admin_profiles WHERE user_id = $1`, [req.user.id]);
-    const profile = r.rows[0] || null;
+    const userRows = await query("SELECT id, email, role, created_at FROM users WHERE id = ?", [req.user.id]);
+    const user = userRows[0];
+
+    const profileRows = await query("SELECT * FROM admin_profiles WHERE user_id = ?", [req.user.id]);
+    const profile = profileRows[0] || null;
 
     return res.json({ user, profile });
   } catch (err) {
@@ -173,42 +167,93 @@ app.put("/me/profile", requireAuth, async (req, res) => {
   const d = parsed.data;
 
   try {
-    await query(
-      //UPDATE admin_profiles
-      //SET display_name = COALESCE(?, display_name),
-      //     first_name   = COALESCE(?, first_name),
-      //     last_name    = COALESCE(?, last_name),
-      //     dob          = COALESCE(?, dob),
-      //     phone        = COALESCE(?, phone),
-      //     address      = COALESCE(?, address)
-      //WHERE user_id = ?
+    // Ensure profile exists
+    await exec(
+      "INSERT INTO admin_profiles (user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id = user_id",
+      [req.user.id]
+    );
+
+    await exec(
       `UPDATE admin_profiles
-       SET display_name = COALESCE($2, display_name),
-           first_name   = COALESCE($3, first_name),
-           last_name    = COALESCE($4, last_name),
-           dob          = COALESCE($5::date, dob),
-           phone        = COALESCE($6, phone),
-           address      = COALESCE($7, address)
-       WHERE user_id = $1`,
+       SET display_name = COALESCE(?, display_name),
+           first_name   = COALESCE(?, first_name),
+           last_name    = COALESCE(?, last_name),
+           dob          = COALESCE(?, dob),
+           phone        = COALESCE(?, phone),
+           address      = COALESCE(?, address)
+       WHERE user_id = ?`,
       [
-        req.user.id,
         d.displayName || null,
         d.firstName || null,
         d.lastName || null,
         d.dob || null,
         d.phone || null,
         d.address || null,
+        req.user.id,
       ]
     );
-    //SELECT * FROM admin_profiles WHERE user_id = ?
-    const r = await query(`SELECT * FROM admin_profiles WHERE user_id = $1`, [req.user.id]);
-    return res.json({ ok: true, profile: r.rows[0] });
+
+    const profileRows = await query("SELECT * FROM admin_profiles WHERE user_id = ?", [req.user.id]);
+    return res.json({ ok: true, profile: profileRows[0] });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Server error" });
   }
 });
- 
+
+/**
+ * PUT /me/password
+ * Body: { currentPassword: string, newPassword: string }
+ */
+app.put("/me/password", requireAuth, async (req, res) => {
+  const schema = z.object({
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(8),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+  }
+
+  const { currentPassword, newPassword } = parsed.data;
+
+  try {
+    const rows = await query(
+      "SELECT id, password_hash, role FROM users WHERE id = ? AND role = ? LIMIT 1",
+      [req.user.id, ROLE]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const user = rows[0];
+
+    const ok = await verifyPassword(currentPassword, user.password_hash);
+    if (!ok) {
+      return res.status(401).json({ error: "Invalid current password" });
+    }
+
+    const same = await verifyPassword(newPassword, user.password_hash);
+    if (same) {
+      return res.status(400).json({ error: "New password must be different" });
+    }
+
+    const newHash = await hashPassword(newPassword);
+    await exec("UPDATE users SET password_hash = ? WHERE id = ? AND role = ?", [
+      newHash,
+      req.user.id,
+      ROLE,
+    ]);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`[admin] listening on :${PORT}`);
 });
