@@ -401,6 +401,8 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
                 e.preventDefault()
                 setAuthError('')
                 setStatusMsg('')
+                // Ensure we start in "request reset link" mode (no token) when navigating from login
+                setResetPrefill({ email: '', token: '' })
                 setCurrentPage('reset-password')
               }}
             >
@@ -1337,6 +1339,17 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
                 e.preventDefault()
                 setAuthError('')
                 setStatusMsg('')
+                setResetPrefill({ email: '', token: '' })
+                // Clean up URL params so refresh doesn't reopen reset flow
+                try {
+                  const u = new URL(window.location.href)
+                  u.searchParams.delete('page')
+                  u.searchParams.delete('email')
+                  u.searchParams.delete('token')
+                  window.history.replaceState({}, '', u.toString())
+                } catch {
+                  // ignore
+                }
                 setCurrentPage('login')
               }}
             >
