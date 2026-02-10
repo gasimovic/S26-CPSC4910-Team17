@@ -325,7 +325,18 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
           </form>
 
           <p className="form-footer">
-            Forgot password? <a href="#" className="link">Reset here</a>
+            <a
+              href="#"
+              className="link"
+              onClick={(e) => {
+                e.preventDefault()
+                setAuthError('')
+                setStatusMsg('')
+                setCurrentPage('reset-password')
+              }}
+            >
+              Forgot password?
+            </a>
             <br />
             Don&apos;t have an account?{' '}
             <a
@@ -1051,6 +1062,67 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     )
   }
 
+  // ============ RESET PASSWORD PAGE ============
+  const ResetPasswordPage = () => {
+    const [email, setEmail] = useState('')
+    const [submitted, setSubmitted] = useState(false)
+
+    const handleSubmit = (e) => {
+      e.preventDefault()
+      // Frontend-only for now: no backend call
+      setSubmitted(true)
+    }
+
+    return (
+      <div className="login-wrap">
+        <div className="login-card">
+          <h1 className="login-title">Reset password</h1>
+          <p className="login-subtitle">Enter your email to reset your password</p>
+
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label className="form-label">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter your email"
+                className="form-input"
+                required
+              />
+            </div>
+
+            <button type="submit" className="btn btn-primary btn-block">
+              Send reset link
+            </button>
+          </form>
+
+          {submitted && (
+            <p className="form-footer">
+              This reset form is not yet connected to the backend. Once implemented, you&apos;ll receive an email with reset instructions.
+            </p>
+          )}
+
+          <p className="form-footer">
+            Remembered your password?{' '}
+            <a
+              href="#"
+              className="link"
+              onClick={(e) => {
+                e.preventDefault()
+                setAuthError('')
+                setStatusMsg('')
+                setCurrentPage('login')
+              }}
+            >
+              Back to sign in
+            </a>
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   // ============ CREATE ACCOUNT PAGE ============
   const CreateAccountPage = () => {
     const [formData, setFormData] = useState({
@@ -1409,6 +1481,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     <div>
       {!isLoggedIn && currentPage === 'login' && <LoginPage />}
       {!isLoggedIn && currentPage === 'create-account' && <CreateAccountPage />}
+      {!isLoggedIn && currentPage === 'reset-password' && <ResetPasswordPage />}
 
       {isLoggedIn && (() => {
         const allowed = getAllowedPages(currentUser)
