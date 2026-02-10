@@ -290,6 +290,87 @@ app.put("/me/password", requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * POST /applications
+ * Allows a driver to apply to join a sponsor program.
+ * Expects: { sponsorId: number } in the request body.
+ * Creates a new application with status 'pending'.
+ */
+app.post("/applications", requireAuth, async (req, res) => {
+  const schema = z.object({
+    sponsorId: z.number().int().positive(), // ID of the sponsor (from users table where role='sponsor')
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+  }
+
+  const { sponsorId } = parsed.data;
+
+  try {
+    // Check if sponsor exists and is a sponsor
+    const sponsorRows = await query(
+      "SELECT id FROM users WHERE id = ? AND role = 'sponsor' LIMIT 1",
+      [sponsorId]
+    );
+    if (!sponsorRows || sponsorRows.length === 0) {
+      return res.status(404).json({ error: "Sponsor not found" });
+    }
+
+    // Check if driver already has a pending/accepted application to this sponsor
+    const existingApp = await query(
+      "SELECT id FROM applications WHERE driver_id = ? AND sponsor_id = ? AND status IN ('pending', 'accepted') LIMIT 1",
+      [req.user.id, sponsorId]
+    );
+    if (existingApp && existingApp.length > 0) {
+      return res.status(409).json({ error: "You already have an active application to this sponsor" });
+    }
+
+    // Insert new application
+    const insertResult = await exec(
+      "INSERT INTO applications (driver_id, sponsor_id, status) VALUES (?, ?, 'pending')",
+      [req.user.id, sponsorId]
+    );
+
+    return res.status(201).json({
+      ok: true,
+      applicationId: insertResult.insertId,
+      message: "Application submitted successfully",
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * GET /applications
+ * Returns the driver's applications with status.
+ * Returns: Array of applications with sponsor details and status.
+ */
+app.get("/applications", requireAuth, async (req, res) => {
+  try {
+    const applications = await query(
+      `
+      SELECT a.id, a.status, a.applied_at, a.reviewed_at, a.notes,
+             u.email AS sponsor_email, sp.company_name AS sponsor_company
+      FROM applications a
+      JOIN users u ON a.sponsor_id = u.id
+      LEFT JOIN sponsor_profiles sp ON a.sponsor_id = sp.user_id
+      WHERE a.driver_id = ?
+      ORDER BY a.applied_at DESC
+    `,
+      [req.user.id]
+    );
+
+    return res.json({ applications });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`[driver] listening on :${PORT}`);
 });
