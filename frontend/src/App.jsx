@@ -527,6 +527,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     try {
       const params = new URLSearchParams(window.location.search)
       const page = (params.get('page') || '').toLowerCase()
+
       if (page === 'reset-password') {
         const email = params.get('email') || ''
         const token = params.get('token') || ''
@@ -534,6 +535,22 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
         setAuthError('')
         setStatusMsg('')
         setCurrentPage('reset-password')
+        return
+      }
+
+      // Support deep links to login pages
+      if (page === 'login-sponsor') {
+        setAuthError('')
+        setStatusMsg('')
+        setCurrentPage('login-sponsor')
+        return
+      }
+
+      if (page === 'login') {
+        setAuthError('')
+        setStatusMsg('')
+        setCurrentPage('login')
+        return
       }
     } catch {
       // ignore
@@ -556,14 +573,35 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => setCurrentPage('login')}
+                  onClick={() => {
+                    setAuthError('')
+                    setStatusMsg('')
+                    setCurrentPage('login')
+                  }}
                 >
-                  Sign in
+                  Driver sign in
                 </button>
+
                 <button
                   type="button"
                   className="btn btn-success"
-                  onClick={() => setCurrentPage('account-type')}
+                  onClick={() => {
+                    setAuthError('')
+                    setStatusMsg('')
+                    setCurrentPage('login-sponsor')
+                  }}
+                >
+                  Sponsor sign in
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setAuthError('')
+                    setStatusMsg('')
+                    setCurrentPage('account-type')
+                  }}
                 >
                   Create an account
                 </button>
@@ -627,13 +665,30 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
 
         <footer className="landing-footer">
           <p>Ready to get started?</p>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => setCurrentPage('login')}
-          >
-            Go to sign in
-          </button>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setAuthError('')
+                setStatusMsg('')
+                setCurrentPage('login')
+              }}
+            >
+              Driver sign in
+            </button>
+            <button
+              type="button"
+              className="btn btn-success"
+              onClick={() => {
+                setAuthError('')
+                setStatusMsg('')
+                setCurrentPage('login-sponsor')
+              }}
+            >
+              Sponsor sign in
+            </button>
+          </div>
         </footer>
       </div>
     )
