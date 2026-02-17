@@ -27,20 +27,37 @@ async function getSponsorCompanyName(sponsorId) {
   return company && String(company).trim().length > 0 ? String(company).trim() : null;
 }
 
-async function getDriverInSponsorOrgOr404(res, sponsorCompany, driverId) {
+
+// Helper: Check if a driver belongs to a sponsor's program (by sponsor_org or accepted application)
+async function driverBelongsToSponsorOr404(res, sponsorId, sponsorCompany, driverId) {
+  // A driver is considered "in the sponsor program" if either:
+  // 1) Their driver_profiles.sponsor_org matches the sponsor's company_name, OR
+  // 2) They have an accepted application for this sponsor.
   const rows = await query(
     `SELECT u.id, u.email, dp.*
      FROM users u
      JOIN driver_profiles dp ON u.id = dp.user_id
-     WHERE u.role = 'driver' AND u.id = ? AND dp.sponsor_org = ?
+     WHERE u.role = 'driver'
+       AND u.id = ?
+       AND (
+         dp.sponsor_org = ?
+         OR EXISTS (
+           SELECT 1
+           FROM applications a
+           WHERE a.driver_id = u.id
+             AND a.sponsor_id = ?
+             AND a.status = 'accepted'
+         )
+       )
      LIMIT 1`,
-    [driverId, sponsorCompany]
+    [driverId, sponsorCompany, sponsorId]
   );
 
   if (!rows || rows.length === 0) {
-    res.status(404).json({ error: "Driver not found in your organization" });
+    res.status(404).json({ error: "Driver not found in your sponsor program" });
     return null;
   }
+
   return rows[0];
 }
 
@@ -455,10 +472,20 @@ app.get("/drivers", requireAuth, async (req, res) => {
        FROM users u
        JOIN driver_profiles dp ON u.id = dp.user_id
        LEFT JOIN driver_points_ledger l ON l.driver_id = u.id
-       WHERE u.role = 'driver' AND dp.sponsor_org = ?
+       WHERE u.role = 'driver'
+         AND (
+           dp.sponsor_org = ?
+           OR EXISTS (
+             SELECT 1
+             FROM applications a
+             WHERE a.driver_id = u.id
+               AND a.sponsor_id = ?
+               AND a.status = 'accepted'
+           )
+         )
        GROUP BY u.id
        ORDER BY dp.last_name ASC, dp.first_name ASC, u.email ASC`,
-      [sponsorCompany]
+      [sponsorCompany, req.user.id]
     );
 
     const drivers = (rows || []).map((r) => ({
@@ -486,6 +513,53 @@ app.get("/drivers", requireAuth, async (req, res) => {
 });
 
 /**
+ * GET /drivers/:driverId
+ * Get a single driver in the sponsor program, including current points balance.
+ */
+app.get("/drivers/:driverId", requireAuth, async (req, res) => {
+  const driverId = toInt(req.params.driverId);
+  if (!Number.isFinite(driverId)) {
+    return res.status(400).json({ error: "Invalid driverId" });
+  }
+
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) {
+      return res.status(400).json({
+        error: "Sponsor company_name is not set. Update your profile first.",
+      });
+    }
+
+    const driver = await driverBelongsToSponsorOr404(res, req.user.id, sponsorCompany, driverId);
+    if (!driver) return;
+
+    const balance = await getDriverPointsBalance(driverId);
+
+    return res.json({
+      driver: {
+        id: driver.id,
+        email: driver.email,
+        first_name: driver.first_name,
+        last_name: driver.last_name,
+        dob: driver.dob,
+        phone: driver.phone,
+        address_line1: driver.address_line1,
+        address_line2: driver.address_line2,
+        city: driver.city,
+        state: driver.state,
+        postal_code: driver.postal_code,
+        country: driver.country,
+        sponsor_org: driver.sponsor_org,
+      },
+      balance,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
  * GET /drivers/:driverId/points
  * Return the points ledger for a driver in this sponsor's org.
  */
@@ -503,7 +577,7 @@ app.get("/drivers/:driverId/points", requireAuth, async (req, res) => {
       });
     }
 
-    const driver = await getDriverInSponsorOrgOr404(res, sponsorCompany, driverId);
+    const driver = await driverBelongsToSponsorOr404(res, req.user.id, sponsorCompany, driverId);
     if (!driver) return; // response already sent
 
     const ledger = await query(
@@ -533,7 +607,8 @@ app.get("/drivers/:driverId/points", requireAuth, async (req, res) => {
  */
 app.post("/drivers/:driverId/points/add", requireAuth, async (req, res) => {
   const schema = z.object({
-    points: z.number().int().positive(),
+    // UI inputs often come through as strings; coerce safely.
+    points: z.coerce.number().int().positive(),
     reason: z.string().min(1).max(255),
   });
 
@@ -555,7 +630,7 @@ app.post("/drivers/:driverId/points/add", requireAuth, async (req, res) => {
       });
     }
 
-    const driver = await getDriverInSponsorOrgOr404(res, sponsorCompany, driverId);
+    const driver = await driverBelongsToSponsorOr404(res, req.user.id, sponsorCompany, driverId);
     if (!driver) return;
 
     await exec(
@@ -578,7 +653,8 @@ app.post("/drivers/:driverId/points/add", requireAuth, async (req, res) => {
  */
 app.post("/drivers/:driverId/points/deduct", requireAuth, async (req, res) => {
   const schema = z.object({
-    points: z.number().int().positive(),
+    // UI inputs often come through as strings; coerce safely.
+    points: z.coerce.number().int().positive(),
     reason: z.string().min(1).max(255),
   });
 
@@ -600,7 +676,7 @@ app.post("/drivers/:driverId/points/deduct", requireAuth, async (req, res) => {
       });
     }
 
-    const driver = await getDriverInSponsorOrgOr404(res, sponsorCompany, driverId);
+    const driver = await driverBelongsToSponsorOr404(res, req.user.id, sponsorCompany, driverId);
     if (!driver) return;
 
     const delta = -Math.abs(parsed.data.points);
