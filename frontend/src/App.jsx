@@ -1264,130 +1264,182 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
   }
 
   // ============ SPONSOR AFFILIATION PAGE ============
-  const SponsorAffiliationPage = () => {
-    const [loading, setLoading] = useState(false)
-    const [sponsors, setSponsors] = useState([])
-    const [error, setError] = useState('')
-    const [apps, setApps] = useState([])
-    const [statusMsgLocal, setStatusMsgLocal] = useState('')
+const SponsorAffiliationPage = () => {
+  const [loading, setLoading] = useState(false)
+  const [ads, setAds] = useState([])
+  const [error, setError] = useState('')
+  const [apps, setApps] = useState([])
+  const [statusMsgLocal, setStatusMsgLocal] = useState('')
 
-    const loadSponsors = async () => {
-      setError('')
-      setLoading(true)
-      try {
-        const data = await api('/sponsors', { method: 'GET' })
-        setSponsors(data.sponsors || [])
-      } catch (err) {
-        setError(err.message || 'Failed to load sponsors')
-      } finally {
-        setLoading(false)
-      }
+  const loadAds = async () => {
+    setError('')
+    setLoading(true)
+    try {
+      const data = await api('/ads', { method: 'GET' })
+      setAds(data.ads || [])
+    } catch (err) {
+      setError(err.message || 'Failed to load ads')
+    } finally {
+      setLoading(false)
     }
+  }
 
-    const loadApplications = async () => {
-      try {
-        const data = await api('/applications', { method: 'GET' })
-        setApps(data.applications || [])
-      } catch (err) {
-        // ignore silently
-      }
+  const loadApplications = async () => {
+    try {
+      const data = await api('/applications', { method: 'GET' })
+      setApps(data.applications || [])
+    } catch (err) {
+      // ignore silently
     }
+  }
 
-    useEffect(() => {
-      // load applications on mount
-      loadApplications()
-    }, [])
+  useEffect(() => {
+    loadAds()
+    loadApplications()
+  }, [])
 
-    const applyTo = async (sponsorId) => {
-      setStatusMsgLocal('')
-      try {
-        await api('/applications', { method: 'POST', body: JSON.stringify({ sponsorId }) })
-        setStatusMsgLocal('Application submitted')
-        await loadApplications()
-      } catch (err) {
-        setStatusMsgLocal(err.message || 'Failed to apply')
-      }
+  const applyTo = async (sponsorId) => {
+    setStatusMsgLocal('')
+    try {
+      await api('/applications', { method: 'POST', body: JSON.stringify({ sponsorId }) })
+      setStatusMsgLocal('Application submitted!')
+      await loadApplications()
+    } catch (err) {
+      setStatusMsgLocal(err.message || 'Failed to apply')
     }
+  }
 
-    const currentSponsor = currentUser?.profile?.sponsor_org || ''
+  const hasApplied = (sponsorId) => {
+    return apps.some(a => a.sponsor_id === sponsorId)
+  }
 
-    return (
-      <div>
-        <Navigation />
-        <main className="app-main">
-          <h1 className="page-title">Sponsor Affiliation</h1>
-          <p className="page-subtitle">View or join a sponsor program</p>
+  const currentSponsor = currentUser?.profile?.sponsor_org || ''
 
-          {currentSponsor ? (
-            <div className="card">
-              <h3>Your Sponsor</h3>
-              <p>{currentSponsor}</p>
-            </div>
-          ) : (
-            <div className="card">
-              <h3>No sponsor affiliated</h3>
-              <p>You are not currently affiliated with a sponsor. Browse available sponsors below.</p>
-              <div style={{ marginTop: 12 }}>
-                <button className="btn btn-primary" onClick={loadSponsors} disabled={loading}>
-                  {loading ? 'Loading…' : 'Find sponsors'}
-                </button>
-              </div>
+  return (
+    <div>
+      <Navigation />
+      <main className="app-main">
+        <h1 className="page-title">Sponsor Programs</h1>
+        <p className="page-subtitle">Browse and apply to sponsorship opportunities</p>
 
-              {error ? <p style={{ color: 'crimson' }}>{error}</p> : null}
+        {currentSponsor && (
+          <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid green' }}>
+            <h3>Your Sponsor</h3>
+            <p>{currentSponsor}</p>
+          </div>
+        )}
 
-              {sponsors.length > 0 && (
-                <div style={{ marginTop: 12 }}>
-                  <h4>Available sponsors</h4>
-                  <ul className="list">
-                    {sponsors.map(s => (
-                      <li key={s.id} className="list-item">
-                        <div>
-                          <strong>{s.company_name || `${s.first_name || ''} ${s.last_name || ''}`.trim() || s.email}</strong>
-                          <div className="muted">{s.email}</div>
-                        </div>
-                        <div>
-                          <button className="btn btn-success" onClick={() => applyTo(s.id)}>Apply</button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+        {statusMsgLocal && (
+          <p className="form-footer" style={{ color: 'green', marginBottom: 12 }}>{statusMsgLocal}</p>
+        )}
+        {error && (
+          <p className="form-footer" style={{ color: 'crimson', marginBottom: 12 }}>{error}</p>
+        )}
+
+        {loading ? (
+          <p>Loading programs...</p>
+        ) : ads.length === 0 ? (
+          <div className="card">
+            <p className="activity-empty">No sponsorship programs available yet.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: 16 }}>
+            {ads.map(ad => {
+              const applied = hasApplied(ad.sponsor_id)
+              return (
+                <div key={ad.id} className="card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                    <div style={{ flex: 1 }}>
+                      <h3>{ad.title}</h3>
+                      <p className="muted" style={{ marginBottom: 8 }}>
+                        {ad.sponsor_company || ad.sponsor_email}
+                      </p>
+                      <p style={{ margin: '8px 0' }}>{ad.description}</p>
+                      {ad.requirements && (
+                        <p style={{ fontSize: '0.9em', color: '#666' }}>
+                          <strong>Requirements:</strong> {ad.requirements}
+                        </p>
+                      )}
+                      {ad.benefits && (
+                        <p style={{ fontSize: '0.9em', color: '#666' }}>
+                          <strong>Benefits:</strong> {ad.benefits}
+                        </p>
+                      )}
+                    </div>
+                    <div style={{ marginLeft: 16, flexShrink: 0 }}>
+                      {applied ? (
+                        <span style={{
+                          padding: '4px 12px',
+                          borderRadius: 4,
+                          fontSize: '0.85em',
+                          backgroundColor: '#fff3cd',
+                          color: '#856404'
+                        }}>
+                          Applied
+                        </span>
+                      ) : (
+                        <button
+                          className="btn btn-success"
+                          onClick={() => applyTo(ad.sponsor_id)}
+                        >
+                          Apply
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              )}
+              )
+            })}
+          </div>
+        )}
+
+        <section style={{ marginTop: 32 }}>
+          <h2 className="section-title">Your applications</h2>
+          {apps.length === 0 ? (
+            <p className="activity-empty">No applications yet</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Company</th>
+                    <th>Status</th>
+                    <th>Applied</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {apps.map(a => (
+                    <tr key={a.id}>
+                      <td>{a.sponsor_company || a.sponsor_email}</td>
+                      <td>
+                        <span style={{
+                          padding: '4px 8px',
+                          borderRadius: 4,
+                          fontSize: '0.85em',
+                          backgroundColor:
+                            a.status === 'accepted' ? '#d4edda' :
+                            a.status === 'rejected' ? '#f8d7da' :
+                            '#fff3cd',
+                          color:
+                            a.status === 'accepted' ? '#155724' :
+                            a.status === 'rejected' ? '#721c24' :
+                            '#856404'
+                        }}>
+                          {a.status || 'pending'}
+                        </span>
+                      </td>
+                      <td>{a.applied_at ? new Date(a.applied_at).toLocaleString() : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
-
-          <section style={{ marginTop: 20 }}>
-            <h2 className="section-title">Your applications</h2>
-            {statusMsgLocal ? <p className="form-footer" style={{ color: 'green' }}>{statusMsgLocal}</p> : null}
-            {apps.length === 0 ? (
-              <p className="activity-empty">No applications found</p>
-            ) : (
-              <div className="table-wrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Company</th>
-                      <th>Status</th>
-                      <th>Applied</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {apps.map(a => (
-                      <tr key={a.id}>
-                        <td>{a.sponsor_company || a.sponsor_email}</td>
-                        <td>{a.status}</td>
-                        <td>{a.applied_at ? new Date(a.applied_at).toLocaleString() : '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </main>
-      </div>
-    )
-  }
+        </section>
+      </main>
+    </div>
+  )
+}
 
   // ============ ACCOUNT DETAILS PROMPT (edit + save to backend) ============
   const AccountDetailsPage = () => {

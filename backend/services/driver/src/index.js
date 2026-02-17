@@ -488,26 +488,21 @@ app.post("/applications", requireAuth, async (req, res) => {
 });
 
 /**
- * GET /applications
- * Returns the driver's applications with status.
- * Returns: Array of applications with sponsor details and status.
+ * GET /ads
+ * Returns all sponsorship ads visible to drivers.
  */
-app.get("/applications", requireAuth, async (req, res) => {
+app.get("/ads", requireAuth, async (req, res) => {
   try {
-    const applications = await query(
-      `
-      SELECT a.id, a.status, a.applied_at, a.reviewed_at, a.notes,
-             u.email AS sponsor_email, sp.company_name AS sponsor_company
-      FROM applications a
-      JOIN users u ON a.sponsor_id = u.id
-      LEFT JOIN sponsor_profiles sp ON a.sponsor_id = sp.user_id
-      WHERE a.driver_id = ?
-      ORDER BY a.applied_at DESC
-    `,
-      [req.user.id]
+    const ads = await query(
+      `SELECT a.id, a.title, a.description, a.requirements, a.benefits, a.created_at,
+              sp.company_name AS sponsor_company, u.email AS sponsor_email
+       FROM ads a
+       JOIN users u ON a.sponsor_id = u.id
+       LEFT JOIN sponsor_profiles sp ON a.sponsor_id = sp.user_id
+       ORDER BY a.created_at DESC`,
+      []
     );
-
-    return res.json({ applications });
+    return res.json({ ads: ads || [] });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Server error" });
