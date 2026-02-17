@@ -2577,3 +2577,6 @@ const SponsorAffiliationPage = () => {
       {/* ... any additional page renders ... */}
     </div>
   )
+}
+
+export default App
