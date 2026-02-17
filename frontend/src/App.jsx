@@ -593,8 +593,13 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
 
 // ============ NAVIGATION COMPONENT ============
   const Navigation = () => {
+    const role = ((currentUser?.role || activeRole || 'driver') + '').toLowerCase().trim()
     const allowed = getAllowedPages(currentUser)
-    
+
+    const isDriver = role === 'driver'
+    const isSponsor = role === 'sponsor'
+    const isAdmin = role === 'admin'
+
     return (
       <nav className="nav">
         <div className="nav-brand">Driver Rewards</div>
@@ -604,42 +609,54 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
               Dashboard
             </button>
           )}
-          {allowed.includes('log-trip') && (
+
+          {/* Driver-only */}
+          {isDriver && allowed.includes('log-trip') && (
             <button type="button" onClick={() => setCurrentPage('log-trip')} className="nav-link">
               Log Trip
             </button>
           )}
-          {allowed.includes('applications') && (
+
+          {/* Sponsor-only */}
+          {isSponsor && allowed.includes('applications') && (
             <button type="button" onClick={() => setCurrentPage('applications')} className="nav-link">
               Applications
             </button>
           )}
-          {allowed.includes('rewards') && (
+
+          {/* Driver-only */}
+          {isDriver && allowed.includes('rewards') && (
             <button type="button" onClick={() => setCurrentPage('rewards')} className="nav-link">
               Rewards
             </button>
           )}
-          {allowed.includes('leaderboard') && (
+          {isDriver && allowed.includes('leaderboard') && (
             <button type="button" onClick={() => setCurrentPage('leaderboard')} className="nav-link">
               Leaderboard
             </button>
           )}
-          {allowed.includes('achievements') && (
+          {isDriver && allowed.includes('achievements') && (
             <button type="button" onClick={() => setCurrentPage('achievements')} className="nav-link">
               Achievements
             </button>
           )}
+
           {allowed.includes('profile') && (
             <button type="button" onClick={() => setCurrentPage('profile')} className="nav-link">
               Profile
             </button>
           )}
-          {allowed.includes('sponsor-affiliation') && (
+
+          {/* Driver-only */}
+          {isDriver && allowed.includes('sponsor-affiliation') && (
             <button type="button" onClick={() => setCurrentPage('sponsor-affiliation')} className="nav-link">
               Sponsor
             </button>
           )}
-          <span className="nav-pts">{currentUser?.points ?? 0} pts</span>
+
+          {/* Points are only meaningful for drivers; keep UI clean for sponsors/admin */}
+          {isDriver ? <span className="nav-pts">{currentUser?.points ?? 0} pts</span> : null}
+
           <button type="button" onClick={handleLogout} className="nav-logout">Log out</button>
         </div>
       </nav>
