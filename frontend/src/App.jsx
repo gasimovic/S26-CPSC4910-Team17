@@ -9,45 +9,69 @@ function App() {
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
 
-  // Keep UI the same: no role selector in the UI.
-  // Choose which microservice to hit via env var. Defaults to driver.
-  // Valid: admin | driver | sponsor
-  const activeRole = (import.meta.env.VITE_ACTIVE_ROLE || 'driver').toLowerCase()
-
-  // IMPORTANT (EC2 + browser): if the frontend calls :4001/:4002/:4003 directly from the browser,
-  // it can fail due to Security Group rules and/or CORS.
-  // Instead, call the Vite dev server (same-origin) and let Vite proxy to the backend ports.
-  // See `vite.config.js` proxy rules for /api/admin, /api/driver, /api/sponsor.
-
-  // Prefer relative (same-origin) API bases so the browser never tries to call localhost:400x.
-  // On EC2, the browser is your laptop, so `localhost` would be WRONG.
+  // ======= API base selection (supports logging in as driver OR sponsor without changing .env) =======
+  // Vite proxy bases (same-origin). These MUST match `vite.config.js`.
   const DRIVER_API_BASE = (import.meta.env.VITE_DRIVER_API_BASE || '/api/driver').replace(/\/$/, '')
   const ADMIN_API_BASE = (import.meta.env.VITE_ADMIN_API_BASE || '/api/admin').replace(/\/$/, '')
   const SPONSOR_API_BASE = (import.meta.env.VITE_SPONSOR_API_BASE || '/api/sponsor').replace(/\/$/, '')
 
-  // Back-compat: allow a single override (VITE_API_PREFIX), but if it points at localhost and
-  // we're not actually browsing from localhost, ignore it and use the proxy paths.
-  const API_PREFIX = useMemo(() => {
-    const role = (activeRole || 'driver').toLowerCase()
-    const defaultPrefix =
-      role === 'admin' ? ADMIN_API_BASE :
-      role === 'sponsor' ? SPONSOR_API_BASE :
-      DRIVER_API_BASE
+  // Default base from env (back-compat). If missing, default to driver.
+  const envRole = (import.meta.env.VITE_ACTIVE_ROLE || 'driver').toLowerCase()
+  const envDefaultBase =
+    envRole === 'admin' ? ADMIN_API_BASE :
+    envRole === 'sponsor' ? SPONSOR_API_BASE :
+    DRIVER_API_BASE
 
+  // Persist the last successful base so refresh keeps the correct role.
+  const [apiBase, setApiBase] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem('gdip_api_base')
+      return (saved && saved.trim()) ? saved.trim().replace(/\/$/, '') : envDefaultBase
+    } catch {
+      return envDefaultBase
+    }
+  })
+
+  const inferRoleFromBase = (base) => {
+    const b = (base || '').toLowerCase()
+    if (b.includes('/api/admin')) return 'admin'
+    if (b.includes('/api/sponsor')) return 'sponsor'
+    return 'driver'
+  }
+
+  const setApiBasePersisted = (base) => {
+    const clean = (base || '').replace(/\/$/, '')
+    setApiBase(clean)
+    try {
+      window.localStorage.setItem('gdip_api_base', clean)
+    } catch {
+      // ignore
+    }
+  }
+
+  // Allow a single override (VITE_API_PREFIX), but if it points at localhost and
+  // we're not actually browsing from localhost, ignore it and use the proxy paths.
+  useEffect(() => {
     const raw = (import.meta.env.VITE_API_PREFIX || '').trim()
-    if (!raw) return defaultPrefix
+    if (!raw) return
 
     const isLocalhostBrowser =
       typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
 
     const pointsToLocalhost = raw.includes('localhost') || raw.includes('127.0.0.1')
-    if (pointsToLocalhost && !isLocalhostBrowser) return defaultPrefix
+    if (pointsToLocalhost && !isLocalhostBrowser) return
 
-    return raw.replace(/\/$/, '')
-  }, [activeRole])
+    // Only apply this override if we haven't already successfully logged in and saved a base.
+    try {
+      const saved = window.localStorage.getItem('gdip_api_base')
+      if (saved && saved.trim()) return
+    } catch {
+      // ignore
+    }
 
-  const baseUrl = API_PREFIX
+    setApiBasePersisted(raw)
+  }, [])
 
   // Simple message state (keeps appearance: uses existing footer style)
   const [authError, setAuthError] = useState('')
@@ -71,7 +95,7 @@ function App() {
 
     try {
       const safePath = path.startsWith('/') ? path : `/${path}`
-      res = await fetch(`${baseUrl}${safePath}`,
+      res = await fetch(`${apiBase}${safePath}`,
         {
           credentials: 'include',
           headers: {
@@ -138,7 +162,7 @@ function App() {
       id: userObj.id || userObj.userId || userObj.user_id || null,
       name,
       email: userObj.email || null,
-      role: userObj.role || activeRole,
+      role: (userObj.role || inferRoleFromBase(apiBase)),
       // Sprint 1 backend doesn't provide points yet
       points: Number(userObj.points ?? 0),
       miles: Number(userObj.miles ?? 0),
@@ -187,7 +211,7 @@ function App() {
     // Default conservative set for anonymous/unknown
     if (!user) return ['dashboard']
 
-    const role = (user.role || activeRole || 'driver').toLowerCase()
+    const role = (user.role || inferRoleFromBase(apiBase) || 'driver').toLowerCase()
     const hasSponsor = Boolean((user.profile?.sponsor_org || '').toString().trim())
 
     if (role === 'admin') {
@@ -226,41 +250,172 @@ function App() {
     }
   }, [currentUser, isLoggedIn, currentPage])
 
-const handleLogin = async (email, password) => {
-  setAuthError('')
-  setStatusMsg('')
-  setStatusMsg('Signing in…')
+  const apiWithBase = async (base, path, options = {}) => {
+    // Same behavior as `api`, but lets us try different services during login.
+    let res
+    const controller = new AbortController()
+    const timeoutMs = Number(import.meta.env.VITE_API_TIMEOUT_MS || 12000)
+    const t = setTimeout(() => controller.abort(), timeoutMs)
 
-  try {
-    await api('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password })
-    })
-
-    setIsLoggedIn(true)
-    setStatusMsg('Signed in. Loading your profile…')
-
-    const u = await loadMe()
-
-    // If user has no details yet, send them to the details prompt
-    if (profileLooksEmpty(u)) {
-      setCurrentPage('account-details')
-      setStatusMsg('Welcome! Please complete your account details.')
-    } else {
-      setCurrentPage('dashboard')
+    try {
+      const safePath = path.startsWith('/') ? path : `/${path}`
+      res = await fetch(`${base.replace(/\/$/, '')}${safePath}`,
+        {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(options.headers || {})
+          },
+          signal: controller.signal,
+          ...options
+        }
+      )
+    } catch (e) {
+      const isAbort = e?.name === 'AbortError'
+      const err = new Error(
+        isAbort
+          ? `Request timed out after ${Math.round(timeoutMs / 1000)}s (could not reach the server)`
+          : 'Network error: could not reach the server'
+      )
+      err.cause = e
+      throw err
+    } finally {
+      clearTimeout(t)
     }
-  } catch (err) {
-    setIsLoggedIn(false)
-    setCurrentUser(null)
-    setAuthError(err.message || 'Login failed')
-    if (err?.responseBody) console.error('Login error response:', err.responseBody)
+
+    const data = await safeJson(res)
+    const ct = (res.headers.get('content-type') || '').toLowerCase()
+    const rawText = typeof data?.raw === 'string' ? data.raw : ''
+    if (ct.includes('text/html') || rawText.includes('<!doctype html') || rawText.includes('<html')) {
+      const err = new Error(
+        'Received HTML from the server instead of API JSON. This usually means the Vite proxy for /api/* is not configured or not being loaded by the dev server.'
+      )
+      err.status = res.status
+      err.responseBody = rawText
+      throw err
+    }
+
+    if (!res.ok) {
+      const bodyText = typeof data?.raw === 'string' ? data.raw : JSON.stringify(data || {})
+      const msg = data?.error || data?.message || res.statusText || 'Server error'
+      const err = new Error(`${msg} (HTTP ${res.status})`)
+      err.responseBody = bodyText
+      err.status = res.status
+      throw err
+    }
+
+    return data
   }
-}
+
+  const handleLogin = async (email, password) => {
+    setAuthError('')
+    setStatusMsg('')
+    setStatusMsg('Signing in…')
+
+    // Try the last-used base first, then fall back to the others.
+    const candidates = [
+      apiBase,
+      DRIVER_API_BASE,
+      SPONSOR_API_BASE,
+      ADMIN_API_BASE
+    ].filter(Boolean)
+
+    // De-dupe while keeping order
+    const bases = [...new Set(candidates.map(b => (b || '').replace(/\/$/, '')))].filter(Boolean)
+
+    try {
+      let chosenBase = null
+
+      for (const b of bases) {
+        try {
+          await apiWithBase(b, '/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ email, password })
+          })
+          chosenBase = b
+          break
+        } catch (e) {
+          // If credentials are wrong for that service, try the next.
+          // Keep going on 400/401/404; stop on network/timeouts.
+          const status = e?.status
+          const msg = (e?.message || '').toLowerCase()
+          const looksNetworky = msg.includes('network error') || msg.includes('timed out')
+          if (looksNetworky) throw e
+          if (status && ![400, 401, 404].includes(status)) throw e
+        }
+      }
+
+      if (!chosenBase) {
+        throw new Error('Invalid credentials (HTTP 401)')
+      }
+
+      setApiBasePersisted(chosenBase)
+      setIsLoggedIn(true)
+      setStatusMsg('Signed in. Loading your profile…')
+
+      const u = await (async () => {
+        const me = await apiWithBase(chosenBase, '/me', { method: 'GET' })
+        const normalized = (() => {
+          const userObj = me?.user || me || {}
+          const profileObj = me?.profile || me?.profileData || me || {}
+
+          const firstName = profileObj.first_name || ''
+          const lastName = profileObj.last_name || ''
+          const displayName = profileObj.display_name || ''
+          const name = displayName || [firstName, lastName].filter(Boolean).join(' ') || userObj.email || 'User'
+
+          return {
+            id: userObj.id || userObj.userId || userObj.user_id || null,
+            name,
+            email: userObj.email || null,
+            role: (userObj.role || inferRoleFromBase(chosenBase)),
+            points: Number(userObj.points ?? 0),
+            miles: Number(userObj.miles ?? 0),
+            streak: Number(userObj.streak ?? 0),
+            rank: Number(userObj.rank ?? 0),
+            profile: {
+              first_name: profileObj.first_name || '',
+              last_name: profileObj.last_name || '',
+              dob: profileObj.dob || '',
+              phone: profileObj.phone || '',
+              address_line1: profileObj.address_line1 || '',
+              address_line2: profileObj.address_line2 || '',
+              city: profileObj.city || '',
+              state: profileObj.state || '',
+              postal_code: profileObj.postal_code || '',
+              country: profileObj.country || '',
+              sponsor_org: profileObj.sponsor_org || '',
+              company_name: profileObj.company_name || '',
+              display_name: profileObj.display_name || ''
+            }
+          }
+        })()
+
+        setCurrentUser(normalized)
+        return normalized
+      })()
+
+      if (profileLooksEmpty(u)) {
+        setCurrentPage('account-details')
+        setStatusMsg('Welcome! Please complete your account details.')
+      } else {
+        setCurrentPage('dashboard')
+      }
+    } catch (err) {
+      setIsLoggedIn(false)
+      setCurrentUser(null)
+      setAuthError(err.message || 'Login failed')
+      if (err?.responseBody) console.error('Login error response:', err.responseBody)
+    }
+  }
 
 const handleRegister = async ({ email, password, name, dob, company_name }) => {
   setAuthError('')
   setStatusMsg('')
   setStatusMsg('Creating account…')
+
+  // Use the pendingRole for registration base
+  const roleBase = pendingRole === 'sponsor' ? SPONSOR_API_BASE : DRIVER_API_BASE
 
   try {
     // Parse name into first_name and last_name
@@ -279,22 +434,22 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     }
 
     // Add company_name for sponsors (not used for drivers)
-    if (activeRole === 'sponsor' && company_name) {
+    if (pendingRole === 'sponsor' && company_name) {
       registrationData.company_name = company_name
     }
 
     // Send all required data to backend registration
-    await api('/auth/register', {
+    await apiWithBase(roleBase, '/auth/register', {
       method: 'POST',
       body: JSON.stringify(registrationData)
     })
 
     // Log in immediately
-    await api('/auth/login', {
+    await apiWithBase(roleBase, '/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password })
     })
-
+    setApiBasePersisted(roleBase)
     setIsLoggedIn(true)
     setStatusMsg('Account created. Loading your profile…')
 
@@ -325,6 +480,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     setIsLoggedIn(false)
     setCurrentPage('login')
     setCurrentUser(null)
+    try { window.localStorage.removeItem('gdip_api_base') } catch {}
   }
 
   // Optional: if user refreshes while logged in, try to restore
@@ -593,7 +749,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
 
 // ============ NAVIGATION COMPONENT ============
   const Navigation = () => {
-    const role = ((currentUser?.role || activeRole || 'driver') + '').toLowerCase().trim()
+    const role = ((currentUser?.role || inferRoleFromBase(apiBase) || 'driver') + '').toLowerCase().trim()
     const allowed = getAllowedPages(currentUser)
 
     const isDriver = role === 'driver'
@@ -1067,9 +1223,10 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
         addIfNonEmpty('country', formData.country)
 
         // role-specific optional fields (only send if non-empty)
-        if (activeRole === 'driver') addIfNonEmpty('sponsor_org', formData.sponsor_org)
-        if (activeRole === 'sponsor') addIfNonEmpty('company_name', formData.company_name)
-        if (activeRole === 'admin') addIfNonEmpty('display_name', formData.display_name)
+        const role = ((currentUser?.role || inferRoleFromBase(apiBase) || 'driver') + '').toLowerCase().trim()
+        if (role === 'driver') addIfNonEmpty('sponsor_org', formData.sponsor_org)
+        if (role === 'sponsor') addIfNonEmpty('company_name', formData.company_name)
+        if (role === 'admin') addIfNonEmpty('display_name', formData.display_name)
 
         await api('/me/profile', {
           method: 'PUT',
