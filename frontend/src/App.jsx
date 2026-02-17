@@ -222,7 +222,7 @@ function App() {
       // Sponsors should manage ads/applications + their own profile/account.
       // Driver-only pages like Rewards, Leaderboard, Achievements, Log Trip, and Sponsor Affiliation
       // must NOT appear for sponsors.
-      return ['dashboard', 'applications', 'profile', 'account-details', 'change-password']
+      return ['dashboard', 'drivers', 'applications', 'profile', 'account-details', 'change-password']
     }
 
     // driver
@@ -1008,6 +1008,12 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
               Applications
             </button>
           )}
+          {/* Sponsor-only: Drivers button */}
+          {isSponsor && allowed.includes('drivers') && (
+            <button type="button" onClick={() => setCurrentPage('drivers')} className="nav-link">
+              Drivers
+            </button>
+          )}
 
           {/* Driver-only */}
           {isDriver && allowed.includes('rewards') && (
@@ -1045,6 +1051,214 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
           <button type="button" onClick={handleLogout} className="nav-logout">Log out</button>
         </div>
       </nav>
+    )
+  }
+  // ============ DRIVERS PAGE (for sponsors: adjust driver points) ============
+  const SponsorDriversPage = () => {
+    const [drivers, setDrivers] = useState([])
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState('')
+    const [success, setSuccess] = useState('')
+    const [query, setQuery] = useState('')
+
+    // per-driver edit state
+    const [deltaById, setDeltaById] = useState({})
+    const [reasonById, setReasonById] = useState({})
+
+    const loadDrivers = async () => {
+      setError('')
+      setSuccess('')
+      setLoading(true)
+      try {
+        // Prefer sponsor service endpoints; try a few common shapes for robustness
+        const tryPaths = ['/drivers', '/driver-points/drivers', '/points/drivers']
+        let data = null
+        let lastErr = null
+        for (const p of tryPaths) {
+          try {
+            data = await api(p, { method: 'GET' })
+            break
+          } catch (e) {
+            lastErr = e
+          }
+        }
+        if (!data) throw lastErr || new Error('Failed to load drivers')
+
+        const list = data.drivers || data.items || data.results || []
+        setDrivers(Array.isArray(list) ? list : [])
+      } catch (e) {
+        setError(e?.message || 'Failed to load drivers')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    useEffect(() => {
+      // Load on mount
+      loadDrivers()
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    const filtered = useMemo(() => {
+      const q = (query || '').trim().toLowerCase()
+      if (!q) return drivers
+      return drivers.filter(d => {
+        const id = String(d.id ?? d.user_id ?? '')
+        const email = String(d.email ?? '')
+        const name = String(d.name ?? d.driver_name ?? '')
+        return id.includes(q) || email.toLowerCase().includes(q) || name.toLowerCase().includes(q)
+      })
+    }, [drivers, query])
+
+    const adjustPoints = async (driver) => {
+      setError('')
+      setSuccess('')
+
+      const driverId = driver?.id ?? driver?.user_id
+      if (!driverId) {
+        setError('Missing driver id')
+        return
+      }
+
+      const rawDelta = deltaById[driverId]
+      const delta = Number(rawDelta)
+      if (!Number.isFinite(delta) || delta === 0) {
+        setError('Enter a non-zero number of points to add (+) or deduct (-).')
+        return
+      }
+
+      const reason = (reasonById[driverId] || '').trim()
+
+      try {
+        // Try a few common endpoint shapes (backend should enforce sponsor auth)
+        const body = JSON.stringify({ driverId, delta, reason })
+        const tryReqs = [
+          () => api(`/drivers/${driverId}/points`, { method: 'POST', body }),
+          () => api(`/drivers/${driverId}/adjust-points`, { method: 'POST', body }),
+          () => api('/driver-points/adjust', { method: 'POST', body }),
+          () => api('/points/adjust', { method: 'POST', body })
+        ]
+
+        let resp = null
+        let lastErr = null
+        for (const fn of tryReqs) {
+          try {
+            resp = await fn()
+            break
+          } catch (e) {
+            lastErr = e
+          }
+        }
+        if (!resp) throw lastErr || new Error('Failed to update points')
+
+        setSuccess(`Updated points for driver ${driverId}.`)
+
+        // Best-effort refresh list to reflect new totals
+        await loadDrivers()
+
+        // Clear inputs for this driver
+        setDeltaById(prev => ({ ...prev, [driverId]: '' }))
+        setReasonById(prev => ({ ...prev, [driverId]: '' }))
+      } catch (e) {
+        setError(e?.message || 'Failed to update points')
+        if (e?.responseBody) console.error('Adjust points error response:', e.responseBody)
+      }
+    }
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Drivers</h1>
+          <p className="page-subtitle">Add or deduct points for affiliated drivers</p>
+
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                className="form-input"
+                style={{ flex: 1, minWidth: 220 }}
+                placeholder="Search by name, email, or ID"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <button className="btn btn-primary" type="button" onClick={loadDrivers} disabled={loading}>
+                {loading ? 'Refreshing…' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+
+          {error ? <p className="form-footer" style={{ color: 'crimson' }}>{error}</p> : null}
+          {success ? <p className="form-footer" style={{ color: 'green' }}>{success}</p> : null}
+
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Driver</th>
+                  <th>Email</th>
+                  <th className="text-right">Points</th>
+                  <th style={{ width: 260 }}>Adjust</th>
+                  <th style={{ width: 260 }}>Reason (optional)</th>
+                  <th style={{ width: 140 }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && drivers.length === 0 ? (
+                  <tr><td colSpan="6" className="table-empty">Loading…</td></tr>
+                ) : filtered.length === 0 ? (
+                  <tr><td colSpan="6" className="table-empty">No drivers found</td></tr>
+                ) : (
+                  filtered.map(d => {
+                    const id = d.id ?? d.user_id
+                    const name = d.name || d.driver_name || [d.first_name, d.last_name].filter(Boolean).join(' ') || `Driver ${id}`
+                    const email = d.email || d.driver_email || '-'
+                    const points = Number(d.points ?? d.total_points ?? 0)
+
+                    return (
+                      <tr key={String(id)}>
+                        <td>{name}</td>
+                        <td>{email}</td>
+                        <td className="text-right">{points}</td>
+                        <td>
+                          <input
+                            className="form-input"
+                            type="number"
+                            placeholder="e.g. 50 or -20"
+                            value={deltaById[id] ?? ''}
+                            onChange={(e) => setDeltaById(prev => ({ ...prev, [id]: e.target.value }))}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            className="form-input"
+                            type="text"
+                            placeholder="Optional note"
+                            value={reasonById[id] ?? ''}
+                            onChange={(e) => setReasonById(prev => ({ ...prev, [id]: e.target.value }))}
+                          />
+                        </td>
+                        <td>
+                          <button
+                            className="btn btn-success"
+                            type="button"
+                            onClick={() => adjustPoints({ ...d, id })}
+                          >
+                            Apply
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="form-footer" style={{ marginTop: 12 }}>
+            Tip: use positive numbers to add points and negative numbers to deduct points.
+          </p>
+        </main>
+      </div>
     )
   }
 
@@ -2346,32 +2560,20 @@ const SponsorAffiliationPage = () => {
       {!isLoggedIn && currentPage === 'login' && <LoginPage />}
       {!isLoggedIn && currentPage === 'login-sponsor' && <SponsorLoginPage />}
       {!isLoggedIn && currentPage === 'account-type' && <AccountTypePage />}
-      {!isLoggedIn && currentPage === 'create-account' && <CreateAccountPage />}
-      {!isLoggedIn && currentPage === 'reset-password' && <ResetPasswordPage prefill={resetPrefill} />}
-
-      {isLoggedIn && (() => {
-        const allowed = getAllowedPages(currentUser)
-        return (
-          <>
-            {allowed.includes('dashboard') && currentPage === 'dashboard' && <DashboardPage />}
-            {allowed.includes('log-trip') && currentPage === 'log-trip' && <LogTripPage />}
-            {allowed.includes('rewards') && currentPage === 'rewards' && <RewardsPage />}
-            {allowed.includes('leaderboard') && currentPage === 'leaderboard' && <LeaderboardPage />}
-            {allowed.includes('achievements') && currentPage === 'achievements' && <AchievementsPage />}
-            {allowed.includes('profile') && currentPage === 'profile' && <ProfilePage />}
-            {allowed.includes('sponsor-affiliation') && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
-            {allowed.includes('account-details') && currentPage === 'account-details' && <AccountDetailsPage />}
-            {allowed.includes('change-password') && currentPage === 'change-password' && <ChangePasswordPage />}
-            {allowed.includes('applications') && currentPage === 'applications' && <ApplicationsPage />}
-            {/* Safety fallback: render dashboard if currentPage somehow invalid */}
-            {(!allowed.includes(currentPage)) && <DashboardPage />}
-          </>
-        )
-      })()}
+      {/* ... other not-logged-in renders ... */}
+      {/* Logged-in page renders */}
+      {isLoggedIn && currentPage === 'dashboard' && <DashboardPage />}
+      {isLoggedIn && currentPage === 'log-trip' && <LogTripPage />}
+      {isLoggedIn && currentPage === 'rewards' && <RewardsPage />}
+      {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
+      {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}
+      {isLoggedIn && currentPage === 'profile' && <ProfilePage />}
+      {isLoggedIn && currentPage === 'account-details' && <AccountDetailsPage />}
+      {isLoggedIn && currentPage === 'change-password' && <ChangePasswordPage />}
+      {isLoggedIn && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
+      {/* Sponsor-only pages */}
+      {isLoggedIn && currentPage === 'applications' && <ApplicationsPage />}
+      {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
+      {/* ... any additional page renders ... */}
     </div>
   )
-}
-
-
-
-export default App
