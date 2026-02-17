@@ -195,7 +195,10 @@ function App() {
     }
 
     if (role === 'sponsor') {
-      return ['dashboard', 'applications', 'rewards', 'leaderboard', 'profile', 'account-details', 'change-password', 'sponsor-affiliation']
+      // Sponsors should manage ads/applications + their own profile/account.
+      // Driver-only pages like Rewards, Leaderboard, Achievements, Log Trip, and Sponsor Affiliation
+      // must NOT appear for sponsors.
+      return ['dashboard', 'applications', 'profile', 'account-details', 'change-password']
     }
 
     // driver
