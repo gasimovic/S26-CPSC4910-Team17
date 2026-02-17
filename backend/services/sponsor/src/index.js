@@ -8,7 +8,49 @@ const app = makeApp();
 const PORT = process.env.PORT || 4003;
 const COOKIE_NAME = process.env.COOKIE_NAME || "gdip_token";
 const COOKIE_SECURE = (process.env.COOKIE_SECURE || "false") === "true";
+
 const ROLE = "sponsor";
+
+function toInt(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? Math.trunc(v) : NaN;
+  if (typeof v !== "string") return NaN;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : NaN;
+}
+
+async function getSponsorCompanyName(sponsorId) {
+  const rows = await query(
+    "SELECT company_name FROM sponsor_profiles WHERE user_id = ? LIMIT 1",
+    [sponsorId]
+  );
+  const company = rows?.[0]?.company_name;
+  return company && String(company).trim().length > 0 ? String(company).trim() : null;
+}
+
+async function getDriverInSponsorOrgOr404(res, sponsorCompany, driverId) {
+  const rows = await query(
+    `SELECT u.id, u.email, dp.*
+     FROM users u
+     JOIN driver_profiles dp ON u.id = dp.user_id
+     WHERE u.role = 'driver' AND u.id = ? AND dp.sponsor_org = ?
+     LIMIT 1`,
+    [driverId, sponsorCompany]
+  );
+
+  if (!rows || rows.length === 0) {
+    res.status(404).json({ error: "Driver not found in your organization" });
+    return null;
+  }
+  return rows[0];
+}
+
+async function getDriverPointsBalance(driverId) {
+  const rows = await query(
+    "SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?",
+    [driverId]
+  );
+  return Number(rows?.[0]?.balance || 0);
+}
 
 function requireAuth(req, res, next) {
   const token = req.cookies?.[COOKIE_NAME];
@@ -376,6 +418,206 @@ app.get('/applications/:applicationId', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'Server error' })
   }
 })
+
+/**
+ * Sprint 3: Sponsor driver points + org driver listing
+ */
+
+/**
+ * GET /drivers
+ * List drivers in the sponsor's organization, including current points balance.
+ */
+app.get("/drivers", requireAuth, async (req, res) => {
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) {
+      return res.status(400).json({
+        error: "Sponsor company_name is not set. Update your profile first.",
+      });
+    }
+
+    const rows = await query(
+      `SELECT 
+         u.id,
+         u.email,
+         dp.first_name,
+         dp.last_name,
+         dp.dob,
+         dp.phone,
+         dp.address_line1,
+         dp.address_line2,
+         dp.city,
+         dp.state,
+         dp.postal_code,
+         dp.country,
+         dp.sponsor_org,
+         COALESCE(SUM(l.delta), 0) AS points_balance
+       FROM users u
+       JOIN driver_profiles dp ON u.id = dp.user_id
+       LEFT JOIN driver_points_ledger l ON l.driver_id = u.id
+       WHERE u.role = 'driver' AND dp.sponsor_org = ?
+       GROUP BY u.id
+       ORDER BY dp.last_name ASC, dp.first_name ASC, u.email ASC`,
+      [sponsorCompany]
+    );
+
+    const drivers = (rows || []).map((r) => ({
+      id: r.id,
+      email: r.email,
+      first_name: r.first_name,
+      last_name: r.last_name,
+      dob: r.dob,
+      phone: r.phone,
+      address_line1: r.address_line1,
+      address_line2: r.address_line2,
+      city: r.city,
+      state: r.state,
+      postal_code: r.postal_code,
+      country: r.country,
+      sponsor_org: r.sponsor_org,
+      pointsBalance: Number(r.points_balance || 0),
+    }));
+
+    return res.json({ drivers });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * GET /drivers/:driverId/points
+ * Return the points ledger for a driver in this sponsor's org.
+ */
+app.get("/drivers/:driverId/points", requireAuth, async (req, res) => {
+  const driverId = toInt(req.params.driverId);
+  if (!Number.isFinite(driverId)) {
+    return res.status(400).json({ error: "Invalid driverId" });
+  }
+
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) {
+      return res.status(400).json({
+        error: "Sponsor company_name is not set. Update your profile first.",
+      });
+    }
+
+    const driver = await getDriverInSponsorOrgOr404(res, sponsorCompany, driverId);
+    if (!driver) return; // response already sent
+
+    const ledger = await query(
+      `SELECT id, driver_id, sponsor_id, delta, reason, created_at
+       FROM driver_points_ledger
+       WHERE driver_id = ? AND sponsor_id = ?
+       ORDER BY created_at DESC, id DESC`,
+      [driverId, req.user.id]
+    );
+
+    const balance = await getDriverPointsBalance(driverId);
+
+    return res.json({
+      driver: { id: driver.id, email: driver.email, first_name: driver.first_name, last_name: driver.last_name },
+      balance,
+      ledger: ledger || [],
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * POST /drivers/:driverId/points/add
+ * Body: { points: number, reason: string }
+ */
+app.post("/drivers/:driverId/points/add", requireAuth, async (req, res) => {
+  const schema = z.object({
+    points: z.number().int().positive(),
+    reason: z.string().min(1).max(255),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+  }
+
+  const driverId = toInt(req.params.driverId);
+  if (!Number.isFinite(driverId)) {
+    return res.status(400).json({ error: "Invalid driverId" });
+  }
+
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) {
+      return res.status(400).json({
+        error: "Sponsor company_name is not set. Update your profile first.",
+      });
+    }
+
+    const driver = await getDriverInSponsorOrgOr404(res, sponsorCompany, driverId);
+    if (!driver) return;
+
+    await exec(
+      "INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)",
+      [driverId, req.user.id, parsed.data.points, parsed.data.reason]
+    );
+
+    const balance = await getDriverPointsBalance(driverId);
+
+    return res.json({ ok: true, driverId, delta: parsed.data.points, reason: parsed.data.reason, balance });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * POST /drivers/:driverId/points/deduct
+ * Body: { points: number, reason: string }
+ */
+app.post("/drivers/:driverId/points/deduct", requireAuth, async (req, res) => {
+  const schema = z.object({
+    points: z.number().int().positive(),
+    reason: z.string().min(1).max(255),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+  }
+
+  const driverId = toInt(req.params.driverId);
+  if (!Number.isFinite(driverId)) {
+    return res.status(400).json({ error: "Invalid driverId" });
+  }
+
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) {
+      return res.status(400).json({
+        error: "Sponsor company_name is not set. Update your profile first.",
+      });
+    }
+
+    const driver = await getDriverInSponsorOrgOr404(res, sponsorCompany, driverId);
+    if (!driver) return;
+
+    const delta = -Math.abs(parsed.data.points);
+
+    await exec(
+      "INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)",
+      [driverId, req.user.id, delta, parsed.data.reason]
+    );
+
+    const balance = await getDriverPointsBalance(driverId);
+
+    return res.json({ ok: true, driverId, delta, reason: parsed.data.reason, balance });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
 
 /**
  * PUT /applications/:applicationId/review
