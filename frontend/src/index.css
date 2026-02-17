@@ -262,6 +262,41 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
+/* ============ ACCOUNT TYPE CARDS ============ */
+.account-type-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.account-type-card {
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.08s, background 0.15s;
+}
+
+.account-type-card:hover {
+  border-color: var(--border-focus);
+  box-shadow: var(--shadow-hover);
+  background: #f9fafb;
+  transform: translateY(-1px);
+}
+
+.account-type-card:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
 .landing-footer {
   border-top: 1px solid var(--border);
   padding: 16px 24px 24px;

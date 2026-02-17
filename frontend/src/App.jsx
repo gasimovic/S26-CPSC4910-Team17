@@ -452,36 +452,36 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
           <h1 className="login-title">Choose account type</h1>
           <p className="login-subtitle">Select how you want to use Driver Rewards.</p>
 
-          <div className="landing-grid landing-grid--two" style={{ marginTop: 16 }}>
+          <div className="form-group">
             <button
               type="button"
-              className="card"
-              style={{ textAlign: 'left', cursor: 'pointer' }}
+              className="btn btn-primary btn-block"
               onClick={() => {
                 setPendingRole('driver')
                 setCurrentPage('create-account')
               }}
             >
-              <h3 className="card-title">Driver</h3>
-              <p className="card-body">
-                Earn points for safe driving, climb the leaderboard, and redeem rewards.
-              </p>
+              Sign up as a driver
             </button>
+            <p className="form-footer" style={{ marginTop: 8 }}>
+              Earn points for safe driving, climb the leaderboard, and redeem rewards.
+            </p>
+          </div>
 
+          <div className="form-group">
             <button
               type="button"
-              className="card"
-              style={{ textAlign: 'left', cursor: 'pointer' }}
+              className="btn btn-success btn-block"
               onClick={() => {
                 setPendingRole('sponsor')
                 setCurrentPage('create-account')
               }}
             >
-              <h3 className="card-title">Sponsor</h3>
-              <p className="card-body">
-                Create programs, post opportunities, and reward safe, consistent drivers.
-              </p>
+              Sign up as a sponsor
             </button>
+            <p className="form-footer" style={{ marginTop: 8 }}>
+              Create programs, post opportunities, and reward safe, consistent drivers.
+            </p>
           </div>
 
           <p className="form-footer">
