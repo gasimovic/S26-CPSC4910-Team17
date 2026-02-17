@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 function App() {
   // ============ STATE MANAGEMENT ============
   const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [currentPage, setCurrentPage] = useState('login')
+  const [currentPage, setCurrentPage] = useState('landing')
   const [currentUser, setCurrentUser] = useState(null)
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
@@ -343,6 +343,105 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
       // ignore
     }
   }, [])
+
+  // ============ LANDING PAGE ============
+  const LandingPage = () => {
+    return (
+      <div className="landing">
+        <header className="landing-hero">
+          <div className="landing-hero-content">
+            <div>
+              <p className="landing-eyebrow">Driver Rewards Program</p>
+              <h1 className="landing-title">Rewarding safe driving, one mile at a time.</h1>
+              <p className="landing-subtitle">
+                Log trips, earn points, and unlock rewards from sponsors who care about safety and consistency on the road.
+              </p>
+              <div className="landing-cta">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setCurrentPage('login')}
+                >
+                  Sign in
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  onClick={() => setCurrentPage('create-account')}
+                >
+                  Create an account
+                </button>
+              </div>
+            </div>
+
+            <div className="landing-hero-visual">
+              <p className="landing-metric-label">Example snapshot</p>
+              <p className="landing-metric-value">12,450 pts</p>
+              <p className="landing-metric-sub">Safe miles logged this year</p>
+              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '16px 0' }} />
+              <p className="landing-metric-label">This month</p>
+              <p className="landing-metric-sub">4 safe trips · 320 miles · 3 rewards redeemed</p>
+            </div>
+          </div>
+        </header>
+
+        <main className="landing-main">
+          <section className="landing-section">
+            <h2 className="section-title">How it works</h2>
+            <div className="landing-grid">
+              <div className="card">
+                <h3 className="card-title">Log safe trips</h3>
+                <p className="card-body">
+                  Record your miles and safe-driving streaks to earn points over time.
+                </p>
+              </div>
+              <div className="card">
+                <h3 className="card-title">Earn points</h3>
+                <p className="card-body">
+                  Consistent safe driving increases your points, rank, and achievements.
+                </p>
+              </div>
+              <div className="card">
+                <h3 className="card-title">Redeem rewards</h3>
+                <p className="card-body">
+                  Trade points for rewards from participating sponsors and partners.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="landing-section">
+            <h2 className="section-title">Built for drivers and sponsors</h2>
+            <div className="landing-grid landing-grid--two">
+              <div className="card">
+                <h3 className="card-title">For drivers</h3>
+                <p className="card-body">
+                  Track your progress, view your leaderboard position, and stay motivated to drive safely.
+                </p>
+              </div>
+              <div className="card">
+                <h3 className="card-title">For sponsors</h3>
+                <p className="card-body">
+                  Engage with high-performing drivers and reward safe, consistent behavior with custom perks.
+                </p>
+              </div>
+            </div>
+          </section>
+        </main>
+
+        <footer className="landing-footer">
+          <p>Ready to get started?</p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => setCurrentPage('login')}
+          >
+            Go to sign in
+          </button>
+        </footer>
+      </div>
+    )
+  }
 
   // ============ LOGIN PAGE ============
   const LoginPage = () => {
@@ -1717,6 +1816,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
   // ============ MAIN RENDER ============
   return (
     <div>
+      {!isLoggedIn && currentPage === 'landing' && <LandingPage />}
       {!isLoggedIn && currentPage === 'login' && <LoginPage />}
       {!isLoggedIn && currentPage === 'create-account' && <CreateAccountPage />}
       {!isLoggedIn && currentPage === 'reset-password' && <ResetPasswordPage prefill={resetPrefill} />}
