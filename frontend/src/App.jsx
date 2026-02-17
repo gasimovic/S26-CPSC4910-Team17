@@ -5,6 +5,7 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [currentPage, setCurrentPage] = useState('landing')
   const [currentUser, setCurrentUser] = useState(null)
+  const [pendingRole, setPendingRole] = useState('driver') // chosen role for new accounts (driver | sponsor)
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
 
@@ -367,7 +368,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
                 <button
                   type="button"
                   className="btn btn-success"
-                  onClick={() => setCurrentPage('create-account')}
+                  onClick={() => setCurrentPage('account-type')}
                 >
                   Create an account
                 </button>
@@ -439,6 +440,66 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
             Go to sign in
           </button>
         </footer>
+      </div>
+    )
+  }
+
+  // ============ ACCOUNT TYPE SELECTION PAGE ============
+  const AccountTypePage = () => {
+    return (
+      <div className="login-wrap">
+        <div className="login-card">
+          <h1 className="login-title">Choose account type</h1>
+          <p className="login-subtitle">Select how you want to use Driver Rewards.</p>
+
+          <div className="landing-grid landing-grid--two" style={{ marginTop: 16 }}>
+            <button
+              type="button"
+              className="card"
+              style={{ textAlign: 'left', cursor: 'pointer' }}
+              onClick={() => {
+                setPendingRole('driver')
+                setCurrentPage('create-account')
+              }}
+            >
+              <h3 className="card-title">Driver</h3>
+              <p className="card-body">
+                Earn points for safe driving, climb the leaderboard, and redeem rewards.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              className="card"
+              style={{ textAlign: 'left', cursor: 'pointer' }}
+              onClick={() => {
+                setPendingRole('sponsor')
+                setCurrentPage('create-account')
+              }}
+            >
+              <h3 className="card-title">Sponsor</h3>
+              <p className="card-body">
+                Create programs, post opportunities, and reward safe, consistent drivers.
+              </p>
+            </button>
+          </div>
+
+          <p className="form-footer">
+            Already have an account?{' '}
+            <a
+              href="#"
+              className="link"
+              onClick={(e) => {
+                e.preventDefault()
+                setAuthError('')
+                setStatusMsg('')
+                setCurrentPage('login')
+              }}
+            >
+              Go to sign in
+            </a>
+          </p>
+        </div>
       </div>
     )
   }
@@ -516,7 +577,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
                 e.preventDefault()
                 setAuthError('')
                 setStatusMsg('')
-                setCurrentPage('create-account')
+                setCurrentPage('account-type')
               }}
             >
               Create one here
@@ -1486,8 +1547,14 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     return (
       <div>
         <main className="app-main">
-          <h1 className="page-title">Create Account</h1>
-          <p className="page-subtitle">Create an account to start earning points</p>
+          <h1 className="page-title">
+            {pendingRole === 'sponsor' ? 'Create Sponsor Account' : 'Create Driver Account'}
+          </h1>
+          <p className="page-subtitle">
+            {pendingRole === 'sponsor'
+              ? 'Create a sponsor account to post opportunities and reward drivers.'
+              : 'Create a driver account to start logging trips and earning points.'}
+          </p>
           <form onSubmit={handleSubmit}>
             <div className="form-group">
               <label className="form-label">Name</label>
@@ -1818,6 +1885,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     <div>
       {!isLoggedIn && currentPage === 'landing' && <LandingPage />}
       {!isLoggedIn && currentPage === 'login' && <LoginPage />}
+      {!isLoggedIn && currentPage === 'account-type' && <AccountTypePage />}
       {!isLoggedIn && currentPage === 'create-account' && <CreateAccountPage />}
       {!isLoggedIn && currentPage === 'reset-password' && <ResetPasswordPage prefill={resetPrefill} />}
 
