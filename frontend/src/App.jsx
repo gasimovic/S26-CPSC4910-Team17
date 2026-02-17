@@ -2088,16 +2088,17 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     }
 
     const handleApplicationAction = async (applicationId, action) => {
-      try {
-        await api(`/applications/${applicationId}`, {
-          method: 'PUT',
-          body: JSON.stringify({ status: action })
-        })
-        await loadApplications()
-      } catch (err) {
-        setError(err.message || `Failed to ${action} application`)
-      }
-    }
+  try {
+    await api(`/applications/${applicationId}`, {
+      method: 'PUT',
+      // Map UI label 'approved' -> 'accepted' to match DB enum.
+      body: JSON.stringify({ status: action === 'approved' ? 'accepted' : action })
+    })
+    await loadApplications()
+  } catch (err) {
+    setError(err.message || `Failed to ${action} application`)
+  }
+}
 
     return (
       <div>
@@ -2231,51 +2232,51 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {applications.map(app => (
-                      <tr key={app.id}>
-                        <td>{app.driver_name || 'Unknown'}</td>
-                        <td>{app.driver_email || '-'}</td>
-                        <td>
-                          <span style={{ 
-                            padding: '4px 8px', 
-                            borderRadius: 4, 
-                            fontSize: '0.85em',
-                            backgroundColor: 
-                              app.status === 'approved' ? '#d4edda' : 
-                              app.status === 'rejected' ? '#f8d7da' : 
-                              '#fff3cd',
-                            color:
-                              app.status === 'approved' ? '#155724' : 
-                              app.status === 'rejected' ? '#721c24' : 
-                              '#856404'
-                          }}>
-                            {app.status || 'pending'}
-                          </span>
-                        </td>
-                        <td>{app.applied_at ? new Date(app.applied_at).toLocaleDateString() : '-'}</td>
-                        <td>
-                          {app.status === 'pending' && (
-                            <div style={{ display: 'flex', gap: 8 }}>
-                              <button 
-                                className="btn btn-success" 
-                                style={{ fontSize: '0.85em', padding: '4px 12px' }}
-                                onClick={() => handleApplicationAction(app.id, 'approved')}
-                              >
-                                Approve
-                              </button>
-                              <button 
-                                className="btn btn-danger" 
-                                style={{ fontSize: '0.85em', padding: '4px 12px' }}
-                                onClick={() => handleApplicationAction(app.id, 'rejected')}
-                              >
-                                Reject
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
+  {applications.map(app => (
+    <tr key={app.id}>
+      <td>{app.driver_name || [app.first_name, app.last_name].filter(Boolean).join(' ') || 'Unknown'}</td>
+      <td>{app.driver_email || app.email || '-'}</td>
+      <td>
+        <span style={{ 
+          padding: '4px 8px', 
+          borderRadius: 4, 
+          fontSize: '0.85em',
+          backgroundColor: 
+            app.status === 'accepted' ? '#d4edda' : 
+            app.status === 'rejected' ? '#f8d7da' : 
+            '#fff3cd',
+          color:
+            app.status === 'accepted' ? '#155724' : 
+            app.status === 'rejected' ? '#721c24' : 
+            '#856404'
+        }}>
+          {app.status || 'pending'}
+        </span>
+      </td>
+      <td>{app.applied_at ? new Date(app.applied_at).toLocaleDateString() : '-'}</td>
+      <td>
+        {app.status === 'pending' && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button 
+              className="btn btn-success" 
+              style={{ fontSize: '0.85em', padding: '4px 12px' }}
+              onClick={() => handleApplicationAction(app.id, 'accepted')}
+            >
+              Accept
+            </button>
+            <button 
+              className="btn btn-danger" 
+              style={{ fontSize: '0.85em', padding: '4px 12px' }}
+              onClick={() => handleApplicationAction(app.id, 'rejected')}
+            >
+              Reject
+            </button>
+          </div>
+        )}
+      </td>
+    </tr>
+  ))}
+</tbody>
                 </table>
               </div>
             )}

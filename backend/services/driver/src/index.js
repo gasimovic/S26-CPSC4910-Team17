@@ -1,4 +1,3 @@
-
 const { makeApp } = require("@gdip/server");
 const { query, exec } = require("@gdip/db");
 const { hashPassword, verifyPassword, signToken, verifyToken } = require("@gdip/auth");
@@ -413,6 +412,28 @@ app.put("/me/password", requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// FIX 1: GET /sponsors
+// Lists all sponsors so drivers can find and apply to them.
+// ============================================================
+app.get("/sponsors", requireAuth, async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT u.id, u.email, sp.company_name, sp.first_name, sp.last_name
+       FROM users u
+       LEFT JOIN sponsor_profiles sp ON u.id = sp.user_id
+       WHERE u.role = 'sponsor'
+       ORDER BY sp.company_name ASC, u.email ASC`,
+      []
+    );
+
+    return res.json({ sponsors: rows || [] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 /**
  * POST /applications
  * Allows a driver to apply to join a sponsor program.
@@ -421,7 +442,7 @@ app.put("/me/password", requireAuth, async (req, res) => {
  */
 app.post("/applications", requireAuth, async (req, res) => {
   const schema = z.object({
-    sponsorId: z.number().int().positive(), // ID of the sponsor (from users table where role='sponsor')
+    sponsorId: z.number().int().positive(),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -441,7 +462,6 @@ app.post("/applications", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Sponsor not found" });
     }
 
-    // Check if driver already has a pending/accepted application to this sponsor
     const existingApp = await query(
       "SELECT id FROM applications WHERE driver_id = ? AND sponsor_id = ? AND status IN ('pending', 'accepted') LIMIT 1",
       [req.user.id, sponsorId]

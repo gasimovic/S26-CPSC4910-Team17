@@ -223,20 +223,13 @@ app.put("/me/profile", requireAuth, async (req, res) => {
   const schema = z.object({
     companyName: z.string().min(1).optional(),
     company_name: z.string().min(1).optional(),
-
     firstName: z.string().min(1).optional(),
     first_name: z.string().min(1).optional(),
-
     lastName: z.string().min(1).optional(),
     last_name: z.string().min(1).optional(),
-
     dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-
     phone: z.string().min(7).max(25).optional(),
-
-    // address can be a single string OR expanded fields
     address: z.string().min(3).max(200).optional(),
-
     address_line1: z.string().min(1).max(255).optional(),
     address_line2: z.string().max(255).optional(),
     city: z.string().max(100).optional(),
@@ -292,7 +285,7 @@ app.put("/me/profile", requireAuth, async (req, res) => {
         req.user.id,
       ]
     );
- 
+
     const profileRows = await query(
       "SELECT * FROM sponsor_profiles WHERE user_id = ?",
       [req.user.id]
@@ -359,11 +352,99 @@ app.put("/me/password", requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// FIX 2: /ads endpoints (GET, POST, DELETE)
+// The frontend ApplicationsPage calls these but they were missing.
+// Requires an `ads` table:
+//   id, sponsor_id, title, description, requirements, benefits, created_at
+// ============================================================
+
+/**
+ * GET /ads
+ * Returns all ads created by this sponsor.
+ */
+app.get("/ads", requireAuth, async (req, res) => {
+  try {
+    const ads = await query(
+      `SELECT id, title, description, requirements, benefits, created_at
+       FROM ads
+       WHERE sponsor_id = ?
+       ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+    return res.json({ ads: ads || [] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * POST /ads
+ * Create a new sponsorship ad.
+ */
+app.post("/ads", requireAuth, async (req, res) => {
+  const schema = z.object({
+    title: z.string().min(1).max(255),
+    description: z.string().min(1),
+    requirements: z.string().optional().default(""),
+    benefits: z.string().optional().default(""),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+  }
+
+  const { title, description, requirements, benefits } = parsed.data;
+
+  try {
+    const result = await exec(
+      `INSERT INTO ads (sponsor_id, title, description, requirements, benefits)
+       VALUES (?, ?, ?, ?, ?)`,
+      [req.user.id, title, description, requirements, benefits]
+    );
+
+    const rows = await query("SELECT * FROM ads WHERE id = ?", [result.insertId]);
+    return res.status(201).json({ ok: true, ad: rows[0] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * DELETE /ads/:adId
+ * Delete one of this sponsor's ads.
+ */
+app.delete("/ads/:adId", requireAuth, async (req, res) => {
+  const adId = toInt(req.params.adId);
+  if (!Number.isFinite(adId)) {
+    return res.status(400).json({ error: "Invalid adId" });
+  }
+
+  try {
+    const rows = await query(
+      "SELECT id FROM ads WHERE id = ? AND sponsor_id = ? LIMIT 1",
+      [adId, req.user.id]
+    );
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: "Ad not found" });
+    }
+
+    await exec("DELETE FROM ads WHERE id = ? AND sponsor_id = ?", [adId, req.user.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 /**
  * GET /applications
- * Get all applications for this sponsor
+ * Get all applications for this sponsor.
  */
-app.get('/applications', requireAuth, async (req, res) => {
+app.get("/applications", requireAuth, async (req, res) => {
   try {
     const applications = await query(
       `SELECT 
@@ -373,9 +454,8 @@ app.get('/applications', requireAuth, async (req, res) => {
         a.applied_at,
         a.reviewed_at,
         a.notes,
-        u.email,
-        dp.first_name,
-        dp.last_name,
+        u.email AS driver_email,
+        TRIM(CONCAT(COALESCE(dp.first_name, ''), ' ', COALESCE(dp.last_name, ''))) AS driver_name,
         dp.phone,
         dp.dob
       FROM applications a
@@ -384,20 +464,20 @@ app.get('/applications', requireAuth, async (req, res) => {
       WHERE a.sponsor_id = ?
       ORDER BY a.applied_at DESC`,
       [req.user.id]
-    )
+    );
 
-    return res.json({ applications })
+    return res.json({ applications });
   } catch (err) {
-    console.error(err)
-    return res.status(500).json({ error: 'Server error' })
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
   }
-})
+});
 
 /**
  * GET /applications/:applicationId
- * Get full details of a specific application
+ * Get full details of a specific application.
  */
-app.get('/applications/:applicationId', requireAuth, async (req, res) => {
+app.get("/applications/:applicationId", requireAuth, async (req, res) => {
   try {
     const applicationRows = await query(
       `SELECT 
@@ -407,9 +487,8 @@ app.get('/applications/:applicationId', requireAuth, async (req, res) => {
         a.applied_at,
         a.reviewed_at,
         a.notes,
-        u.email,
-        dp.first_name,
-        dp.last_name,
+        u.email AS driver_email,
+        TRIM(CONCAT(COALESCE(dp.first_name, ''), ' ', COALESCE(dp.last_name, ''))) AS driver_name,
         dp.phone,
         dp.dob,
         dp.address_line1,
@@ -423,22 +502,96 @@ app.get('/applications/:applicationId', requireAuth, async (req, res) => {
       LEFT JOIN driver_profiles dp ON a.driver_id = dp.user_id
       WHERE a.id = ? AND a.sponsor_id = ?`,
       [req.params.applicationId, req.user.id]
-    )
+    );
 
     if (!applicationRows || applicationRows.length === 0) {
-      return res.status(404).json({ error: 'Application not found' })
+      return res.status(404).json({ error: "Application not found" });
     }
 
-    return res.json({ application: applicationRows[0] })
+    return res.json({ application: applicationRows[0] });
   } catch (err) {
-    console.error(err)
-    return res.status(500).json({ error: 'Server error' })
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
   }
-})
+});
+
+// ============================================================
+// FIX 3: PUT /applications/:applicationId
+// Frontend calls this path with { status: 'approved' | 'rejected' }.
+// Normalise 'approved' -> 'accepted' and delegate to the review logic.
+// ============================================================
 
 /**
- * Sprint 3: Sponsor driver points + org driver listing
+ * PUT /applications/:applicationId
+ * Frontend-compatible wrapper: accepts { status: 'approved'|'accepted'|'rejected' }.
  */
+app.put("/applications/:applicationId", requireAuth, async (req, res) => {
+  const schema = z.object({
+    status: z.enum(["approved", "accepted", "rejected"]),
+    notes: z.string().optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+  }
+
+  // Normalise 'approved' to 'accepted' (DB constraint uses 'accepted')
+  const dbStatus = parsed.data.status === "approved" ? "accepted" : parsed.data.status;
+
+  try {
+    const existing = await query(
+      "SELECT id FROM applications WHERE id = ? AND sponsor_id = ? LIMIT 1",
+      [req.params.applicationId, req.user.id]
+    );
+    if (!existing || existing.length === 0) {
+      return res.status(404).json({ error: "Application not found" });
+    }
+
+    await exec(
+      `UPDATE applications
+       SET status = ?, notes = ?, reviewed_at = NOW(), reviewed_by = ?
+       WHERE id = ? AND sponsor_id = ?`,
+      [dbStatus, parsed.data.notes || null, req.user.id, req.params.applicationId, req.user.id]
+    );
+
+    const updated = await query("SELECT * FROM applications WHERE id = ?", [req.params.applicationId]);
+    return res.json({ ok: true, application: updated[0] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * PUT /applications/:applicationId/review  (original endpoint, kept for compatibility)
+ */
+app.put("/applications/:applicationId/review", requireAuth, async (req, res) => {
+  const schema = z.object({
+    status: z.enum(["accepted", "rejected"]),
+    notes: z.string().optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+  }
+
+  try {
+    await exec(
+      `UPDATE applications 
+       SET status = ?, notes = ?, reviewed_at = NOW(), reviewed_by = ?
+       WHERE id = ? AND sponsor_id = ?`,
+      [parsed.data.status, parsed.data.notes || null, req.user.id, req.params.applicationId, req.user.id]
+    );
+
+    const updated = await query("SELECT * FROM applications WHERE id = ?", [req.params.applicationId]);
+    return res.json({ ok: true, application: updated[0] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
 
 /**
  * GET /drivers
@@ -561,7 +714,6 @@ app.get("/drivers/:driverId", requireAuth, async (req, res) => {
 
 /**
  * GET /drivers/:driverId/points
- * Return the points ledger for a driver in this sponsor's org.
  */
 app.get("/drivers/:driverId/points", requireAuth, async (req, res) => {
   const driverId = toInt(req.params.driverId);
@@ -578,7 +730,7 @@ app.get("/drivers/:driverId/points", requireAuth, async (req, res) => {
     }
 
     const driver = await driverBelongsToSponsorOr404(res, req.user.id, sponsorCompany, driverId);
-    if (!driver) return; // response already sent
+    if (!driver) return;
 
     const ledger = await query(
       `SELECT id, driver_id, sponsor_id, delta, reason, created_at
@@ -649,7 +801,6 @@ app.post("/drivers/:driverId/points/add", requireAuth, async (req, res) => {
 
 /**
  * POST /drivers/:driverId/points/deduct
- * Body: { points: number, reason: string }
  */
 app.post("/drivers/:driverId/points/deduct", requireAuth, async (req, res) => {
   const schema = z.object({
@@ -694,41 +845,6 @@ app.post("/drivers/:driverId/points/deduct", requireAuth, async (req, res) => {
     return res.status(500).json({ error: "Server error" });
   }
 });
-
-/**
- * PUT /applications/:applicationId/review
- * Review and update application status
- */
-app.put('/applications/:applicationId/review', requireAuth, async (req, res) => {
-  const schema = z.object({
-    status: z.enum(['accepted', 'rejected']),
-    notes: z.string().optional()
-  })
-
-  const parsed = schema.safeParse(req.body)
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
-  }
-
-  try {
-    await exec(
-      `UPDATE applications 
-       SET status = ?, notes = ?, reviewed_at = NOW(), reviewed_by = ?
-       WHERE id = ? AND sponsor_id = ?`,
-      [parsed.data.status, parsed.data.notes || null, req.user.id, req.params.applicationId, req.user.id]
-    )
-
-    const updated = await query(
-      'SELECT * FROM applications WHERE id = ?',
-      [req.params.applicationId]
-    )
-
-    return res.json({ ok: true, application: updated[0] })
-  } catch (err) {
-    console.error(err)
-    return res.status(500).json({ error: 'Server error' })
-  }
-})
 
 app.listen(PORT, () => {
   console.log(`[sponsor] listening on :${PORT}`);
