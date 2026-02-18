@@ -127,23 +127,18 @@ CREATE TABLE IF NOT EXISTS applications (
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-
--- Catalog items for Sponsor Shops
-CREATE TABLE IF NOT EXISTS catalog_items (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  sponsor_id INT NOT NULL,
-  ebay_item_id VARCHAR(255) NULL, 
-  title VARCHAR(255) NOT NULL,
-  description TEXT NULL,
-  image_url VARCHAR(512) NULL,
-  price DECIMAL(10, 2) NOT NULL,
-  point_cost INT NOT NULL,
-  
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-  INDEX idx_sponsor_id (sponsor_id),
-  CONSTRAINT fk_catalog_items_sponsor
-    FOREIGN KEY (sponsor_id) REFERENCES users(id)
-    ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Ads table (for sponsor sponsorship listings)
+CREATE TABLE IF NOT EXISTS ads (
+  id          INT UNSIGNED     NOT NULL AUTO_INCREMENT,
+  sponsor_id  INT UNSIGNED     NOT NULL,
+  title       VARCHAR(255)     NOT NULL,
+  description TEXT             NOT NULL,
+  requirements TEXT,
+  benefits    TEXT,
+  created_at  DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  INDEX idx_ads_sponsor (sponsor_id),
+  CONSTRAINT fk_ads_sponsor FOREIGN KEY (sponsor_id)
+    REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

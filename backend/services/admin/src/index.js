@@ -237,7 +237,7 @@ app.put("/me/password", requireAuth, async (req, res) => {
 
     const same = await verifyPassword(newPassword, user.password_hash);
     if (same) {
-      return res.status(400).json({ error: "New password must be different" });
+      return res.status(400).json({ error: "New password must be different from current password" });
     }
 
     const newHash = await hashPassword(newPassword);

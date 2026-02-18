@@ -1,4 +1,3 @@
-
 const { makeApp } = require("@gdip/server");
 const { query, exec } = require("@gdip/db");
 const { hashPassword, verifyPassword, signToken, verifyToken } = require("@gdip/auth");
@@ -396,7 +395,7 @@ app.put("/me/password", requireAuth, async (req, res) => {
 
     const same = await verifyPassword(newPassword, user.password_hash);
     if (same) {
-      return res.status(400).json({ error: "New password must be different" });
+      return res.status(400).json({ error: "New password must be different from current password" });
     }
 
     const newHash = await hashPassword(newPassword);
@@ -413,6 +412,28 @@ app.put("/me/password", requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// FIX 1: GET /sponsors
+// Lists all sponsors so drivers can find and apply to them.
+// ============================================================
+app.get("/sponsors", requireAuth, async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT u.id, u.email, sp.company_name, sp.first_name, sp.last_name
+       FROM users u
+       LEFT JOIN sponsor_profiles sp ON u.id = sp.user_id
+       WHERE u.role = 'sponsor'
+       ORDER BY sp.company_name ASC, u.email ASC`,
+      []
+    );
+
+    return res.json({ sponsors: rows || [] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 /**
  * POST /applications
  * Allows a driver to apply to join a sponsor program.
@@ -421,7 +442,7 @@ app.put("/me/password", requireAuth, async (req, res) => {
  */
 app.post("/applications", requireAuth, async (req, res) => {
   const schema = z.object({
-    sponsorId: z.number().int().positive(), // ID of the sponsor (from users table where role='sponsor')
+    sponsorId: z.number().int().positive(),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -441,7 +462,6 @@ app.post("/applications", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Sponsor not found" });
     }
 
-    // Check if driver already has a pending/accepted application to this sponsor
     const existingApp = await query(
       "SELECT id FROM applications WHERE driver_id = ? AND sponsor_id = ? AND status IN ('pending', 'accepted') LIMIT 1",
       [req.user.id, sponsorId]
@@ -468,26 +488,21 @@ app.post("/applications", requireAuth, async (req, res) => {
 });
 
 /**
- * GET /applications
- * Returns the driver's applications with status.
- * Returns: Array of applications with sponsor details and status.
+ * GET /ads
+ * Returns all sponsorship ads visible to drivers.
  */
-app.get("/applications", requireAuth, async (req, res) => {
+app.get("/ads", requireAuth, async (req, res) => {
   try {
-    const applications = await query(
-      `
-      SELECT a.id, a.status, a.applied_at, a.reviewed_at, a.notes,
-             u.email AS sponsor_email, sp.company_name AS sponsor_company
-      FROM applications a
-      JOIN users u ON a.sponsor_id = u.id
-      LEFT JOIN sponsor_profiles sp ON a.sponsor_id = sp.user_id
-      WHERE a.driver_id = ?
-      ORDER BY a.applied_at DESC
-    `,
-      [req.user.id]
+    const ads = await query(
+      `SELECT a.id, a.title, a.description, a.requirements, a.benefits, a.created_at,
+              sp.company_name AS sponsor_company, u.email AS sponsor_email
+       FROM ads a
+       JOIN users u ON a.sponsor_id = u.id
+       LEFT JOIN sponsor_profiles sp ON a.sponsor_id = sp.user_id
+       ORDER BY a.created_at DESC`,
+      []
     );
-
-    return res.json({ applications });
+    return res.json({ ads: ads || [] });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Server error" });
