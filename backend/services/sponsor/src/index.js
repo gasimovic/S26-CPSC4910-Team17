@@ -2,6 +2,7 @@ const { makeApp } = require("@gdip/server");
 const { query, exec } = require("@gdip/db");
 const { hashPassword, verifyPassword, signToken, verifyToken } = require("@gdip/auth");
 const { z } = require("zod");
+const ebayService = require("./ebay");
 
 const app = makeApp();
 
@@ -233,7 +234,7 @@ app.put("/me/profile", requireAuth, async (req, res) => {
         req.user.id,
       ]
     );
- 
+
     const profileRows = await query(
       "SELECT * FROM sponsor_profiles WHERE user_id = ?",
       [req.user.id]
@@ -411,6 +412,108 @@ app.put('/applications/:applicationId/review', requireAuth, async (req, res) => 
     return res.status(500).json({ error: 'Server error' })
   }
 })
+
+/**
+ * GET /catalog
+ * List all items in the sponsor's shop
+ */
+app.get('/catalog', requireAuth, async (req, res) => {
+  try {
+    const items = await query(
+      'SELECT * FROM catalog_items WHERE sponsor_id = ? ORDER BY created_at DESC',
+      [req.user.id]
+    );
+    return res.json({ items });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * POST /catalog
+ * Add an item to the sponsor's shop (from eBay or custom)
+ */
+app.post('/catalog', requireAuth, async (req, res) => {
+  const schema = z.object({
+    ebayItemId: z.string().optional(),
+    title: z.string().min(1),
+    description: z.string().optional(),
+    imageUrl: z.string().url().optional(),
+    price: z.number().positive(),
+    pointCost: z.number().int().positive().optional(), // Optional, can be calculated
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+  }
+
+  const { ebayItemId, title, description, imageUrl, price, pointCost } = parsed.data;
+
+  // Simple conversion rate: 1 USD = 100 points (example)
+  const finalPointCost = pointCost || Math.ceil(price * 100);
+
+  try {
+    const result = await exec(
+      `INSERT INTO catalog_items 
+       (sponsor_id, ebay_item_id, title, description, image_url, price, point_cost)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.id, ebayItemId || null, title, description || null, imageUrl || null, price, finalPointCost]
+    );
+
+    return res.status(201).json({
+      ok: true,
+      itemId: result.insertId,
+      message: 'Item added to catalog'
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * DELETE /catalog/:id
+ * Remove an item from the shop
+ */
+app.delete('/catalog/:id', requireAuth, async (req, res) => {
+  try {
+    const result = await exec(
+      'DELETE FROM catalog_items WHERE id = ? AND sponsor_id = ?',
+      [req.params.id, req.user.id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    return res.json({ ok: true, message: 'Item removed' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * GET /ebay/search
+ * Proxy to eBay search
+ * Query params: q (query)
+ */
+app.get('/ebay/search', requireAuth, async (req, res) => {
+  const q = req.query.q;
+  if (!q) {
+    return res.status(400).json({ error: 'Missing query parameter "q"' });
+  }
+
+  try {
+    const items = await ebayService.searchItems(q);
+    return res.json({ items });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'eBay search failed' });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`[sponsor] listening on :${PORT}`);

@@ -30,8 +30,8 @@ function App() {
     const role = (activeRole || 'driver').toLowerCase()
     const defaultPrefix =
       role === 'admin' ? ADMIN_API_BASE :
-      role === 'sponsor' ? SPONSOR_API_BASE :
-      DRIVER_API_BASE
+        role === 'sponsor' ? SPONSOR_API_BASE :
+          DRIVER_API_BASE
 
     const raw = (import.meta.env.VITE_API_PREFIX || '').trim()
     if (!raw) return defaultPrefix
@@ -194,7 +194,7 @@ function App() {
     }
 
     if (role === 'sponsor') {
-      return ['dashboard', 'applications', 'rewards', 'leaderboard', 'profile', 'account-details', 'change-password', 'sponsor-affiliation']
+      return ['dashboard', 'applications', 'catalog', 'rewards', 'leaderboard', 'profile', 'account-details', 'change-password', 'sponsor-affiliation']
     }
 
     // driver
@@ -222,91 +222,91 @@ function App() {
     }
   }, [currentUser, isLoggedIn, currentPage])
 
-const handleLogin = async (email, password) => {
-  setAuthError('')
-  setStatusMsg('')
-  setStatusMsg('Signing in…')
+  const handleLogin = async (email, password) => {
+    setAuthError('')
+    setStatusMsg('')
+    setStatusMsg('Signing in…')
 
-  try {
-    await api('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password })
-    })
+    try {
+      await api('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password })
+      })
 
-    setIsLoggedIn(true)
-    setStatusMsg('Signed in. Loading your profile…')
+      setIsLoggedIn(true)
+      setStatusMsg('Signed in. Loading your profile…')
 
-    const u = await loadMe()
+      const u = await loadMe()
 
-    // If user has no details yet, send them to the details prompt
-    if (profileLooksEmpty(u)) {
+      // If user has no details yet, send them to the details prompt
+      if (profileLooksEmpty(u)) {
+        setCurrentPage('account-details')
+        setStatusMsg('Welcome! Please complete your account details.')
+      } else {
+        setCurrentPage('dashboard')
+      }
+    } catch (err) {
+      setIsLoggedIn(false)
+      setCurrentUser(null)
+      setAuthError(err.message || 'Login failed')
+      if (err?.responseBody) console.error('Login error response:', err.responseBody)
+    }
+  }
+
+  const handleRegister = async ({ email, password, name, dob, company_name }) => {
+    setAuthError('')
+    setStatusMsg('')
+    setStatusMsg('Creating account…')
+
+    try {
+      // Parse name into first_name and last_name
+      const nameTrimmed = (name || '').trim()
+      const parts = nameTrimmed.length ? nameTrimmed.split(/\s+/) : []
+      const first_name = parts.shift() || ''
+      const last_name = parts.join(' ')
+
+      // Build registration payload
+      const registrationData = {
+        email,
+        password,
+        first_name,
+        last_name,
+        dob
+      }
+
+      // Add company_name for sponsors (not used for drivers)
+      if (activeRole === 'sponsor' && company_name) {
+        registrationData.company_name = company_name
+      }
+
+      // Send all required data to backend registration
+      await api('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(registrationData)
+      })
+
+      // Log in immediately
+      await api('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password })
+      })
+
+      setIsLoggedIn(true)
+      setStatusMsg('Account created. Loading your profile…')
+
+      // Load the user profile from backend
+      await loadMe()
+
+      // Always send new users to complete their profile with phone/address
       setCurrentPage('account-details')
-      setStatusMsg('Welcome! Please complete your account details.')
-    } else {
-      setCurrentPage('dashboard')
+      setStatusMsg('Account created. Please complete your account details.')
+    } catch (err) {
+      setIsLoggedIn(false)
+      setCurrentUser(null)
+      setAuthError(err.message || 'Registration failed')
+      if (err?.responseBody) console.error('Register error response:', err.responseBody)
     }
-  } catch (err) {
-    setIsLoggedIn(false)
-    setCurrentUser(null)
-    setAuthError(err.message || 'Login failed')
-    if (err?.responseBody) console.error('Login error response:', err.responseBody)
   }
-}
-
-const handleRegister = async ({ email, password, name, dob, company_name }) => {
-  setAuthError('')
-  setStatusMsg('')
-  setStatusMsg('Creating account…')
-
-  try {
-    // Parse name into first_name and last_name
-    const nameTrimmed = (name || '').trim()
-    const parts = nameTrimmed.length ? nameTrimmed.split(/\s+/) : []
-    const first_name = parts.shift() || ''
-    const last_name = parts.join(' ')
-
-    // Build registration payload
-    const registrationData = { 
-      email, 
-      password,
-      first_name,
-      last_name,
-      dob
-    }
-
-    // Add company_name for sponsors (not used for drivers)
-    if (activeRole === 'sponsor' && company_name) {
-      registrationData.company_name = company_name
-    }
-
-    // Send all required data to backend registration
-    await api('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(registrationData)
-    })
-
-    // Log in immediately
-    await api('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password })
-    })
-
-    setIsLoggedIn(true)
-    setStatusMsg('Account created. Loading your profile…')
-
-    // Load the user profile from backend
-    await loadMe()
-
-    // Always send new users to complete their profile with phone/address
-    setCurrentPage('account-details')
-    setStatusMsg('Account created. Please complete your account details.')
-  } catch (err) {
-    setIsLoggedIn(false)
-    setCurrentUser(null)
-    setAuthError(err.message || 'Registration failed')
-    if (err?.responseBody) console.error('Register error response:', err.responseBody)
-  }
-}
 
   const handleLogout = async () => {
     setAuthError('')
@@ -428,10 +428,10 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     )
   }
 
-// ============ NAVIGATION COMPONENT ============
+  // ============ NAVIGATION COMPONENT ============
   const Navigation = () => {
     const allowed = getAllowedPages(currentUser)
-    
+
     return (
       <nav className="nav">
         <div className="nav-brand">Driver Rewards</div>
@@ -449,6 +449,11 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
           {allowed.includes('applications') && (
             <button type="button" onClick={() => setCurrentPage('applications')} className="nav-link">
               Applications
+            </button>
+          )}
+          {allowed.includes('catalog') && (
+            <button type="button" onClick={() => setCurrentPage('catalog')} className="nav-link">
+              Catalog
             </button>
           )}
           {allowed.includes('rewards') && (
@@ -480,6 +485,143 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
           <button type="button" onClick={handleLogout} className="nav-logout">Log out</button>
         </div>
       </nav>
+    )
+  }
+
+  // ============ SPONSOR CATALOG PAGE ============
+  const SponsorCatalogPage = () => {
+    const [catalogItems, setCatalogItems] = useState([])
+    const [searchQuery, setSearchQuery] = useState('')
+    const [searchResults, setSearchResults] = useState([])
+    const [isSearching, setIsSearching] = useState(false)
+    const [isLoading, setIsLoading] = useState(false)
+    const [statusMsgLocal, setStatusMsgLocal] = useState('')
+
+    const loadCatalog = async () => {
+      setIsLoading(true)
+      try {
+        const data = await api('/catalog', { method: 'GET' })
+        setCatalogItems(data.items || [])
+      } catch (err) {
+        console.error(err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    useEffect(() => {
+      loadCatalog()
+    }, [])
+
+    const handleSearch = async (e) => {
+      e.preventDefault()
+      if (!searchQuery.trim()) return
+
+      setIsSearching(true)
+      setSearchResults([])
+      try {
+        const data = await api(`/ebay/search?q=${encodeURIComponent(searchQuery)}`, { method: 'GET' })
+        setSearchResults(data.items || [])
+      } catch (err) {
+        setStatusMsgLocal('Search failed: ' + err.message)
+      } finally {
+        setIsSearching(false)
+      }
+    }
+
+    const addToCatalog = async (item) => {
+      setStatusMsgLocal('')
+      try {
+        await api('/catalog', {
+          method: 'POST',
+          body: JSON.stringify({
+            ebayItemId: item.itemId,
+            title: item.title,
+            imageUrl: item.image,
+            price: parseFloat(item.price?.value || 0),
+            // Backend calculates points, but we could pass pointCost if we wanted custom logic
+          })
+        })
+        setStatusMsgLocal('Item added to catalog!')
+        setSearchResults(res => res.filter(r => r.itemId !== item.itemId)) // Remove from search results to prevent dupes? Or just reload
+        loadCatalog()
+      } catch (err) {
+        setStatusMsgLocal('Failed to add item: ' + err.message)
+      }
+    }
+
+    const removeFromCatalog = async (id) => {
+      if (!window.confirm('Remove this item from your catalog?')) return
+      try {
+        await api(`/catalog/${id}`, { method: 'DELETE' })
+        setCatalogItems(items => items.filter(i => i.id !== id))
+      } catch (err) {
+        alert('Failed to delete: ' + err.message)
+      }
+    }
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Shop Catalog</h1>
+          <p className="page-subtitle">Manage items available for drivers</p>
+
+          <section className="catalog-search-section" style={{ marginBottom: 40 }}>
+            <h2 className="section-title">Import from eBay</h2>
+            <form onSubmit={handleSearch} style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search eBay..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{ maxWidth: 400 }}
+              />
+              <button type="submit" className="btn btn-primary" disabled={isSearching}>
+                {isSearching ? 'Searching...' : 'Search'}
+              </button>
+            </form>
+
+            {statusMsgLocal && <p style={{ color: 'green', marginBottom: 10 }}>{statusMsgLocal}</p>}
+
+            {searchResults.length > 0 && (
+              <div className="rewards-grid">
+                {searchResults.map(item => (
+                  <div key={item.itemId} className="reward-card" style={{ borderColor: '#007bff' }}>
+                    {item.image && <img src={item.image} alt={item.title} style={{ width: '100%', height: 150, objectFit: 'contain', marginBottom: 10 }} />}
+                    <h4 style={{ fontSize: '1rem', marginBottom: 5 }}>{item.title}</h4>
+                    <p className="reward-pts" style={{ color: '#333' }}>${item.price?.value}</p>
+                    <button type="button" className="btn btn-sm btn-primary" onClick={() => addToCatalog(item)}>
+                      Add to Shop
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section>
+            <h2 className="section-title">Current Catalog</h2>
+            {isLoading ? <p>Loading...</p> : (
+              catalogItems.length === 0 ? <p className="muted">No items in catalog.</p> : (
+                <div className="rewards-grid">
+                  {catalogItems.map(item => (
+                    <div key={item.id} className="reward-card">
+                      {item.image_url && <img src={item.image_url} alt={item.title} style={{ width: '100%', height: 150, objectFit: 'contain', marginBottom: 10 }} />}
+                      <h4 style={{ fontSize: '1rem', marginBottom: 5 }}>{item.title}</h4>
+                      <p className="reward-pts">{item.point_cost} pts</p>
+                      <button type="button" className="btn btn-sm btn-danger" onClick={() => removeFromCatalog(item.id)}>
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+          </section>
+        </main>
+      </div>
     )
   }
 
@@ -1489,13 +1631,13 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     const handleCreateAd = async (e) => {
       e.preventDefault()
       setError('')
-      
+
       try {
         await api('/ads', {
           method: 'POST',
           body: JSON.stringify(formData)
         })
-        
+
         setFormData({ title: '', description: '', requirements: '', benefits: '' })
         setShowCreateForm(false)
         await loadAds()
@@ -1506,7 +1648,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
 
     const handleDeleteAd = async (adId) => {
       if (!window.confirm('Are you sure you want to delete this ad?')) return
-      
+
       try {
         await api(`/ads/${adId}`, { method: 'DELETE' })
         await loadAds()
@@ -1539,8 +1681,8 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
           <section>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h2 className="section-title">Your Sponsorship Ads</h2>
-              <button 
-                className="btn btn-primary" 
+              <button
+                className="btn btn-primary"
                 onClick={() => setShowCreateForm(!showCreateForm)}
               >
                 {showCreateForm ? 'Cancel' : 'Create New Ad'}
@@ -1628,8 +1770,8 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
                           Created: {ad.created_at ? new Date(ad.created_at).toLocaleDateString() : '-'}
                         </p>
                       </div>
-                      <button 
-                        className="btn btn-danger" 
+                      <button
+                        className="btn btn-danger"
                         onClick={() => handleDeleteAd(ad.id)}
                         style={{ marginLeft: 16 }}
                       >
@@ -1664,18 +1806,18 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
                         <td>{app.driver_name || 'Unknown'}</td>
                         <td>{app.driver_email || '-'}</td>
                         <td>
-                          <span style={{ 
-                            padding: '4px 8px', 
-                            borderRadius: 4, 
+                          <span style={{
+                            padding: '4px 8px',
+                            borderRadius: 4,
                             fontSize: '0.85em',
-                            backgroundColor: 
-                              app.status === 'approved' ? '#d4edda' : 
-                              app.status === 'rejected' ? '#f8d7da' : 
-                              '#fff3cd',
+                            backgroundColor:
+                              app.status === 'approved' ? '#d4edda' :
+                                app.status === 'rejected' ? '#f8d7da' :
+                                  '#fff3cd',
                             color:
-                              app.status === 'approved' ? '#155724' : 
-                              app.status === 'rejected' ? '#721c24' : 
-                              '#856404'
+                              app.status === 'approved' ? '#155724' :
+                                app.status === 'rejected' ? '#721c24' :
+                                  '#856404'
                           }}>
                             {app.status || 'pending'}
                           </span>
@@ -1684,15 +1826,15 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
                         <td>
                           {app.status === 'pending' && (
                             <div style={{ display: 'flex', gap: 8 }}>
-                              <button 
-                                className="btn btn-success" 
+                              <button
+                                className="btn btn-success"
                                 style={{ fontSize: '0.85em', padding: '4px 12px' }}
                                 onClick={() => handleApplicationAction(app.id, 'approved')}
                               >
                                 Approve
                               </button>
-                              <button 
-                                className="btn btn-danger" 
+                              <button
+                                className="btn btn-danger"
                                 style={{ fontSize: '0.85em', padding: '4px 12px' }}
                                 onClick={() => handleApplicationAction(app.id, 'rejected')}
                               >
@@ -1735,6 +1877,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
             {allowed.includes('account-details') && currentPage === 'account-details' && <AccountDetailsPage />}
             {allowed.includes('change-password') && currentPage === 'change-password' && <ChangePasswordPage />}
             {allowed.includes('applications') && currentPage === 'applications' && <ApplicationsPage />}
+            {allowed.includes('catalog') && currentPage === 'catalog' && <SponsorCatalogPage />}
             {/* Safety fallback: render dashboard if currentPage somehow invalid */}
             {(!allowed.includes(currentPage)) && <DashboardPage />}
           </>
