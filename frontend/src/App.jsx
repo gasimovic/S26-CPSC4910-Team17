@@ -1515,7 +1515,8 @@ const SponsorAffiliationPage = () => {
   const applyTo = async (sponsorId, adId) => {
     setStatusMsgLocal('')
     try {
-      await api('/applications', { method: 'POST', body: JSON.stringify({ sponsorId, adId }) })
+      // Ensure we hit the driver service for creating applications
+      await apiWithBase(DRIVER_API_BASE, '/applications', { method: 'POST', body: JSON.stringify({ sponsorId, adId }) })
       setStatusMsgLocal('Application submitted!')
       await loadApplications()
     } catch (err) {
@@ -2349,7 +2350,8 @@ const SponsorAffiliationPage = () => {
       if (!window.confirm('Are you sure you want to delete this ad?')) return
       
       try {
-        await api(`/ads/${adId}`, { method: 'DELETE' })
+        // Ensure we hit the sponsor service for deleting ads
+        await apiWithBase(SPONSOR_API_BASE, `/ads/${adId}`, { method: 'DELETE' })
         await loadAds()
       } catch (err) {
         setError(err.message || 'Failed to delete ad')
