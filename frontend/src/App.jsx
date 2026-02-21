@@ -951,20 +951,6 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
               >
                 Create one here
               </a>
-              <br />
-              <br />
-              <a
-                href="#"
-                className="link"
-                onClick={(e) => {
-                  e.preventDefault()
-                  setAuthError('')
-                  setStatusMsg('')
-                  setCurrentPage('about')
-                }}
-              >
-                About this Project
-              </a>
             </p>
           </div>
         </div>
@@ -1075,20 +1061,6 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
                 }}
               >
                 Create one here
-              </a>
-              <br />
-              <br />
-              <a
-                href="#"
-                className="link"
-                onClick={(e) => {
-                  e.preventDefault()
-                  setAuthError('')
-                  setStatusMsg('')
-                  setCurrentPage('about')
-                }}
-              >
-                About this Project
               </a>
             </p>
           </div>
