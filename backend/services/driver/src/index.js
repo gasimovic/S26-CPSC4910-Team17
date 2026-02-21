@@ -442,7 +442,7 @@ app.get("/sponsors", requireAuth, async (req, res) => {
  */
 app.post("/applications", requireAuth, async (req, res) => {
   const schema = z.object({
-    sponsorId: z.number().int().positive(),
+    sponsorId: z.coerce.number().int().positive(),
   });
 
   const parsed = schema.safeParse(req.body);
