@@ -442,13 +442,19 @@ app.delete("/ads/:adId", requireAuth, async (req, res) => {
 });
 
 /**
- * GET /applications
- * Get all applications for this sponsor.
+ * GET /ads/:adId/applications
+ * List applications for a single ad (sponsor-only)
  */
-app.get("/applications", requireAuth, async (req, res) => {
+app.get('/ads/:adId/applications', requireAuth, async (req, res) => {
+  const adId = toInt(req.params.adId);
+  if (!Number.isFinite(adId)) return res.status(400).json({ error: 'Invalid adId' });
+
   try {
+    const rows = await query('SELECT id FROM ads WHERE id = ? AND sponsor_id = ? LIMIT 1', [adId, req.user.id]);
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Ad not found' });
+
     const applications = await query(
-      `SELECT 
+      `SELECT
         a.id,
         a.driver_id,
         a.status,
@@ -462,6 +468,42 @@ app.get("/applications", requireAuth, async (req, res) => {
       FROM applications a
       JOIN users u ON a.driver_id = u.id
       LEFT JOIN driver_profiles dp ON a.driver_id = dp.user_id
+      WHERE a.sponsor_id = ? AND a.ad_id = ?
+      ORDER BY a.applied_at DESC`,
+      [req.user.id, adId]
+    );
+
+    return res.json({ applications });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * GET /applications
+ * Get all applications for this sponsor.
+ */
+app.get("/applications", requireAuth, async (req, res) => {
+  try {
+    const applications = await query(
+      `SELECT 
+        a.id,
+        a.driver_id,
+        a.ad_id,
+        a.status,
+        a.applied_at,
+        a.reviewed_at,
+        a.notes,
+        u.email AS driver_email,
+        TRIM(CONCAT(COALESCE(dp.first_name, ''), ' ', COALESCE(dp.last_name, ''))) AS driver_name,
+        dp.phone,
+        dp.dob,
+        ad.title AS ad_title
+      FROM applications a
+      JOIN users u ON a.driver_id = u.id
+      LEFT JOIN driver_profiles dp ON a.driver_id = dp.user_id
+      LEFT JOIN ads ad ON a.ad_id = ad.id
       WHERE a.sponsor_id = ?
       ORDER BY a.applied_at DESC`,
       [req.user.id]
@@ -484,6 +526,7 @@ app.get("/applications/:applicationId", requireAuth, async (req, res) => {
       `SELECT 
         a.id,
         a.driver_id,
+        a.ad_id,
         a.status,
         a.applied_at,
         a.reviewed_at,
@@ -497,10 +540,12 @@ app.get("/applications/:applicationId", requireAuth, async (req, res) => {
         dp.city,
         dp.state,
         dp.postal_code,
-        dp.country
+        dp.country,
+        ad.title AS ad_title
       FROM applications a
       JOIN users u ON a.driver_id = u.id
       LEFT JOIN driver_profiles dp ON a.driver_id = dp.user_id
+      LEFT JOIN ads ad ON a.ad_id = ad.id
       WHERE a.id = ? AND a.sponsor_id = ?`,
       [req.params.applicationId, req.user.id]
     );
@@ -549,12 +594,25 @@ app.put("/applications/:applicationId", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Application not found" });
     }
 
+    // fetch driver_id so we can assign sponsor on accept
+    const appRows = await query("SELECT driver_id FROM applications WHERE id = ? LIMIT 1", [req.params.applicationId]);
+    const driverId = appRows?.[0]?.driver_id;
+
     await exec(
       `UPDATE applications
        SET status = ?, notes = ?, reviewed_at = NOW(), reviewed_by = ?
        WHERE id = ? AND sponsor_id = ?`,
       [dbStatus, parsed.data.notes || null, req.user.id, req.params.applicationId, req.user.id]
     );
+
+    // If accepted, set the driver's sponsor_org to this sponsor's company_name
+    if (dbStatus === 'accepted' && Number.isFinite(driverId)) {
+      const sponsorCompany = await getSponsorCompanyName(req.user.id);
+      if (sponsorCompany) {
+        await exec("INSERT INTO driver_profiles (user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id = user_id", [driverId]);
+        await exec("UPDATE driver_profiles SET sponsor_org = ? WHERE user_id = ?", [sponsorCompany, driverId]);
+      }
+    }
 
     const updated = await query("SELECT * FROM applications WHERE id = ?", [req.params.applicationId]);
     return res.json({ ok: true, application: updated[0] });
@@ -579,12 +637,24 @@ app.put("/applications/:applicationId/review", requireAuth, async (req, res) => 
   }
 
   try {
+    // fetch driver_id if we need to assign sponsor
+    const appRows = await query("SELECT driver_id FROM applications WHERE id = ? LIMIT 1", [req.params.applicationId]);
+    const driverId = appRows?.[0]?.driver_id;
+
     await exec(
       `UPDATE applications 
        SET status = ?, notes = ?, reviewed_at = NOW(), reviewed_by = ?
        WHERE id = ? AND sponsor_id = ?`,
       [parsed.data.status, parsed.data.notes || null, req.user.id, req.params.applicationId, req.user.id]
     );
+
+    if (parsed.data.status === 'accepted' && Number.isFinite(driverId)) {
+      const sponsorCompany = await getSponsorCompanyName(req.user.id);
+      if (sponsorCompany) {
+        await exec("INSERT INTO driver_profiles (user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id = user_id", [driverId]);
+        await exec("UPDATE driver_profiles SET sponsor_org = ? WHERE user_id = ?", [sponsorCompany, driverId]);
+      }
+    }
 
     const updated = await query("SELECT * FROM applications WHERE id = ?", [req.params.applicationId]);
     return res.json({ ok: true, application: updated[0] });

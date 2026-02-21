@@ -443,6 +443,7 @@ app.get("/sponsors", requireAuth, async (req, res) => {
 app.post("/applications", requireAuth, async (req, res) => {
   const schema = z.object({
     sponsorId: z.coerce.number().int().positive(),
+    adId: z.coerce.number().int().positive().optional(),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -470,10 +471,10 @@ app.post("/applications", requireAuth, async (req, res) => {
       return res.status(409).json({ error: "You already have an active application to this sponsor" });
     }
 
-    // Insert new application
+    // Insert new application (optionally reference an ad)
     const insertResult = await exec(
-      "INSERT INTO applications (driver_id, sponsor_id, status) VALUES (?, ?, 'pending')",
-      [req.user.id, sponsorId]
+      "INSERT INTO applications (driver_id, sponsor_id, ad_id, status) VALUES (?, ?, ?, 'pending')",
+      [req.user.id, sponsorId, parsed.data.adId || null]
     );
 
     return res.status(201).json({

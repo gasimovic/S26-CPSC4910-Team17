@@ -1512,10 +1512,10 @@ const SponsorAffiliationPage = () => {
     loadApplications()
   }, [])
 
-  const applyTo = async (sponsorId) => {
+  const applyTo = async (sponsorId, adId) => {
     setStatusMsgLocal('')
     try {
-      await api('/applications', { method: 'POST', body: JSON.stringify({ sponsorId }) })
+      await api('/applications', { method: 'POST', body: JSON.stringify({ sponsorId, adId }) })
       setStatusMsgLocal('Application submitted!')
       await loadApplications()
     } catch (err) {
@@ -1523,8 +1523,10 @@ const SponsorAffiliationPage = () => {
     }
   }
 
-  const hasApplied = (sponsorId) => {
-    return apps.some(a => a.sponsor_id === sponsorId)
+  const hasApplied = (ad) => {
+    if (!ad) return false
+    if (apps.some(a => a.ad_id && a.ad_id === ad.id)) return true
+    return apps.some(a => a.sponsor_id === ad.sponsor_id)
   }
 
   const currentSponsor = currentUser?.profile?.sponsor_org || ''
@@ -1559,7 +1561,7 @@ const SponsorAffiliationPage = () => {
         ) : (
           <div style={{ display: 'grid', gap: 16 }}>
             {ads.map(ad => {
-              const applied = hasApplied(ad.sponsor_id)
+              const applied = hasApplied(ad)
               return (
                 <div key={ad.id} className="card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
@@ -1591,10 +1593,10 @@ const SponsorAffiliationPage = () => {
                         }}>
                           Applied
                         </span>
-                      ) : (
+                        ) : (
                         <button
                           className="btn btn-success"
-                          onClick={() => applyTo(ad.sponsor_id)}
+                          onClick={() => applyTo(ad.sponsor_id, ad.id)}
                         >
                           Apply
                         </button>
@@ -2290,6 +2292,7 @@ const SponsorAffiliationPage = () => {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [showCreateForm, setShowCreateForm] = useState(false)
+    const [notesById, setNotesById] = useState({})
     const [formData, setFormData] = useState({
       title: '',
       description: '',
@@ -2354,17 +2357,19 @@ const SponsorAffiliationPage = () => {
     }
 
     const handleApplicationAction = async (applicationId, action) => {
-  try {
-    await api(`/applications/${applicationId}`, {
-      method: 'PUT',
-      // Map UI label 'approved' -> 'accepted' to match DB enum.
-      body: JSON.stringify({ status: action === 'approved' ? 'accepted' : action })
-    })
-    await loadApplications()
-  } catch (err) {
-    setError(err.message || `Failed to ${action} application`)
-  }
-}
+      try {
+        const notes = notesById[applicationId] || ''
+        await api(`/applications/${applicationId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ status: action === 'approved' ? 'accepted' : action, notes })
+        })
+        // clear note for this application
+        setNotesById(prev => { const n = { ...prev }; delete n[applicationId]; return n })
+        await loadApplications()
+      } catch (err) {
+        setError(err.message || `Failed to ${action} application`)
+      }
+    }
 
     return (
       <div>
@@ -2495,6 +2500,7 @@ const SponsorAffiliationPage = () => {
                       <th>Status</th>
                       <th>Applied</th>
                       <th>Actions</th>
+                      <th>Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2537,6 +2543,18 @@ const SponsorAffiliationPage = () => {
             >
               Reject
             </button>
+          </div>
+        )}
+      </td>
+      <td style={{ width: 280 }}>
+        {app.status === 'pending' && (
+          <div>
+            <textarea
+              placeholder="Optional reason/notes"
+              value={notesById[app.id] || ''}
+              onChange={(e) => setNotesById(prev => ({ ...prev, [app.id]: e.target.value }))}
+              style={{ width: '100%', minHeight: 60 }}
+            />
           </div>
         )}
       </td>

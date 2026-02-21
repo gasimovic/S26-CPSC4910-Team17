@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS admin_profiles (
 CREATE TABLE IF NOT EXISTS applications (
   id INT AUTO_INCREMENT PRIMARY KEY,
   driver_id INT NOT NULL,
+  ad_id INT NULL,
   sponsor_id INT NOT NULL,
   status ENUM('pending', 'accepted', 'rejected') NOT NULL DEFAULT 'pending',
   applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -117,6 +118,7 @@ CREATE TABLE IF NOT EXISTS applications (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_driver_id (driver_id),
+  INDEX idx_ad_id (ad_id),
   INDEX idx_sponsor_id (sponsor_id),
   INDEX idx_status (status),
   CONSTRAINT fk_applications_driver
@@ -125,6 +127,10 @@ CREATE TABLE IF NOT EXISTS applications (
   CONSTRAINT fk_applications_sponsor
     FOREIGN KEY (sponsor_id) REFERENCES users(id)
     ON DELETE CASCADE
+  ,
+  CONSTRAINT fk_applications_ad
+    FOREIGN KEY (ad_id) REFERENCES ads(id)
+    ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Ads table (for sponsor sponsorship listings)
