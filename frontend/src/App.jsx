@@ -19,8 +19,8 @@ function App() {
   const envRole = (import.meta.env.VITE_ACTIVE_ROLE || 'driver').toLowerCase()
   const envDefaultBase =
     envRole === 'admin' ? ADMIN_API_BASE :
-    envRole === 'sponsor' ? SPONSOR_API_BASE :
-    DRIVER_API_BASE
+      envRole === 'sponsor' ? SPONSOR_API_BASE :
+        DRIVER_API_BASE
 
   // Persist the last successful base so refresh keeps the correct role.
   const [apiBase, setApiBase] = useState(() => {
@@ -222,7 +222,7 @@ function App() {
       // Sponsors should manage ads/applications + their own profile/account.
       // Driver-only pages like Rewards, Leaderboard, Achievements, Log Trip, and Sponsor Affiliation
       // must NOT appear for sponsors.
-      return ['dashboard', 'drivers', 'applications', 'profile', 'account-details', 'change-password']
+      return ['dashboard', 'drivers', 'applications', 'catalog', 'profile', 'account-details', 'change-password']
     }
 
     // driver
@@ -445,63 +445,63 @@ function App() {
     }
   }
 
-const handleRegister = async ({ email, password, name, dob, company_name }) => {
-  setAuthError('')
-  setStatusMsg('')
-  setStatusMsg('Creating account…')
+  const handleRegister = async ({ email, password, name, dob, company_name }) => {
+    setAuthError('')
+    setStatusMsg('')
+    setStatusMsg('Creating account…')
 
-  // Use the pendingRole for registration base
-  const roleBase = pendingRole === 'sponsor' ? SPONSOR_API_BASE : DRIVER_API_BASE
+    // Use the pendingRole for registration base
+    const roleBase = pendingRole === 'sponsor' ? SPONSOR_API_BASE : DRIVER_API_BASE
 
-  try {
-    // Parse name into first_name and last_name
-    const nameTrimmed = (name || '').trim()
-    const parts = nameTrimmed.length ? nameTrimmed.split(/\s+/) : []
-    const first_name = parts.shift() || ''
-    const last_name = parts.join(' ')
+    try {
+      // Parse name into first_name and last_name
+      const nameTrimmed = (name || '').trim()
+      const parts = nameTrimmed.length ? nameTrimmed.split(/\s+/) : []
+      const first_name = parts.shift() || ''
+      const last_name = parts.join(' ')
 
-    // Build registration payload
-    const registrationData = { 
-      email, 
-      password,
-      first_name,
-      last_name,
-      dob
+      // Build registration payload
+      const registrationData = {
+        email,
+        password,
+        first_name,
+        last_name,
+        dob
+      }
+
+      // Add company_name for sponsors (not used for drivers)
+      if (pendingRole === 'sponsor' && company_name) {
+        registrationData.company_name = company_name
+      }
+
+      // Send all required data to backend registration
+      await apiWithBase(roleBase, '/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(registrationData)
+      })
+
+      // Log in immediately
+      await apiWithBase(roleBase, '/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password })
+      })
+      setApiBasePersisted(roleBase)
+      setIsLoggedIn(true)
+      setStatusMsg('Account created. Loading your profile…')
+
+      // Load the user profile from backend
+      await loadMe()
+
+      // Always send new users to complete their profile with phone/address
+      setCurrentPage('account-details')
+      setStatusMsg('Account created. Please complete your account details.')
+    } catch (err) {
+      setIsLoggedIn(false)
+      setCurrentUser(null)
+      setAuthError(err.message || 'Registration failed')
+      if (err?.responseBody) console.error('Register error response:', err.responseBody)
     }
-
-    // Add company_name for sponsors (not used for drivers)
-    if (pendingRole === 'sponsor' && company_name) {
-      registrationData.company_name = company_name
-    }
-
-    // Send all required data to backend registration
-    await apiWithBase(roleBase, '/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(registrationData)
-    })
-
-    // Log in immediately
-    await apiWithBase(roleBase, '/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password })
-    })
-    setApiBasePersisted(roleBase)
-    setIsLoggedIn(true)
-    setStatusMsg('Account created. Loading your profile…')
-
-    // Load the user profile from backend
-    await loadMe()
-
-    // Always send new users to complete their profile with phone/address
-    setCurrentPage('account-details')
-    setStatusMsg('Account created. Please complete your account details.')
-  } catch (err) {
-    setIsLoggedIn(false)
-    setCurrentUser(null)
-    setAuthError(err.message || 'Registration failed')
-    if (err?.responseBody) console.error('Register error response:', err.responseBody)
   }
-}
 
   const handleLogout = async () => {
     setAuthError('')
@@ -516,7 +516,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     setIsLoggedIn(false)
     setCurrentPage('login')
     setCurrentUser(null)
-    try { window.localStorage.removeItem('gdip_api_base') } catch {}
+    try { window.localStorage.removeItem('gdip_api_base') } catch { }
   }
 
   // Optional: if user refreshes while logged in, try to restore
@@ -976,7 +976,7 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
     )
   }
 
-// ============ NAVIGATION COMPONENT ============
+  // ============ NAVIGATION COMPONENT ============
   const Navigation = () => {
     const role = ((currentUser?.role || inferRoleFromBase(apiBase) || 'driver') + '').toLowerCase().trim()
     const allowed = getAllowedPages(currentUser)
@@ -1483,188 +1483,188 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
   }
 
   // ============ SPONSOR AFFILIATION PAGE ============
-const SponsorAffiliationPage = () => {
-  const [loading, setLoading] = useState(false)
-  const [ads, setAds] = useState([])
-  const [error, setError] = useState('')
-  const [apps, setApps] = useState([])
-  const [statusMsgLocal, setStatusMsgLocal] = useState('')
+  const SponsorAffiliationPage = () => {
+    const [loading, setLoading] = useState(false)
+    const [ads, setAds] = useState([])
+    const [error, setError] = useState('')
+    const [apps, setApps] = useState([])
+    const [statusMsgLocal, setStatusMsgLocal] = useState('')
 
-  const loadAds = async () => {
-    setError('')
-    setLoading(true)
-    try {
-      const data = await api('/ads', { method: 'GET' })
-      setAds(data.ads || [])
-    } catch (err) {
-      setError(err.message || 'Failed to load ads')
-    } finally {
-      setLoading(false)
+    const loadAds = async () => {
+      setError('')
+      setLoading(true)
+      try {
+        const data = await api('/ads', { method: 'GET' })
+        setAds(data.ads || [])
+      } catch (err) {
+        setError(err.message || 'Failed to load ads')
+      } finally {
+        setLoading(false)
+      }
     }
-  }
 
-  const loadApplications = async () => {
-    try {
-      const data = await api('/applications', { method: 'GET' })
-      setApps(data.applications || [])
-    } catch (err) {
-      // ignore silently
+    const loadApplications = async () => {
+      try {
+        const data = await api('/applications', { method: 'GET' })
+        setApps(data.applications || [])
+      } catch (err) {
+        // ignore silently
+      }
     }
-  }
 
-  useEffect(() => {
-    loadAds()
-    loadApplications()
-  }, [])
+    useEffect(() => {
+      loadAds()
+      loadApplications()
+    }, [])
 
-  const applyTo = async (sponsorId, adId) => {
-    setStatusMsgLocal('')
-    try {
-      // Ensure we hit the driver service for creating applications
-      const body = { sponsorId: Number(sponsorId) }
-      if (typeof adId !== 'undefined' && adId !== null) body.adId = Number(adId)
-      console.log('Applying with payload', body)
-      await apiWithBase(DRIVER_API_BASE, '/applications', { method: 'POST', body: JSON.stringify(body) })
-      setStatusMsgLocal('Application submitted!')
-      await loadApplications()
-    } catch (err) {
-      setStatusMsgLocal(err.message || 'Failed to apply')
+    const applyTo = async (sponsorId, adId) => {
+      setStatusMsgLocal('')
+      try {
+        // Ensure we hit the driver service for creating applications
+        const body = { sponsorId: Number(sponsorId) }
+        if (typeof adId !== 'undefined' && adId !== null) body.adId = Number(adId)
+        console.log('Applying with payload', body)
+        await apiWithBase(DRIVER_API_BASE, '/applications', { method: 'POST', body: JSON.stringify(body) })
+        setStatusMsgLocal('Application submitted!')
+        await loadApplications()
+      } catch (err) {
+        setStatusMsgLocal(err.message || 'Failed to apply')
+      }
     }
-  }
 
-  const hasApplied = (ad) => {
-    if (!ad) return false
-    if (apps.some(a => a.ad_id && a.ad_id === ad.id)) return true
-    return apps.some(a => a.sponsor_id === ad.sponsor_id)
-  }
+    const hasApplied = (ad) => {
+      if (!ad) return false
+      if (apps.some(a => a.ad_id && a.ad_id === ad.id)) return true
+      return apps.some(a => a.sponsor_id === ad.sponsor_id)
+    }
 
-  const currentSponsor = currentUser?.profile?.sponsor_org || ''
+    const currentSponsor = currentUser?.profile?.sponsor_org || ''
 
-  return (
-    <div>
-      <Navigation />
-      <main className="app-main">
-        <h1 className="page-title">Sponsor Programs</h1>
-        <p className="page-subtitle">Browse and apply to sponsorship opportunities</p>
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Sponsor Programs</h1>
+          <p className="page-subtitle">Browse and apply to sponsorship opportunities</p>
 
-        {currentSponsor && (
-          <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid green' }}>
-            <h3>Your Sponsor</h3>
-            <p>{currentSponsor}</p>
-          </div>
-        )}
-
-        {statusMsgLocal && (
-          <p className="form-footer" style={{ color: 'green', marginBottom: 12 }}>{statusMsgLocal}</p>
-        )}
-        {error && (
-          <p className="form-footer" style={{ color: 'crimson', marginBottom: 12 }}>{error}</p>
-        )}
-
-        {loading ? (
-          <p>Loading programs...</p>
-        ) : ads.length === 0 ? (
-          <div className="card">
-            <p className="activity-empty">No sponsorship programs available yet.</p>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gap: 16 }}>
-            {ads.map(ad => {
-              const applied = hasApplied(ad)
-              return (
-                <div key={ad.id} className="card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                    <div style={{ flex: 1 }}>
-                      <h3>{ad.title}</h3>
-                      <p className="muted" style={{ marginBottom: 8 }}>
-                        {ad.sponsor_company || ad.sponsor_email}
-                      </p>
-                      <p style={{ margin: '8px 0' }}>{ad.description}</p>
-                      {ad.requirements && (
-                        <p style={{ fontSize: '0.9em', color: '#666' }}>
-                          <strong>Requirements:</strong> {ad.requirements}
-                        </p>
-                      )}
-                      {ad.benefits && (
-                        <p style={{ fontSize: '0.9em', color: '#666' }}>
-                          <strong>Benefits:</strong> {ad.benefits}
-                        </p>
-                      )}
-                    </div>
-                    <div style={{ marginLeft: 16, flexShrink: 0 }}>
-                      {applied ? (
-                        <span style={{
-                          padding: '4px 12px',
-                          borderRadius: 4,
-                          fontSize: '0.85em',
-                          backgroundColor: '#fff3cd',
-                          color: '#856404'
-                        }}>
-                          Applied
-                        </span>
-                        ) : (
-                        <button
-                          className="btn btn-success"
-                          onClick={() => applyTo(ad.sponsor_id, ad.id)}
-                        >
-                          Apply
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        <section style={{ marginTop: 32 }}>
-          <h2 className="section-title">Your applications</h2>
-          {apps.length === 0 ? (
-            <p className="activity-empty">No applications yet</p>
-          ) : (
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Company</th>
-                    <th>Status</th>
-                    <th>Applied</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {apps.map(a => (
-                    <tr key={a.id}>
-                      <td>{a.sponsor_company || a.sponsor_email}</td>
-                      <td>
-                        <span style={{
-                          padding: '4px 8px',
-                          borderRadius: 4,
-                          fontSize: '0.85em',
-                          backgroundColor:
-                            a.status === 'accepted' ? '#d4edda' :
-                            a.status === 'rejected' ? '#f8d7da' :
-                            '#fff3cd',
-                          color:
-                            a.status === 'accepted' ? '#155724' :
-                            a.status === 'rejected' ? '#721c24' :
-                            '#856404'
-                        }}>
-                          {a.status || 'pending'}
-                        </span>
-                      </td>
-                      <td>{a.applied_at ? new Date(a.applied_at).toLocaleString() : '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {currentSponsor && (
+            <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid green' }}>
+              <h3>Your Sponsor</h3>
+              <p>{currentSponsor}</p>
             </div>
           )}
-        </section>
-      </main>
-    </div>
-  )
-}
+
+          {statusMsgLocal && (
+            <p className="form-footer" style={{ color: 'green', marginBottom: 12 }}>{statusMsgLocal}</p>
+          )}
+          {error && (
+            <p className="form-footer" style={{ color: 'crimson', marginBottom: 12 }}>{error}</p>
+          )}
+
+          {loading ? (
+            <p>Loading programs...</p>
+          ) : ads.length === 0 ? (
+            <div className="card">
+              <p className="activity-empty">No sponsorship programs available yet.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 16 }}>
+              {ads.map(ad => {
+                const applied = hasApplied(ad)
+                return (
+                  <div key={ad.id} className="card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                      <div style={{ flex: 1 }}>
+                        <h3>{ad.title}</h3>
+                        <p className="muted" style={{ marginBottom: 8 }}>
+                          {ad.sponsor_company || ad.sponsor_email}
+                        </p>
+                        <p style={{ margin: '8px 0' }}>{ad.description}</p>
+                        {ad.requirements && (
+                          <p style={{ fontSize: '0.9em', color: '#666' }}>
+                            <strong>Requirements:</strong> {ad.requirements}
+                          </p>
+                        )}
+                        {ad.benefits && (
+                          <p style={{ fontSize: '0.9em', color: '#666' }}>
+                            <strong>Benefits:</strong> {ad.benefits}
+                          </p>
+                        )}
+                      </div>
+                      <div style={{ marginLeft: 16, flexShrink: 0 }}>
+                        {applied ? (
+                          <span style={{
+                            padding: '4px 12px',
+                            borderRadius: 4,
+                            fontSize: '0.85em',
+                            backgroundColor: '#fff3cd',
+                            color: '#856404'
+                          }}>
+                            Applied
+                          </span>
+                        ) : (
+                          <button
+                            className="btn btn-success"
+                            onClick={() => applyTo(ad.sponsor_id, ad.id)}
+                          >
+                            Apply
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <section style={{ marginTop: 32 }}>
+            <h2 className="section-title">Your applications</h2>
+            {apps.length === 0 ? (
+              <p className="activity-empty">No applications yet</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Company</th>
+                      <th>Status</th>
+                      <th>Applied</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {apps.map(a => (
+                      <tr key={a.id}>
+                        <td>{a.sponsor_company || a.sponsor_email}</td>
+                        <td>
+                          <span style={{
+                            padding: '4px 8px',
+                            borderRadius: 4,
+                            fontSize: '0.85em',
+                            backgroundColor:
+                              a.status === 'accepted' ? '#d4edda' :
+                                a.status === 'rejected' ? '#f8d7da' :
+                                  '#fff3cd',
+                            color:
+                              a.status === 'accepted' ? '#155724' :
+                                a.status === 'rejected' ? '#721c24' :
+                                  '#856404'
+                          }}>
+                            {a.status || 'pending'}
+                          </span>
+                        </td>
+                        <td>{a.applied_at ? new Date(a.applied_at).toLocaleString() : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </main>
+      </div>
+    )
+  }
 
   // ============ ACCOUNT DETAILS PROMPT (edit + save to backend) ============
   const AccountDetailsPage = () => {
@@ -2339,13 +2339,13 @@ const SponsorAffiliationPage = () => {
     const handleCreateAd = async (e) => {
       e.preventDefault()
       setError('')
-      
+
       try {
         await api('/ads', {
           method: 'POST',
           body: JSON.stringify(formData)
         })
-        
+
         setFormData({ title: '', description: '', requirements: '', benefits: '' })
         setShowCreateForm(false)
         await loadAds()
@@ -2356,7 +2356,7 @@ const SponsorAffiliationPage = () => {
 
     const handleDeleteAd = async (adId) => {
       if (!window.confirm('Are you sure you want to delete this ad?')) return
-      
+
       try {
         // Ensure we hit the sponsor service for deleting ads
         await apiWithBase(SPONSOR_API_BASE, `/ads/${adId}`, { method: 'DELETE' })
@@ -2366,22 +2366,22 @@ const SponsorAffiliationPage = () => {
       }
     }
 
-    
+
     const handleApplicationAction = async (applicationId, action) => {
-    try {
-      const notes = notesById[applicationId] || ''
-      await api(`/applications/${applicationId}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          status: action === 'approved' ? 'accepted' : action,
-          notes
+      try {
+        const notes = notesById[applicationId] || ''
+        await api(`/applications/${applicationId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            status: action === 'approved' ? 'accepted' : action,
+            notes
+          })
         })
-      })
-      setNotesById(prev => { const n = { ...prev }; delete n[applicationId]; return n })
-      await loadApplications()
-    } catch (err) {
-      setError(err.message || `Failed to ${action} application`)
-    }
+        setNotesById(prev => { const n = { ...prev }; delete n[applicationId]; return n })
+        await loadApplications()
+      } catch (err) {
+        setError(err.message || `Failed to ${action} application`)
+      }
     }
 
     return (
@@ -2396,8 +2396,8 @@ const SponsorAffiliationPage = () => {
           <section>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h2 className="section-title">Your Sponsorship Ads</h2>
-              <button 
-                className="btn btn-primary" 
+              <button
+                className="btn btn-primary"
                 onClick={() => setShowCreateForm(!showCreateForm)}
               >
                 {showCreateForm ? 'Cancel' : 'Create New Ad'}
@@ -2485,8 +2485,8 @@ const SponsorAffiliationPage = () => {
                           Created: {ad.created_at ? new Date(ad.created_at).toLocaleDateString() : '-'}
                         </p>
                       </div>
-                      <button 
-                        className="btn btn-danger" 
+                      <button
+                        className="btn btn-danger"
                         onClick={() => handleDeleteAd(ad.id)}
                         style={{ marginLeft: 16 }}
                       >
@@ -2528,12 +2528,12 @@ const SponsorAffiliationPage = () => {
                             fontSize: '0.85em',
                             backgroundColor:
                               app.status === 'accepted' ? '#d4edda' :
-                              app.status === 'rejected' ? '#f8d7da' :
-                              '#fff3cd',
+                                app.status === 'rejected' ? '#f8d7da' :
+                                  '#fff3cd',
                             color:
                               app.status === 'accepted' ? '#155724' :
-                              app.status === 'rejected' ? '#721c24' :
-                              '#856404'
+                                app.status === 'rejected' ? '#721c24' :
+                                  '#856404'
                           }}>
                             {app.status || 'pending'}
                           </span>
@@ -2590,7 +2590,7 @@ const SponsorAffiliationPage = () => {
     const [searchQuery, setSearchQuery] = useState('')
     const [searchResults, setSearchResults] = useState([])
     const [shopItems, setShopItems] = useState([])
-    
+
     // We need a state to temporarily store the cost the user types in for each item
     // Key: itemId, Value: point cost string
     const [draftCosts, setDraftCosts] = useState({})
@@ -2623,7 +2623,7 @@ const SponsorAffiliationPage = () => {
 
     const handleAddToShop = async (item) => {
       const pointCost = parseInt(draftCosts[item.itemId], 10)
-      
+
       if (!pointCost || pointCost <= 0) {
         alert("Please enter a valid point cost before adding to the shop.")
         return
@@ -2653,24 +2653,24 @@ const SponsorAffiliationPage = () => {
       <div className="page-container">
         <h1 className="page-title">Sponsor Shop Catalog</h1>
         <p className="page-subtitle">Search for items to add to your driver rewards catalog.</p>
-        
+
         <div style={{ display: 'flex', gap: '2rem', marginTop: '2rem' }}>
-          
+
           {/* LEFT SIDE: Search eBay */}
           <div style={{ flex: 1 }}>
             <h2 className="section-title">Search eBay</h2>
             <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px', marginBottom: '1.5rem' }}>
-              <input 
-                type="text" 
-                className="input" 
-                placeholder="Search items (e.g., iPhone 13)..." 
-                value={searchQuery} 
-                onChange={e => setSearchQuery(e.target.value)} 
+              <input
+                type="text"
+                className="input"
+                placeholder="Search items (e.g., iPhone 13)..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
                 style={{ flex: 1 }}
               />
               <button type="submit" className="btn btn-primary">Search</button>
             </form>
-            
+
             <div className="landing-grid">
               {searchResults.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No search results.</p>}
               {searchResults.map(item => (
@@ -2678,18 +2678,18 @@ const SponsorAffiliationPage = () => {
                   <img src={item.image} alt={item.title} style={{ width: '100%', height: '150px', objectFit: 'contain', marginBottom: '1rem' }} />
                   <h3 className="card-title" style={{ fontSize: '1rem', margin: '0 0 8px 0' }}>{item.title}</h3>
                   <p className="card-body" style={{ fontWeight: 'bold', marginBottom: '1rem' }}>Retail Price: ${item.price?.value}</p>
-                  
+
                   <div style={{ marginTop: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <input 
-                      type="number" 
-                      className="input" 
-                      placeholder="Point Cost (e.g. 500)" 
+                    <input
+                      type="number"
+                      className="input"
+                      placeholder="Point Cost (e.g. 500)"
                       value={draftCosts[item.itemId] || ''}
                       onChange={(e) => handleCostChange(item.itemId, e.target.value)}
                       style={{ width: '100px' }}
                     />
-                    <button 
-                      className="btn btn-success" 
+                    <button
+                      className="btn btn-success"
                       onClick={() => handleAddToShop(item)}
                       style={{ flex: 1, padding: '8px 12px' }}
                     >
