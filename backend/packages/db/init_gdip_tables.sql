@@ -147,3 +147,18 @@ CREATE TABLE IF NOT EXISTS applications (
   CONSTRAINT fk_applications_ad
     FOREIGN KEY (ad_id)      REFERENCES ads(id)   ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Catalog items for Sponsor Shop
+CREATE TABLE IF NOT EXISTS catalog_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  sponsor_id INT NOT NULL,
+  ebay_item_id VARCHAR(100) NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  image_url VARCHAR(500) NULL,
+  price DECIMAL(10, 2) NOT NULL,
+  point_cost INT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_catalog_items_sponsor
+    FOREIGN KEY (sponsor_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
