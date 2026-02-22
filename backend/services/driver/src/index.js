@@ -495,7 +495,7 @@ app.post("/applications", requireAuth, async (req, res) => {
 app.get("/ads", requireAuth, async (req, res) => {
   try {
     const ads = await query(
-      `SELECT a.id, a.title, a.description, a.requirements, a.benefits, a.created_at,
+      `SELECT a.id, a.sponsor_id, a.title, a.description, a.requirements, a.benefits, a.created_at,
               sp.company_name AS sponsor_company, u.email AS sponsor_email
        FROM ads a
        JOIN users u ON a.sponsor_id = u.id
