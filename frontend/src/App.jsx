@@ -1516,7 +1516,10 @@ const SponsorAffiliationPage = () => {
     setStatusMsgLocal('')
     try {
       // Ensure we hit the driver service for creating applications
-      await apiWithBase(DRIVER_API_BASE, '/applications', { method: 'POST', body: JSON.stringify({ sponsorId, adId }) })
+      const body = { sponsorId: Number(sponsorId) }
+      if (typeof adId !== 'undefined' && adId !== null) body.adId = Number(adId)
+      console.log('Applying with payload', body)
+      await apiWithBase(DRIVER_API_BASE, '/applications', { method: 'POST', body: JSON.stringify(body) })
       setStatusMsgLocal('Application submitted!')
       await loadApplications()
     } catch (err) {

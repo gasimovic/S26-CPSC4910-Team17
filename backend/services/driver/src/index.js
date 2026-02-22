@@ -510,6 +510,39 @@ app.get("/ads", requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * GET /applications
+ * Returns all applications submitted by this driver.
+ */
+app.get("/applications", requireAuth, async (req, res) => {
+  try {
+    const applications = await query(
+      `SELECT 
+        a.id,
+        a.sponsor_id,
+        a.status,
+        a.applied_at,
+        a.reviewed_at,
+        a.notes,
+        u.email AS sponsor_email,
+        sp.company_name AS sponsor_company,
+        ad.title AS ad_title,
+        a.ad_id
+      FROM applications a
+      JOIN users u ON a.sponsor_id = u.id
+      LEFT JOIN sponsor_profiles sp ON a.sponsor_id = sp.user_id
+      LEFT JOIN ads ad ON a.ad_id = ad.id
+      WHERE a.driver_id = ?
+      ORDER BY a.applied_at DESC`,
+      [req.user.id]
+    );
+    return res.json({ applications: applications || [] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`[driver] listening on :${PORT}`);
 });
