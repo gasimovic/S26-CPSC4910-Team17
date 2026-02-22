@@ -1,4 +1,3 @@
-
 -- Migration tracking table
 CREATE TABLE IF NOT EXISTS schema_migrations (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -103,37 +102,9 @@ CREATE TABLE IF NOT EXISTS admin_profiles (
     ON DELETE CASCADE
     ON UPDATE CASCADE
 ) ENGINE=InnoDB;
--- if index doesnt exist, create it
-
-CREATE TABLE IF NOT EXISTS applications (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  driver_id INT NOT NULL,
-  ad_id INT NULL,
-  sponsor_id INT NOT NULL,
-  status ENUM('pending', 'accepted', 'rejected') NOT NULL DEFAULT 'pending',
-  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  reviewed_at TIMESTAMP NULL,
-  reviewed_by INT NULL,
-  notes TEXT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_driver_id (driver_id),
-  INDEX idx_ad_id (ad_id),
-  INDEX idx_sponsor_id (sponsor_id),
-  INDEX idx_status (status),
-  CONSTRAINT fk_applications_driver
-    FOREIGN KEY (driver_id) REFERENCES users(id)
-    ON DELETE CASCADE, 
-  CONSTRAINT fk_applications_sponsor
-    FOREIGN KEY (sponsor_id) REFERENCES users(id)
-    ON DELETE CASCADE
-  ,
-  CONSTRAINT fk_applications_ad
-    FOREIGN KEY (ad_id) REFERENCES ads(id)
-    ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Ads table (for sponsor sponsorship listings)
+-- NOTE: must be created BEFORE applications because applications has a FK to ads
 CREATE TABLE IF NOT EXISTS ads (
   id          INT UNSIGNED     NOT NULL AUTO_INCREMENT,
   sponsor_id  INT UNSIGNED     NOT NULL,
@@ -148,3 +119,31 @@ CREATE TABLE IF NOT EXISTS ads (
   CONSTRAINT fk_ads_sponsor FOREIGN KEY (sponsor_id)
     REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Applications table
+-- NOTE: ad_id uses INT UNSIGNED to match ads.id type (required for FK compatibility)
+CREATE TABLE IF NOT EXISTS applications (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  driver_id   INT NOT NULL,
+  ad_id       INT UNSIGNED NULL,
+  sponsor_id  INT NOT NULL,
+  status      ENUM('pending', 'accepted', 'rejected') NOT NULL DEFAULT 'pending',
+  applied_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_at TIMESTAMP NULL,
+  reviewed_by INT NULL,
+  notes       TEXT NULL,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  INDEX idx_driver_id  (driver_id),
+  INDEX idx_ad_id      (ad_id),
+  INDEX idx_sponsor_id (sponsor_id),
+  INDEX idx_status     (status),
+
+  CONSTRAINT fk_applications_driver
+    FOREIGN KEY (driver_id)  REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_applications_sponsor
+    FOREIGN KEY (sponsor_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_applications_ad
+    FOREIGN KEY (ad_id)      REFERENCES ads(id)   ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
