@@ -1014,7 +1014,12 @@ const handleRegister = async ({ email, password, name, dob, company_name }) => {
               Drivers
             </button>
           )}
-
+          {/* Sponsor-only: Catalog button */}
+          {isSponsor && allowed.includes('catalog') && (
+            <button type="button" onClick={() => setCurrentPage('catalog')} className="nav-link">
+              Catalog
+            </button>
+          )}
           {/* Driver-only */}
           {isDriver && allowed.includes('rewards') && (
             <button type="button" onClick={() => setCurrentPage('rewards')} className="nav-link">
@@ -2580,6 +2585,7 @@ const SponsorAffiliationPage = () => {
     )
   }
 
+  // ============ SPONSOR CATALOG PAGE ============
   const SponsorCatalogPage = () => {
     const [searchQuery, setSearchQuery] = useState('')
     const [searchResults, setSearchResults] = useState([])
