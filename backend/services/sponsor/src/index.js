@@ -9,7 +9,6 @@ const app = makeApp();
 const PORT = process.env.PORT || 4003;
 const COOKIE_NAME = process.env.COOKIE_NAME || "gdip_token";
 const COOKIE_SECURE = (process.env.COOKIE_SECURE || "false") === "true";
-
 const ROLE = "sponsor";
 
 function toInt(v) {
@@ -171,6 +170,7 @@ app.post("/auth/login", async (req, res) => {
       httpOnly: true,
       secure: COOKIE_SECURE,
       sameSite: "lax",
+      path: "/",              
       maxAge: 2 * 60 * 60 * 1000,
     });
 
@@ -189,6 +189,7 @@ app.post("/auth/logout", (_req, res) => {
     httpOnly: true,
     secure: COOKIE_SECURE,
     sameSite: "lax",
+    path: "/",             
   });
   return res.json({ ok: true });
 });
