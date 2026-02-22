@@ -2361,19 +2361,22 @@ const SponsorAffiliationPage = () => {
       }
     }
 
+    
     const handleApplicationAction = async (applicationId, action) => {
-      try {
-        const notes = notesById[applicationId] || ''
-        await api(`/applications/${applicationId}`, {
-          method: 'PUT',
-          body: JSON.stringify({ status: action === 'approved' ? 'accepted' : action, notes })
+    try {
+      const notes = notesById[applicationId] || ''
+      await api(`/applications/${applicationId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          status: action === 'approved' ? 'accepted' : action,
+          notes
         })
-        // clear note for this application
-        setNotesById(prev => { const n = { ...prev }; delete n[applicationId]; return n })
-        await loadApplications()
-      } catch (err) {
-        setError(err.message || `Failed to ${action} application`)
-      }
+      })
+      setNotesById(prev => { const n = { ...prev }; delete n[applicationId]; return n })
+      await loadApplications()
+    } catch (err) {
+      setError(err.message || `Failed to ${action} application`)
+    }
     }
 
     return (
@@ -2504,68 +2507,70 @@ const SponsorAffiliationPage = () => {
                       <th>Email</th>
                       <th>Status</th>
                       <th>Applied</th>
+                      <th>Reason</th>
                       <th>Actions</th>
-                      <th>Notes</th>
                     </tr>
                   </thead>
                   <tbody>
-  {applications.map(app => (
-    <tr key={app.id}>
-      <td>{app.driver_name || [app.first_name, app.last_name].filter(Boolean).join(' ') || 'Unknown'}</td>
-      <td>{app.driver_email || app.email || '-'}</td>
-      <td>
-        <span style={{ 
-          padding: '4px 8px', 
-          borderRadius: 4, 
-          fontSize: '0.85em',
-          backgroundColor: 
-            app.status === 'accepted' ? '#d4edda' : 
-            app.status === 'rejected' ? '#f8d7da' : 
-            '#fff3cd',
-          color:
-            app.status === 'accepted' ? '#155724' : 
-            app.status === 'rejected' ? '#721c24' : 
-            '#856404'
-        }}>
-          {app.status || 'pending'}
-        </span>
-      </td>
-      <td>{app.applied_at ? new Date(app.applied_at).toLocaleDateString() : '-'}</td>
-      <td>
-        {app.status === 'pending' && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button 
-              className="btn btn-success" 
-              style={{ fontSize: '0.85em', padding: '4px 12px' }}
-              onClick={() => handleApplicationAction(app.id, 'accepted')}
-            >
-              Accept
-            </button>
-            <button 
-              className="btn btn-danger" 
-              style={{ fontSize: '0.85em', padding: '4px 12px' }}
-              onClick={() => handleApplicationAction(app.id, 'rejected')}
-            >
-              Reject
-            </button>
-          </div>
-        )}
-      </td>
-      <td style={{ width: 280 }}>
-        {app.status === 'pending' && (
-          <div>
-            <textarea
-              placeholder="Optional reason/notes"
-              value={notesById[app.id] || ''}
-              onChange={(e) => setNotesById(prev => ({ ...prev, [app.id]: e.target.value }))}
-              style={{ width: '100%', minHeight: 60 }}
-            />
-          </div>
-        )}
-      </td>
-    </tr>
-  ))}
-</tbody>
+                    {applications.map(app => (
+                      <tr key={app.id}>
+                        <td>{app.driver_name || [app.first_name, app.last_name].filter(Boolean).join(' ') || 'Unknown'}</td>
+                        <td>{app.driver_email || app.email || '—'}</td>
+                        <td>
+                          <span style={{
+                            padding: '4px 8px',
+                            borderRadius: 4,
+                            fontSize: '0.85em',
+                            backgroundColor:
+                              app.status === 'accepted' ? '#d4edda' :
+                              app.status === 'rejected' ? '#f8d7da' :
+                              '#fff3cd',
+                            color:
+                              app.status === 'accepted' ? '#155724' :
+                              app.status === 'rejected' ? '#721c24' :
+                              '#856404'
+                          }}>
+                            {app.status || 'pending'}
+                          </span>
+                        </td>
+                        <td>{app.applied_at ? new Date(app.applied_at).toLocaleDateString() : '—'}</td>
+                        <td style={{ width: 260 }}>
+                          {app.status === 'pending' ? (
+                            <textarea
+                              placeholder="Reason (optional)"
+                              value={notesById[app.id] || ''}
+                              onChange={(e) => setNotesById(prev => ({ ...prev, [app.id]: e.target.value }))}
+                              style={{ width: '100%', minHeight: 56, fontSize: '0.875em' }}
+                            />
+                          ) : (
+                            <span style={{ fontSize: '0.875em', color: '#555', fontStyle: app.notes ? 'normal' : 'italic' }}>
+                              {app.notes || '—'}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {app.status === 'pending' && (
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button
+                                className="btn btn-success"
+                                style={{ fontSize: '0.85em', padding: '4px 12px' }}
+                                onClick={() => handleApplicationAction(app.id, 'accepted')}
+                              >
+                                Accept
+                              </button>
+                              <button
+                                className="btn btn-danger"
+                                style={{ fontSize: '0.85em', padding: '4px 12px' }}
+                                onClick={() => handleApplicationAction(app.id, 'rejected')}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
                 </table>
               </div>
             )}
