@@ -31,7 +31,7 @@ router.get('/search', async (req, res) => {
             item_web_url: item.itemWebUrl
         }));
 
-        res.json(results);
+        res.json({ items: results });
     } catch (error) {
         console.error("eBay search error:", error.response?.data || error.message);
         res.status(500).json({ error: 'Failed to search eBay Sandbox' });

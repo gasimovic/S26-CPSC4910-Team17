@@ -543,6 +543,9 @@ app.get("/applications", requireAuth, async (req, res) => {
   }
 });
 
+const driverCatalogRoutes = require('../../../routes/driver/catalog');
+app.use('/catalog', requireAuth, driverCatalogRoutes);
+
 app.listen(PORT, () => {
   console.log(`[driver] listening on :${PORT}`);
 });
