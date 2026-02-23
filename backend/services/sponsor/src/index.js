@@ -170,7 +170,7 @@ app.post("/auth/login", async (req, res) => {
       httpOnly: true,
       secure: COOKIE_SECURE,
       sameSite: "lax",
-      path: "/",              
+      path: "/",
       maxAge: 2 * 60 * 60 * 1000,
     });
 
@@ -189,7 +189,7 @@ app.post("/auth/logout", (_req, res) => {
     httpOnly: true,
     secure: COOKIE_SECURE,
     sameSite: "lax",
-    path: "/",             
+    path: "/",
   });
   return res.json({ ok: true });
 });
@@ -1000,25 +1000,11 @@ app.delete('/catalog/:id', requireAuth, async (req, res) => {
   }
 });
 
-/**
- * GET /ebay/search
- * Proxy to eBay search
- * Query params: q (query)
- */
-app.get('/ebay/search', requireAuth, async (req, res) => {
-  const q = req.query.q;
-  if (!q) {
-    return res.status(400).json({ error: 'Missing query parameter "q"' });
-  }
+const sponsorEbayRoutes = require('../../../routes/sponsor/ebay');
+const sponsorCatalogRoutes = require('../../../routes/sponsor/catalog');
 
-  try {
-    const items = await ebayService.searchItems(q);
-    return res.json({ items });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'eBay search failed' });
-  }
-});
+app.use('/ebay', requireAuth, sponsorEbayRoutes);
+app.use('/catalog', requireAuth, sponsorCatalogRoutes);
 
 app.listen(PORT, () => {
   console.log(`[sponsor] listening on :${PORT}`);

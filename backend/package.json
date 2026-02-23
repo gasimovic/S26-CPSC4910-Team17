@@ -17,5 +17,10 @@
     "dev:sponsor": "node services/sponsor/src/index.js",
     "dev:all": "npm run dev:admin & npm run dev:driver & npm run dev:sponsor",
     "install:clean": "rm -rf node_modules package-lock.json && npm install"
+  },
+  "dependencies": {
+    "axios": "^1.13.5",
+    "dotenv": "^17.3.1",
+    "node-fetch": "^3.3.2"
   }
 }
