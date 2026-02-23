@@ -313,10 +313,10 @@ function App() {
     setStatusMsg('Signing in…')
 
     // Try the last-used base first, then fall back to the others.
-    // REMOVE SPONSOR_API_BASE so driver login no longer tries sponsor.
     const candidates = [
       apiBase,
       DRIVER_API_BASE,
+      SPONSOR_API_BASE,
       ADMIN_API_BASE
     ].filter(Boolean)
 
@@ -346,15 +346,24 @@ function App() {
       }
 
       if (!chosenBase) {
-        throw new Error('Invalid credentials (HTTP 401). If you are a sponsor, use the Sponsor Sign in tab.')
+        throw new Error('Invalid credentials (HTTP 401).')
       }
 
-      setApiBasePersisted(chosenBase)
+      // Load /me first so we know the authoritative role, then lock the apiBase to the correct service.
+      const me = await apiWithBase(chosenBase, '/me', { method: 'GET' })
+      const meUser = me?.user || me || {}
+      const roleFromMe = String(meUser.role || inferRoleFromBase(chosenBase) || 'driver').toLowerCase()
+
+      const baseForRole =
+        roleFromMe === 'admin' ? ADMIN_API_BASE :
+          roleFromMe === 'sponsor' ? SPONSOR_API_BASE :
+            DRIVER_API_BASE
+
+      setApiBasePersisted(baseForRole)
       setIsLoggedIn(true)
       setStatusMsg('Signed in. Loading your profile…')
 
       const u = await (async () => {
-        const me = await apiWithBase(chosenBase, '/me', { method: 'GET' })
         const normalized = (() => {
           const userObj = me?.user || me || {}
           const profileObj = me?.profile || me?.profileData || me || {}
@@ -368,7 +377,7 @@ function App() {
             id: userObj.id || userObj.userId || userObj.user_id || null,
             name,
             email: userObj.email || null,
-            role: (userObj.role || inferRoleFromBase(chosenBase)),
+            role: (userObj.role || roleFromMe),
             points: Number(userObj.points ?? 0),
             miles: Number(userObj.miles ?? 0),
             streak: Number(userObj.streak ?? 0),
@@ -409,41 +418,6 @@ function App() {
     }
   }
 
-  const handleSponsorLogin = async (email, password) => {
-    setAuthError('')
-    setStatusMsg('')
-    setStatusMsg('Signing in as sponsor…')
-
-    try {
-      // Sponsor-only: never try driver/admin here
-      await apiWithBase(SPONSOR_API_BASE, '/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      })
-
-      setApiBasePersisted(SPONSOR_API_BASE)
-      setIsLoggedIn(true)
-      setStatusMsg('Signed in. Loading your profile…')
-
-      const me = await apiWithBase(SPONSOR_API_BASE, '/me', { method: 'GET' })
-      const u = normalizeMe(me)
-      // Force role to sponsor if backend ever omits it
-      u.role = (u.role || 'sponsor').toLowerCase()
-      setCurrentUser(u)
-
-      if (profileLooksEmpty(u)) {
-        setCurrentPage('account-details')
-        setStatusMsg('Welcome! Please complete your account details.')
-      } else {
-        setCurrentPage('dashboard')
-      }
-    } catch (err) {
-      setIsLoggedIn(false)
-      setCurrentUser(null)
-      setAuthError(err.message || 'Sponsor login failed')
-      if (err?.responseBody) console.error('Sponsor login error response:', err.responseBody)
-    }
-  }
 
   const handleRegister = async ({ email, password, name, dob, company_name }) => {
     setAuthError('')
@@ -538,11 +512,11 @@ function App() {
         return
       }
 
-      // Support deep links to login pages
+      // Back-compat: redirect legacy sponsor login deep link to unified login
       if (page === 'login-sponsor') {
         setAuthError('')
         setStatusMsg('')
-        setCurrentPage('login-sponsor')
+        setCurrentPage('login')
         return
       }
 
@@ -579,21 +553,8 @@ function App() {
                     setCurrentPage('login')
                   }}
                 >
-                  Driver sign in
+                  Sign in
                 </button>
-
-                <button
-                  type="button"
-                  className="btn btn-success"
-                  onClick={() => {
-                    setAuthError('')
-                    setStatusMsg('')
-                    setCurrentPage('login-sponsor')
-                  }}
-                >
-                  Sponsor sign in
-                </button>
-
                 <button
                   type="button"
                   className="btn btn-primary"
@@ -675,18 +636,7 @@ function App() {
                 setCurrentPage('login')
               }}
             >
-              Driver sign in
-            </button>
-            <button
-              type="button"
-              className="btn btn-success"
-              onClick={() => {
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('login-sponsor')
-              }}
-            >
-              Sponsor sign in
+              Sign in
             </button>
           </div>
         </footer>
@@ -768,34 +718,7 @@ function App() {
       <div className="login-wrap">
         <div className="login-card">
           <h1 className="login-title">Driver Rewards</h1>
-          <p className="login-subtitle">Sign in to your account</p>
-
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ flex: 1 }}
-              onClick={() => {
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('login')
-              }}
-            >
-              Driver Sign in
-            </button>
-            <button
-              type="button"
-              className="btn btn-success"
-              style={{ flex: 1 }}
-              onClick={() => {
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('login-sponsor')
-              }}
-            >
-              Sponsor Sign in
-            </button>
-          </div>
+          <p className="login-subtitle">Sign in (drivers, sponsors, and admins)</p>
 
           <form onSubmit={onSubmit}>
             <div className="form-group">
@@ -865,116 +788,6 @@ function App() {
     )
   }
 
-  const SponsorLoginPage = () => {
-    const [email, setEmail] = useState('')
-    const [password, setPassword] = useState('')
-
-    const onSubmit = (e) => {
-      e.preventDefault()
-      handleSponsorLogin(email, password)
-    }
-
-    return (
-      <div className="login-wrap">
-        <div className="login-card">
-          <h1 className="login-title">Driver Rewards</h1>
-          <p className="login-subtitle">Sponsor sign in</p>
-
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ flex: 1 }}
-              onClick={() => {
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('login')
-              }}
-            >
-              Driver Sign in
-            </button>
-            <button
-              type="button"
-              className="btn btn-success"
-              style={{ flex: 1 }}
-              onClick={() => {
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('login-sponsor')
-              }}
-            >
-              Sponsor Sign in
-            </button>
-          </div>
-
-          <form onSubmit={onSubmit}>
-            <div className="form-group">
-              <label className="form-label">Email</label>
-              <input
-                type="text"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter sponsor email"
-                className="form-input"
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                className="form-input"
-                required
-              />
-            </div>
-
-            {authError ? <p className="form-footer" style={{ color: 'crimson' }}>{authError}</p> : null}
-            {statusMsg ? <p className="form-footer" style={{ color: 'green' }}>{statusMsg}</p> : null}
-
-            <button type="submit" className="btn btn-success btn-block">
-              Sponsor sign in
-            </button>
-          </form>
-
-          <p className="form-footer">
-            Need a driver account instead?{' '}
-            <a
-              href="#"
-              className="link"
-              onClick={(e) => {
-                e.preventDefault()
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('login')
-              }}
-            >
-              Go to Driver sign in
-            </a>
-          </p>
-
-          <p className="form-footer">
-            Don&apos;t have an account?{' '}
-            <a
-              href="#"
-              className="link"
-              onClick={(e) => {
-                e.preventDefault()
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('account-type')
-              }}
-            >
-              Create one here
-            </a>
-          </p>
-        </div>
-      </div>
-    )
-  }
 
   // ============ NAVIGATION COMPONENT ============
   const Navigation = () => {
