@@ -699,7 +699,7 @@ body {
 /* ============ LOG TRIP ============ */
 .form-card {
   max-width: 520px;
-  margin-top: 24px;
+  margin: 24px auto 0;
 }
 
 /* ============ REWARDS ============ */

@@ -1664,8 +1664,10 @@ function App() {
       <div>
         <Navigation />
         <main className="app-main">
-          <h1 className="page-title">Account Details</h1>
-          <p className="page-subtitle">Please enter your details to continue</p>
+          <div style={{ textAlign: 'center', marginBottom: 16 }}>
+            <h1 className="page-title">Account Details</h1>
+            <p className="page-subtitle">Please enter your details to continue</p>
+          </div>
 
           <div className="card form-card">
             {authError ? <p className="form-footer" style={{ color: 'crimson' }}>{authError}</p> : null}
