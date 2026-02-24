@@ -837,7 +837,7 @@ body {
 /* ============ PROFILE ============ */
 .profile-card {
   max-width: 480px;
-  margin-top: 24px;
+  margin: 24px auto 0;
 }
 
 .profile-field {
