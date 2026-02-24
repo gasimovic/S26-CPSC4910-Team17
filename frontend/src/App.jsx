@@ -313,10 +313,10 @@ function App() {
     setStatusMsg('Signing in…')
 
     // Try the last-used base first, then fall back to the others.
-    // REMOVE SPONSOR_API_BASE so driver login no longer tries sponsor.
     const candidates = [
       apiBase,
       DRIVER_API_BASE,
+      SPONSOR_API_BASE,
       ADMIN_API_BASE
     ].filter(Boolean)
 
@@ -346,15 +346,24 @@ function App() {
       }
 
       if (!chosenBase) {
-        throw new Error('Invalid credentials (HTTP 401). If you are a sponsor, use the Sponsor Sign in tab.')
+        throw new Error('Invalid credentials (HTTP 401).')
       }
 
-      setApiBasePersisted(chosenBase)
+      // Load /me first so we know the authoritative role, then lock the apiBase to the correct service.
+      const me = await apiWithBase(chosenBase, '/me', { method: 'GET' })
+      const meUser = me?.user || me || {}
+      const roleFromMe = String(meUser.role || inferRoleFromBase(chosenBase) || 'driver').toLowerCase()
+
+      const baseForRole =
+        roleFromMe === 'admin' ? ADMIN_API_BASE :
+          roleFromMe === 'sponsor' ? SPONSOR_API_BASE :
+            DRIVER_API_BASE
+
+      setApiBasePersisted(baseForRole)
       setIsLoggedIn(true)
       setStatusMsg('Signed in. Loading your profile…')
 
       const u = await (async () => {
-        const me = await apiWithBase(chosenBase, '/me', { method: 'GET' })
         const normalized = (() => {
           const userObj = me?.user || me || {}
           const profileObj = me?.profile || me?.profileData || me || {}
@@ -368,7 +377,7 @@ function App() {
             id: userObj.id || userObj.userId || userObj.user_id || null,
             name,
             email: userObj.email || null,
-            role: (userObj.role || inferRoleFromBase(chosenBase)),
+            role: (userObj.role || roleFromMe),
             points: Number(userObj.points ?? 0),
             miles: Number(userObj.miles ?? 0),
             streak: Number(userObj.streak ?? 0),
@@ -406,42 +415,6 @@ function App() {
       setCurrentUser(null)
       setAuthError(err.message || 'Login failed')
       if (err?.responseBody) console.error('Login error response:', err.responseBody)
-    }
-  }
-
-  const handleSponsorLogin = async (email, password) => {
-    setAuthError('')
-    setStatusMsg('')
-    setStatusMsg('Signing in as sponsor…')
-
-    try {
-      // Sponsor-only: never try driver/admin here
-      await apiWithBase(SPONSOR_API_BASE, '/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      })
-
-      setApiBasePersisted(SPONSOR_API_BASE)
-      setIsLoggedIn(true)
-      setStatusMsg('Signed in. Loading your profile…')
-
-      const me = await apiWithBase(SPONSOR_API_BASE, '/me', { method: 'GET' })
-      const u = normalizeMe(me)
-      // Force role to sponsor if backend ever omits it
-      u.role = (u.role || 'sponsor').toLowerCase()
-      setCurrentUser(u)
-
-      if (profileLooksEmpty(u)) {
-        setCurrentPage('account-details')
-        setStatusMsg('Welcome! Please complete your account details.')
-      } else {
-        setCurrentPage('dashboard')
-      }
-    } catch (err) {
-      setIsLoggedIn(false)
-      setCurrentUser(null)
-      setAuthError(err.message || 'Sponsor login failed')
-      if (err?.responseBody) console.error('Sponsor login error response:', err.responseBody)
     }
   }
 
@@ -538,11 +511,11 @@ function App() {
         return
       }
 
-      // Support deep links to login pages
+      // Back-compat: redirect legacy sponsor login deep link to unified login
       if (page === 'login-sponsor') {
         setAuthError('')
         setStatusMsg('')
-        setCurrentPage('login-sponsor')
+        setCurrentPage('login')
         return
       }
 
@@ -579,21 +552,8 @@ function App() {
                     setCurrentPage('login')
                   }}
                 >
-                  Driver sign in
+                  Sign in
                 </button>
-
-                <button
-                  type="button"
-                  className="btn btn-success"
-                  onClick={() => {
-                    setAuthError('')
-                    setStatusMsg('')
-                    setCurrentPage('login-sponsor')
-                  }}
-                >
-                  Sponsor sign in
-                </button>
-
                 <button
                   type="button"
                   className="btn btn-primary"
@@ -675,18 +635,7 @@ function App() {
                 setCurrentPage('login')
               }}
             >
-              Driver sign in
-            </button>
-            <button
-              type="button"
-              className="btn btn-success"
-              onClick={() => {
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('login-sponsor')
-              }}
-            >
-              Sponsor sign in
+              Sign in
             </button>
           </div>
         </footer>
@@ -768,34 +717,7 @@ function App() {
       <div className="login-wrap">
         <div className="login-card">
           <h1 className="login-title">Driver Rewards</h1>
-          <p className="login-subtitle">Sign in to your account</p>
-
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ flex: 1 }}
-              onClick={() => {
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('login')
-              }}
-            >
-              Driver Sign in
-            </button>
-            <button
-              type="button"
-              className="btn btn-success"
-              style={{ flex: 1 }}
-              onClick={() => {
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('login-sponsor')
-              }}
-            >
-              Sponsor Sign in
-            </button>
-          </div>
+          <p className="login-subtitle">Sign in (drivers, sponsors, and admins)</p>
 
           <form onSubmit={onSubmit}>
             <div className="form-group">
@@ -865,117 +787,6 @@ function App() {
     )
   }
 
-  const SponsorLoginPage = () => {
-    const [email, setEmail] = useState('')
-    const [password, setPassword] = useState('')
-
-    const onSubmit = (e) => {
-      e.preventDefault()
-      handleSponsorLogin(email, password)
-    }
-
-    return (
-      <div className="login-wrap">
-        <div className="login-card">
-          <h1 className="login-title">Driver Rewards</h1>
-          <p className="login-subtitle">Sponsor sign in</p>
-
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ flex: 1 }}
-              onClick={() => {
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('login')
-              }}
-            >
-              Driver Sign in
-            </button>
-            <button
-              type="button"
-              className="btn btn-success"
-              style={{ flex: 1 }}
-              onClick={() => {
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('login-sponsor')
-              }}
-            >
-              Sponsor Sign in
-            </button>
-          </div>
-
-          <form onSubmit={onSubmit}>
-            <div className="form-group">
-              <label className="form-label">Email</label>
-              <input
-                type="text"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter sponsor email"
-                className="form-input"
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                className="form-input"
-                required
-              />
-            </div>
-
-            {authError ? <p className="form-footer" style={{ color: 'crimson' }}>{authError}</p> : null}
-            {statusMsg ? <p className="form-footer" style={{ color: 'green' }}>{statusMsg}</p> : null}
-
-            <button type="submit" className="btn btn-success btn-block">
-              Sponsor sign in
-            </button>
-          </form>
-
-          <p className="form-footer">
-            Need a driver account instead?{' '}
-            <a
-              href="#"
-              className="link"
-              onClick={(e) => {
-                e.preventDefault()
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('login')
-              }}
-            >
-              Go to Driver sign in
-            </a>
-          </p>
-
-          <p className="form-footer">
-            Don&apos;t have an account?{' '}
-            <a
-              href="#"
-              className="link"
-              onClick={(e) => {
-                e.preventDefault()
-                setAuthError('')
-                setStatusMsg('')
-                setCurrentPage('account-type')
-              }}
-            >
-              Create one here
-            </a>
-          </p>
-        </div>
-      </div>
-    )
-  }
-
   // ============ NAVIGATION COMPONENT ============
   const Navigation = () => {
     const role = ((currentUser?.role || inferRoleFromBase(apiBase) || 'driver') + '').toLowerCase().trim()
@@ -1008,18 +819,21 @@ function App() {
               Applications
             </button>
           )}
+
           {/* Sponsor-only: Drivers button */}
           {isSponsor && allowed.includes('drivers') && (
             <button type="button" onClick={() => setCurrentPage('drivers')} className="nav-link">
               Drivers
             </button>
           )}
+
           {/* Sponsor-only: Catalog button */}
           {isSponsor && allowed.includes('catalog') && (
             <button type="button" onClick={() => setCurrentPage('catalog')} className="nav-link">
               Catalog
             </button>
           )}
+
           {/* Driver-only */}
           {isDriver && allowed.includes('rewards') && (
             <button type="button" onClick={() => setCurrentPage('rewards')} className="nav-link">
@@ -1058,7 +872,8 @@ function App() {
       </nav>
     )
   }
-  // ============ DRIVERS PAGE (for sponsors: adjust driver points) ============
+
+  // ============ DRIVERS PAGE (for sponsors: adjust driver points + view ledger) ============
   const SponsorDriversPage = () => {
     const [drivers, setDrivers] = useState([])
     const [loading, setLoading] = useState(false)
@@ -1070,27 +885,19 @@ function App() {
     const [deltaById, setDeltaById] = useState({})
     const [reasonById, setReasonById] = useState({})
 
+    // ledger state
+    const [selectedDriver, setSelectedDriver] = useState(null)
+    const [ledger, setLedger] = useState([])
+    const [ledgerBalance, setLedgerBalance] = useState(null)
+    const [ledgerLoading, setLedgerLoading] = useState(false)
+
     const loadDrivers = async () => {
       setError('')
       setSuccess('')
       setLoading(true)
       try {
-        // Prefer sponsor service endpoints; try a few common shapes for robustness
-        const tryPaths = ['/drivers', '/driver-points/drivers', '/points/drivers']
-        let data = null
-        let lastErr = null
-        for (const p of tryPaths) {
-          try {
-            data = await api(p, { method: 'GET' })
-            break
-          } catch (e) {
-            lastErr = e
-          }
-        }
-        if (!data) throw lastErr || new Error('Failed to load drivers')
-
-        const list = data.drivers || data.items || data.results || []
-        setDrivers(Array.isArray(list) ? list : [])
+        const data = await api('/drivers', { method: 'GET' })
+        setDrivers(Array.isArray(data?.drivers) ? data.drivers : [])
       } catch (e) {
         setError(e?.message || 'Failed to load drivers')
       } finally {
@@ -1098,8 +905,29 @@ function App() {
       }
     }
 
+    const openLedger = async (driver) => {
+      const driverId = driver?.id ?? driver?.user_id
+      if (!driverId) return
+
+      setSelectedDriver(driver)
+      setLedger([])
+      setLedgerBalance(null)
+      setLedgerLoading(true)
+
+      try {
+        const data = await api(`/drivers/${driverId}/points`, { method: 'GET' })
+        setLedger(Array.isArray(data?.ledger) ? data.ledger : [])
+        setLedgerBalance(
+          data?.balance ?? data?.pointsBalance ?? data?.points_balance ?? null
+        )
+      } catch (e) {
+        setError(e?.message || 'Failed to load ledger')
+      } finally {
+        setLedgerLoading(false)
+      }
+    }
+
     useEffect(() => {
-      // Load on mount
       loadDrivers()
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
@@ -1107,11 +935,15 @@ function App() {
     const filtered = useMemo(() => {
       const q = (query || '').trim().toLowerCase()
       if (!q) return drivers
-      return drivers.filter(d => {
+      return drivers.filter((d) => {
         const id = String(d.id ?? d.user_id ?? '')
         const email = String(d.email ?? '')
         const name = String(d.name ?? d.driver_name ?? '')
-        return id.includes(q) || email.toLowerCase().includes(q) || name.toLowerCase().includes(q)
+        return (
+          id.includes(q) ||
+          email.toLowerCase().includes(q) ||
+          name.toLowerCase().includes(q)
+        )
       })
     }, [drivers, query])
 
@@ -1127,43 +959,42 @@ function App() {
 
       const rawDelta = deltaById[driverId]
       const delta = Number(rawDelta)
+
       if (!Number.isFinite(delta) || delta === 0) {
         setError('Enter a non-zero number of points to add (+) or deduct (-).')
         return
       }
 
       const reason = (reasonById[driverId] || '').trim()
+      if (!reason) {
+        setError('Reason is required.')
+        return
+      }
 
       try {
-        // Try a few common endpoint shapes (backend should enforce sponsor auth)
-        const body = JSON.stringify({ driverId, delta, reason })
-        const tryReqs = [
-          () => api(`/drivers/${driverId}/points`, { method: 'POST', body }),
-          () => api(`/drivers/${driverId}/adjust-points`, { method: 'POST', body }),
-          () => api('/driver-points/adjust', { method: 'POST', body }),
-          () => api('/points/adjust', { method: 'POST', body })
-        ]
+        const points = Math.abs(delta)
 
-        let resp = null
-        let lastErr = null
-        for (const fn of tryReqs) {
-          try {
-            resp = await fn()
-            break
-          } catch (e) {
-            lastErr = e
-          }
+        if (delta > 0) {
+          await api(`/drivers/${driverId}/points/add`, {
+            method: 'POST',
+            body: JSON.stringify({ points, reason })
+          })
+        } else {
+          await api(`/drivers/${driverId}/points/deduct`, {
+            method: 'POST',
+            body: JSON.stringify({ points, reason })
+          })
         }
-        if (!resp) throw lastErr || new Error('Failed to update points')
 
         setSuccess(`Updated points for driver ${driverId}.`)
-
-        // Best-effort refresh list to reflect new totals
         await loadDrivers()
 
-        // Clear inputs for this driver
-        setDeltaById(prev => ({ ...prev, [driverId]: '' }))
-        setReasonById(prev => ({ ...prev, [driverId]: '' }))
+        if ((selectedDriver?.id ?? selectedDriver?.user_id) === driverId) {
+          await openLedger(selectedDriver)
+        }
+
+        setDeltaById((prev) => ({ ...prev, [driverId]: '' }))
+        setReasonById((prev) => ({ ...prev, [driverId]: '' }))
       } catch (e) {
         setError(e?.message || 'Failed to update points')
         if (e?.responseBody) console.error('Adjust points error response:', e.responseBody)
@@ -1175,7 +1006,7 @@ function App() {
         <Navigation />
         <main className="app-main">
           <h1 className="page-title">Drivers</h1>
-          <p className="page-subtitle">Add or deduct points for affiliated drivers</p>
+          <p className="page-subtitle">Manage points for your drivers</p>
 
           <div className="card" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1203,21 +1034,26 @@ function App() {
                   <th>Email</th>
                   <th className="text-right">Points</th>
                   <th style={{ width: 260 }}>Adjust</th>
-                  <th style={{ width: 260 }}>Reason (optional)</th>
+                  <th style={{ width: 260 }}>Reason (required)</th>
                   <th style={{ width: 140 }}>Action</th>
+                  <th style={{ width: 110 }}>Ledger</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && drivers.length === 0 ? (
-                  <tr><td colSpan="6" className="table-empty">Loading…</td></tr>
+                  <tr><td colSpan="7" className="table-empty">Loading…</td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan="6" className="table-empty">No drivers found</td></tr>
+                  <tr><td colSpan="7" className="table-empty">No drivers found</td></tr>
                 ) : (
-                  filtered.map(d => {
+                  filtered.map((d) => {
                     const id = d.id ?? d.user_id
-                    const name = d.name || d.driver_name || [d.first_name, d.last_name].filter(Boolean).join(' ') || `Driver ${id}`
+                    const name =
+                      d.name ||
+                      d.driver_name ||
+                      [d.first_name, d.last_name].filter(Boolean).join(' ') ||
+                      `Driver ${id}`
                     const email = d.email || d.driver_email || '-'
-                    const points = Number(d.points ?? d.total_points ?? 0)
+                    const points = Number(d.pointsBalance ?? d.points_balance ?? d.points ?? d.total_points ?? 0)
 
                     return (
                       <tr key={String(id)}>
@@ -1230,16 +1066,16 @@ function App() {
                             type="number"
                             placeholder="e.g. 50 or -20"
                             value={deltaById[id] ?? ''}
-                            onChange={(e) => setDeltaById(prev => ({ ...prev, [id]: e.target.value }))}
+                            onChange={(e) => setDeltaById((prev) => ({ ...prev, [id]: e.target.value }))}
                           />
                         </td>
                         <td>
                           <input
                             className="form-input"
                             type="text"
-                            placeholder="Optional note"
+                            placeholder="Why are you changing points?"
                             value={reasonById[id] ?? ''}
-                            onChange={(e) => setReasonById(prev => ({ ...prev, [id]: e.target.value }))}
+                            onChange={(e) => setReasonById((prev) => ({ ...prev, [id]: e.target.value }))}
                           />
                         </td>
                         <td>
@@ -1251,6 +1087,15 @@ function App() {
                             Apply
                           </button>
                         </td>
+                        <td>
+                          <button
+                            className="btn btn-primary"
+                            type="button"
+                            onClick={() => openLedger(d)}
+                          >
+                            View
+                          </button>
+                        </td>
                       </tr>
                     )
                   })
@@ -1259,8 +1104,55 @@ function App() {
             </table>
           </div>
 
+          {selectedDriver ? (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <h2 className="section-title" style={{ marginTop: 0 }}>Points ledger</h2>
+                  <p className="page-subtitle" style={{ marginTop: 4 }}>
+                    {(selectedDriver.name ||
+                      selectedDriver.driver_name ||
+                      selectedDriver.email ||
+                      `Driver ${(selectedDriver.id ?? selectedDriver.user_id)}`)}
+                    {ledgerBalance !== null ? ` · Balance: ${ledgerBalance}` : ''}
+                  </p>
+                </div>
+                <button className="btn btn-primary" type="button" onClick={() => setSelectedDriver(null)}>
+                  Close
+                </button>
+              </div>
+
+              {ledgerLoading ? (
+                <p>Loading ledger…</p>
+              ) : ledger.length === 0 ? (
+                <p className="activity-empty">No ledger entries yet</p>
+              ) : (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th className="text-right">Delta</th>
+                        <th>Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ledger.map((row, idx) => (
+                        <tr key={row.id ?? idx}>
+                          <td>{row.created_at ? new Date(row.created_at).toLocaleString() : '-'}</td>
+                          <td className="text-right">{row.delta ?? 0}</td>
+                          <td>{row.reason ?? ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : null}
+
           <p className="form-footer" style={{ marginTop: 12 }}>
-            Tip: use positive numbers to add points and negative numbers to deduct points.
+            Tip: use positive numbers to add points and negative numbers to deduct points. A reason is required.
           </p>
         </main>
       </div>
@@ -2293,7 +2185,6 @@ function App() {
     )
   }
 
-
   // ============ APPLICATIONS PAGE (for sponsors) ============
   const ApplicationsPage = () => {
     const [ads, setAds] = useState([])
@@ -2365,7 +2256,6 @@ function App() {
         setError(err.message || 'Failed to delete ad')
       }
     }
-
 
     const handleApplicationAction = async (applicationId, action) => {
       try {
@@ -2744,6 +2634,7 @@ function App() {
       {isLoggedIn && currentPage === 'account-details' && <AccountDetailsPage />}
       {isLoggedIn && currentPage === 'change-password' && <ChangePasswordPage />}
       {isLoggedIn && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
+      {isLoggedIn && currentPage === 'reset-password' && <ResetPasswordPage prefill={resetPrefill} />}
       {/* Sponsor-only pages */}
       {isLoggedIn && currentPage === 'applications' && <ApplicationsPage />}
       {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
