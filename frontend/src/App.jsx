@@ -5,6 +5,8 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [currentPage, setCurrentPage] = useState('landing')
   const [currentUser, setCurrentUser] = useState(null)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [pendingRole, setPendingRole] = useState('driver') // chosen role for new accounts (driver | sponsor)
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
@@ -793,6 +795,20 @@ function App() {
             <button type="submit" className="btn btn-primary btn-block">
               Sign in
             </button>
+
+            <div className="login-secondary-actions">
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => {
+                  setAuthError('')
+                  setStatusMsg('')
+                  setCurrentPage('landing')
+                }}
+              >
+                ← Back
+              </button>
+            </div>
           </form>
 
           <p className="form-footer">
@@ -910,7 +926,13 @@ function App() {
           {/* Points are only meaningful for drivers; keep UI clean for sponsors/admin */}
           {isDriver ? <span className="nav-pts">{currentUser?.points ?? 0} pts</span> : null}
 
-          <button type="button" onClick={handleLogout} className="nav-logout">Log out</button>
+          <button
+            type="button"
+            onClick={() => setShowLogoutConfirm(true)}
+            className="nav-logout"
+          >
+            Log out
+          </button>
         </div>
       </nav>
     )
@@ -1372,17 +1394,17 @@ function App() {
   // ============ PROFILE PAGE (view) ============
   const ProfilePage = () => {
     const handleDeleteAccount = () => {
-      if (window.confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
-        handleLogout()
-      }
+      setShowDeleteConfirm(true)
     }
 
     return (
       <div>
         <Navigation />
         <main className="app-main">
-          <h1 className="page-title">Profile</h1>
-          <p className="page-subtitle">Your account details</p>
+          <div style={{ textAlign: 'center', marginBottom: 16 }}>
+            <h1 className="page-title">Profile</h1>
+            <p className="page-subtitle">Your account details</p>
+          </div>
           <div className="card profile-card">
             <div className="profile-field">
               <p className="profile-label">Name</p>
@@ -1691,8 +1713,10 @@ function App() {
       <div>
         <Navigation />
         <main className="app-main">
-          <h1 className="page-title">Account Details</h1>
-          <p className="page-subtitle">Please enter your details to continue</p>
+          <div style={{ textAlign: 'center', marginBottom: 16 }}>
+            <h1 className="page-title">Account Details</h1>
+            <p className="page-subtitle">Please enter your details to continue</p>
+          </div>
 
           <div className="card form-card">
             {authError ? <p className="form-footer" style={{ color: 'crimson' }}>{authError}</p> : null}
@@ -2583,78 +2607,98 @@ function App() {
     }
 
     return (
-      <div className="page-container">
-        <h1 className="page-title">Sponsor Shop Catalog</h1>
-        <p className="page-subtitle">Search for items to add to your driver rewards catalog.</p>
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Catalog</h1>
+          <p className="page-subtitle">Search eBay items and add them to your sponsor rewards catalog.</p>
 
-        <div style={{ display: 'flex', gap: '2rem', marginTop: '2rem' }}>
+          <div className="catalog-layout">
+            <section className="card catalog-panel">
+              <h2 className="section-title">Search eBay</h2>
+              <form onSubmit={handleSearch} className="catalog-search-form">
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Search items (e.g., iPhone 13)…"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+                <button type="submit" className="btn btn-primary">
+                  Search
+                </button>
+              </form>
 
-          {/* LEFT SIDE: Search eBay */}
-          <div style={{ flex: 1 }}>
-            <h2 className="section-title">Search eBay</h2>
-            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px', marginBottom: '1.5rem' }}>
-              <input
-                type="text"
-                className="input"
-                placeholder="Search items (e.g., iPhone 13)..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <button type="submit" className="btn btn-primary">Search</button>
-            </form>
+              <div className="landing-grid catalog-grid">
+                {searchResults.length === 0 ? (
+                  <p className="activity-empty">No search results yet.</p>
+                ) : (
+                  searchResults.map(item => (
+                    <div key={item.itemId} className="card catalog-item-card">
+                      {item.image ? (
+                        <img
+                          src={item.image}
+                          alt={item.title}
+                          className="catalog-item-img"
+                        />
+                      ) : null}
+                      <h3 className="card-title catalog-item-title">{item.title}</h3>
+                      <p className="catalog-item-price">Retail: ${item.price?.value ?? '-'}</p>
 
-            <div className="landing-grid">
-              {searchResults.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No search results.</p>}
-              {searchResults.map(item => (
-                <div key={item.itemId} className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <img src={item.image} alt={item.title} style={{ width: '100%', height: '150px', objectFit: 'contain', marginBottom: '1rem' }} />
-                  <h3 className="card-title" style={{ fontSize: '1rem', margin: '0 0 8px 0' }}>{item.title}</h3>
-                  <p className="card-body" style={{ fontWeight: 'bold', marginBottom: '1rem' }}>Retail Price: ${item.price?.value}</p>
+                      <div className="catalog-item-actions">
+                        <input
+                          type="number"
+                          className="form-input catalog-cost-input"
+                          placeholder="Points"
+                          value={draftCosts[item.itemId] || ''}
+                          onChange={(e) => handleCostChange(item.itemId, e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-success"
+                          onClick={() => handleAddToShop(item)}
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
 
-                  <div style={{ marginTop: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <input
-                      type="number"
-                      className="input"
-                      placeholder="Point Cost (e.g. 500)"
-                      value={draftCosts[item.itemId] || ''}
-                      onChange={(e) => handleCostChange(item.itemId, e.target.value)}
-                      style={{ width: '100px' }}
-                    />
-                    <button
-                      className="btn btn-success"
-                      onClick={() => handleAddToShop(item)}
-                      style={{ flex: 1, padding: '8px 12px' }}
-                    >
-                      Add to Shop
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <section className="card catalog-panel">
+              <h2 className="section-title">Your catalog</h2>
+              <p className="page-subtitle" style={{ marginTop: -8 }}>
+                Items currently available for drivers to redeem.
+              </p>
+
+              <div className="landing-grid catalog-grid">
+                {shopItems.length === 0 ? (
+                  <p className="activity-empty">Your catalog is currently empty.</p>
+                ) : (
+                  shopItems.map(item => (
+                    <div key={item.id} className="card catalog-item-card">
+                      {item.image_url ? (
+                        <img
+                          src={item.image_url}
+                          alt={item.title}
+                          className="catalog-item-img"
+                        />
+                      ) : null}
+                      <h3 className="card-title catalog-item-title">{item.title}</h3>
+
+                      <div className="catalog-item-meta">
+                        <span className="catalog-item-retail">Retail: ${item.price}</span>
+                        <span className="catalog-pill">{item.point_cost} pts</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
           </div>
-
-          {/* RIGHT SIDE: Current Shop Items */}
-          <div style={{ flex: 1 }}>
-            <h2 className="section-title">Your Current Shop</h2>
-            <div className="landing-grid">
-              {shopItems.length === 0 && <p style={{ color: 'var(--text-muted)' }}>Your shop is currently empty.</p>}
-              {shopItems.map(item => (
-                <div key={item.id} className="card">
-                  {item.image_url && <img src={item.image_url} alt={item.title} style={{ width: '100%', height: '150px', objectFit: 'contain', marginBottom: '1rem' }} />}
-                  <h3 className="card-title" style={{ fontSize: '1rem', margin: '0 0 8px 0' }}>{item.title}</h3>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <p className="card-body" style={{ fontWeight: 'bold', color: 'var(--text-muted)' }}>Retail: ${item.price}</p>
-                    <p className="card-body" style={{ fontWeight: 'bold', color: 'var(--success-fg)', backgroundColor: 'var(--success-bg)', padding: '4px 8px', borderRadius: '4px' }}>
-                      {item.point_cost} pts
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-        </div>
+        </main>
       </div>
     )
   }
@@ -2684,6 +2728,66 @@ function App() {
       {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
       {isLoggedIn && currentPage === 'catalog' && <SponsorCatalogPage />}
       {/* ... any additional page renders ... */}
+
+      {showLogoutConfirm && (
+        <div className="modal-backdrop">
+          <div className="modal-card">
+            <h2 className="page-title" style={{ marginBottom: 4 }}>Log out?</h2>
+            <p className="page-subtitle" style={{ marginBottom: 20 }}>
+              You’ll be signed out of Driver Rewards and returned to the login screen.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={async () => {
+                  setShowLogoutConfirm(false)
+                  await handleLogout()
+                }}
+              >
+                Log out
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setShowLogoutConfirm(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteConfirm && (
+        <div className="modal-backdrop">
+          <div className="modal-card">
+            <h2 className="page-title" style={{ marginBottom: 4 }}>Delete account?</h2>
+            <p className="page-subtitle" style={{ marginBottom: 20 }}>
+              This will sign you out. Account deletion is not yet implemented.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={async () => {
+                  setShowDeleteConfirm(false)
+                  await handleLogout()
+                }}
+              >
+                Delete Account
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setShowDeleteConfirm(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
