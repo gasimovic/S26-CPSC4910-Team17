@@ -18,6 +18,26 @@ function toInt(v) {
   return Number.isFinite(n) ? Math.trunc(n) : NaN;
 }
 
+
+app.get("/healthz", async (_req, res) => {
+  let dbStatus = 'disconnected'
+  try {
+    await query("SELECT 1")
+    dbStatus = 'connected'
+  } catch {
+    dbStatus = 'disconnected'
+  }
+
+  return res.json({
+    status: 'ok',
+    db: {
+      status: dbStatus,
+      type: 'mysql'
+    },
+    uptime: Math.floor(process.uptime())
+  })
+})
+
 async function getSponsorCompanyName(sponsorId) {
   const rows = await query(
     "SELECT company_name FROM sponsor_profiles WHERE user_id = ? LIMIT 1",

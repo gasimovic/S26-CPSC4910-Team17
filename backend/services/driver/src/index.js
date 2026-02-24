@@ -27,7 +27,24 @@ function requireAuth(req, res, next) {
   }
 }
 
-app.get("/healthz", (_req, res) => res.json({ ok: true }));
+app.get("/healthz", async (_req, res) => {
+  let dbStatus = 'disconnected'
+  try {
+    await query("SELECT 1")
+    dbStatus = 'connected'
+  } catch {
+    dbStatus = 'disconnected'
+  }
+
+  return res.json({
+    status: 'ok',
+    db: {
+      status: dbStatus,
+      type: 'mysql'
+    },
+    uptime: Math.floor(process.uptime())
+  })
+})
 
 /**
  * POST /auth/register
