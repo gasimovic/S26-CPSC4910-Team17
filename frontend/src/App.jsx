@@ -1352,8 +1352,10 @@ function App() {
       <div>
         <Navigation />
         <main className="app-main">
-          <h1 className="page-title">Profile</h1>
-          <p className="page-subtitle">Your account details</p>
+          <div style={{ textAlign: 'center', marginBottom: 16 }}>
+            <h1 className="page-title">Profile</h1>
+            <p className="page-subtitle">Your account details</p>
+          </div>
           <div className="card profile-card">
             <div className="profile-field">
               <p className="profile-label">Name</p>
