@@ -868,9 +868,9 @@ function App() {
           )}
 
           {allowed.includes('about') && (
-           <button type="button" onClick={() => setCurrentPage('about')} className="nav-link">
-            About
-           </button>
+            <button type="button" onClick={() => setCurrentPage('about')} className="nav-link">
+              About
+            </button>
           )}
 
           {allowed.includes('profile') && (
@@ -2667,350 +2667,358 @@ function App() {
   }
 
   // ============ ABOUT PAGE ============
-// Drop this component inside your App() function (alongside DashboardPage, ProfilePage, etc.)
-// Then wire it up in 3 places (see bottom of this file for integration instructions).
+  // Drop this component inside your App() function (alongside DashboardPage, ProfilePage, etc.)
+  // Then wire it up in 3 places (see bottom of this file for integration instructions).
 
-const AboutPage = () => {
-  const [health, setHealth] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [fetchError, setFetchError] = useState('')
-  const [lastChecked, setLastChecked] = useState(null)
+  const AboutPage = () => {
+    const [health, setHealth] = useState(null)
+    const [loading, setLoading] = useState(true)
+    const [fetchError, setFetchError] = useState('')
+    const [lastChecked, setLastChecked] = useState(null)
 
-  const checkHealth = async () => {
-    setLoading(true)
-    setFetchError('')
-    try {
-      const data = await api('/healthz', { method: 'GET' })
-      setHealth(data)
-      setLastChecked(new Date())
-    } catch (err) {
-      setFetchError(err.message || 'Could not reach server')
-      setHealth(null)
-      setLastChecked(new Date())
-    } finally {
-      setLoading(false)
+    const checkHealth = async () => {
+      setLoading(true)
+      setFetchError('')
+      try {
+        const data = await api('/healthz', { method: 'GET' })
+        setHealth(data)
+        setLastChecked(new Date())
+      } catch (err) {
+        setFetchError(err.message || 'Could not reach server')
+        setHealth(null)
+        setLastChecked(new Date())
+      } finally {
+        setLoading(false)
+      }
     }
-  }
 
-  useEffect(() => {
-    checkHealth()
-  }, [])
+    useEffect(() => {
+      checkHealth()
+    }, [])
 
-  // Derive statuses from whatever shape your /health endpoint returns.
-  // Common shapes: { status, db: { status }, server: { uptime } }
-  // or flat: { status: 'ok', database: 'connected', uptime: 3600 }
-  const serverOk = !fetchError && (
-    health?.status === 'ok' ||
-    health?.status === 'healthy' ||
-    health?.server?.status === 'ok' ||
-    health?.server?.status === 'healthy' ||
-    (health != null && !health.error)
-  )
+    // Derive statuses from whatever shape your /health endpoint returns.
+    // Common shapes: { status, db: { status }, server: { uptime } }
+    // or flat: { status: 'ok', database: 'connected', uptime: 3600 }
+    const serverOk = !fetchError && (
+      health?.status === 'ok' ||
+      health?.status === 'healthy' ||
+      health?.server?.status === 'ok' ||
+      health?.server?.status === 'healthy' ||
+      (health != null && !health.error)
+    )
 
-  const dbStatus =
-    health?.db?.status ||
-    health?.database?.status ||
-    health?.database ||
-    health?.db ||
-    (serverOk ? 'connected' : null)
+    const dbStatus =
+      health?.db?.status ||
+      health?.database?.status ||
+      health?.database ||
+      health?.db ||
+      (serverOk ? 'connected' : null)
 
-  const dbOk =
-    dbStatus === 'connected' ||
-    dbStatus === 'ok' ||
-    dbStatus === 'healthy' ||
-    dbStatus === true
+    const dbOk =
+      dbStatus === 'connected' ||
+      dbStatus === 'ok' ||
+      dbStatus === 'healthy' ||
+      dbStatus === true
 
-  const uptime = health?.uptime ?? health?.server?.uptime ?? null
-  const formatUptime = (seconds) => {
-    if (seconds == null) return null
-    const s = Number(seconds)
-    if (isNaN(s)) return String(seconds)
-    const h = Math.floor(s / 3600)
-    const m = Math.floor((s % 3600) / 60)
-    const sec = Math.floor(s % 60)
-    if (h > 0) return `${h}h ${m}m ${sec}s`
-    if (m > 0) return `${m}m ${sec}s`
-    return `${sec}s`
-  }
+    const uptime = health?.uptime ?? health?.server?.uptime ?? null
+    const formatUptime = (seconds) => {
+      if (seconds == null) return null
+      const s = Number(seconds)
+      if (isNaN(s)) return String(seconds)
+      const h = Math.floor(s / 3600)
+      const m = Math.floor((s % 3600) / 60)
+      const sec = Math.floor(s % 60)
+      if (h > 0) return `${h}h ${m}m ${sec}s`
+      if (m > 0) return `${m}m ${sec}s`
+      return `${sec}s`
+    }
 
-  const StatusBadge = ({ ok, loading, label }) => {
-    if (loading) {
+    const StatusBadge = ({ ok, loading, label }) => {
+      if (loading) {
+        return (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '4px 12px', borderRadius: 999, fontSize: '0.82em', fontWeight: 600,
+            backgroundColor: '#f3f4f6', color: '#6b7280'
+          }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%', backgroundColor: '#d1d5db',
+              animation: 'pulse 1.5s ease-in-out infinite'
+            }} />
+            Checking…
+          </span>
+        )
+      }
+      const color = ok ? '#16a34a' : '#dc2626'
+      const bg = ok ? '#dcfce7' : '#fee2e2'
+      const dot = ok ? '#22c55e' : '#ef4444'
       return (
         <span style={{
           display: 'inline-flex', alignItems: 'center', gap: 6,
           padding: '4px 12px', borderRadius: 999, fontSize: '0.82em', fontWeight: 600,
-          backgroundColor: '#f3f4f6', color: '#6b7280'
+          backgroundColor: bg, color
         }}>
           <span style={{
-            width: 8, height: 8, borderRadius: '50%', backgroundColor: '#d1d5db',
-            animation: 'pulse 1.5s ease-in-out infinite'
+            width: 8, height: 8, borderRadius: '50%', backgroundColor: dot,
+            boxShadow: ok ? `0 0 0 2px ${dot}33` : 'none'
           }} />
-          Checking…
+          {label}
         </span>
       )
     }
-    const color = ok ? '#16a34a' : '#dc2626'
-    const bg = ok ? '#dcfce7' : '#fee2e2'
-    const dot = ok ? '#22c55e' : '#ef4444'
+
     return (
-      <span style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6,
-        padding: '4px 12px', borderRadius: 999, fontSize: '0.82em', fontWeight: 600,
-        backgroundColor: bg, color
-      }}>
-        <span style={{
-          width: 8, height: 8, borderRadius: '50%', backgroundColor: dot,
-          boxShadow: ok ? `0 0 0 2px ${dot}33` : 'none'
-        }} />
-        {label}
-      </span>
-    )
-  }
+      <div>
+        <Navigation />
+        <main className="app-main">
 
-  return (
-    <div>
-      <Navigation />
-      <main className="app-main">
-
-        {/* ── Hero ── */}
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <h1 className="page-title" style={{ marginBottom: 8 }}>Driver Rewards</h1>
-          <p className="page-subtitle" style={{ maxWidth: 480, margin: '0 auto' }}>
-            A full-stack incentive platform that rewards safe, consistent driving — built for
-            drivers, sponsors, and admins.
-          </p>
-        </div>
-
-        {/* ── Live System Status ── */}
-        <section className="card" style={{ marginBottom: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
-            <h2 className="section-title" style={{ margin: 0 }}>Live System Status</h2>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              {lastChecked && (
-                <span style={{ fontSize: '0.8em', color: '#9ca3af' }}>
-                  Last checked {lastChecked.toLocaleTimeString()}
-                </span>
-              )}
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={checkHealth}
-                disabled={loading}
-                style={{ fontSize: '0.85em', padding: '6px 16px' }}
-              >
-                {loading ? 'Checking…' : '↺ Refresh'}
-              </button>
-            </div>
+          {/* ── Hero ── */}
+          <div style={{ textAlign: 'center', marginBottom: 32 }}>
+            <h1 className="page-title" style={{ marginBottom: 8 }}>Driver Rewards</h1>
+            <p className="page-subtitle" style={{ maxWidth: 480, margin: '0 auto' }}>
+              A full-stack incentive platform that rewards safe, consistent driving — built for
+              drivers, sponsors, and admins.
+            </p>
           </div>
 
-          {fetchError && (
-            <div style={{
-              padding: '10px 14px', borderRadius: 8, marginBottom: 16,
-              backgroundColor: '#fef2f2', border: '1px solid #fecaca',
-              color: '#dc2626', fontSize: '0.875em'
-            }}>
-              <strong>Connection error:</strong> {fetchError}
-            </div>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
-
-            {/* EC2 / Server */}
-            <div style={{
-              padding: '20px 24px', borderRadius: 10,
-              border: '1px solid var(--border)',
-              backgroundColor: 'var(--surface, #f9fafb)'
-            }}>
-              <p style={{ margin: '0 0 8px', fontSize: '0.78em', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#6b7280' }}>
-                EC2 Server
-              </p>
-              <StatusBadge ok={serverOk} loading={loading} label={serverOk ? 'Reachable' : 'Unreachable'} />
-              {uptime != null && !loading && (
-                <p style={{ margin: '10px 0 0', fontSize: '0.82em', color: '#6b7280' }}>
-                  Uptime: <strong style={{ color: '#374151' }}>{formatUptime(uptime)}</strong>
-                </p>
-              )}
+          {/* ── Live System Status ── */}
+          <section className="card" style={{ marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Live System Status</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {lastChecked && (
+                  <span style={{ fontSize: '0.8em', color: '#9ca3af' }}>
+                    Last checked {lastChecked.toLocaleTimeString()}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={checkHealth}
+                  disabled={loading}
+                  style={{ fontSize: '0.85em', padding: '6px 16px' }}
+                >
+                  {loading ? 'Checking…' : '↺ Refresh'}
+                </button>
+              </div>
             </div>
 
-            {/* SQL / Database */}
-            <div style={{
-              padding: '20px 24px', borderRadius: 10,
-              border: '1px solid var(--border)',
-              backgroundColor: 'var(--surface, #f9fafb)'
-            }}>
-              <p style={{ margin: '0 0 8px', fontSize: '0.78em', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#6b7280' }}>
-                SQL Database
-              </p>
-              <StatusBadge ok={dbOk} loading={loading} label={dbOk ? 'Connected' : (fetchError ? 'Unknown' : 'Disconnected')} />
-              {health?.db?.type || health?.database?.type ? (
-                <p style={{ margin: '10px 0 0', fontSize: '0.82em', color: '#6b7280' }}>
-                  Engine: <strong style={{ color: '#374151' }}>{health?.db?.type || health?.database?.type}</strong>
-                </p>
-              ) : null}
-            </div>
-
-            {/* API Base */}
-            <div style={{
-              padding: '20px 24px', borderRadius: 10,
-              border: '1px solid var(--border)',
-              backgroundColor: 'var(--surface, #f9fafb)'
-            }}>
-              <p style={{ margin: '0 0 8px', fontSize: '0.78em', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#6b7280' }}>
-                API Endpoint
-              </p>
-              <p style={{ margin: 0, fontSize: '0.82em', wordBreak: 'break-all', color: '#374151', fontFamily: 'monospace' }}>
-                {apiBase || '—'}
-              </p>
-            </div>
-
-          </div>
-
-          {/* Raw health payload (collapsible, dev-friendly) */}
-          {health && !loading && (
-            <details style={{ marginTop: 16 }}>
-              <summary style={{ cursor: 'pointer', fontSize: '0.82em', color: '#6b7280', userSelect: 'none' }}>
-                Raw /health response
-              </summary>
-              <pre style={{
-                marginTop: 10, padding: 14, borderRadius: 8,
-                backgroundColor: '#1e1e2e', color: '#cdd6f4',
-                fontSize: '0.78em', overflowX: 'auto', lineHeight: 1.6
+            {fetchError && (
+              <div style={{
+                padding: '10px 14px', borderRadius: 8, marginBottom: 16,
+                backgroundColor: '#fef2f2', border: '1px solid #fecaca',
+                color: '#dc2626', fontSize: '0.875em'
               }}>
-                {JSON.stringify(health, null, 2)}
-              </pre>
-            </details>
-          )}
-        </section>
+                <strong>Connection error:</strong> {fetchError}
+              </div>
+            )}
 
-        {/* ── About the Platform ── */}
-        <section style={{ marginBottom: 24 }}>
-          <h2 className="section-title">About the Platform</h2>
-          <div className="landing-grid landing-grid--two">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
 
-            <div className="card">
-              <h3 className="card-title">For Drivers</h3>
-              <p className="card-body">
-                Log safe trips to earn points, climb the leaderboard, unlock achievements,
-                and redeem rewards from participating sponsors. Connect with sponsors through
-                the affiliation portal.
-              </p>
-            </div>
-
-            <div className="card">
-              <h3 className="card-title">For Sponsors</h3>
-              <p className="card-body">
-                Post sponsorship ads, review and accept driver applications, manage point
-                balances, and curate a reward catalog sourced directly from eBay listings.
-              </p>
-            </div>
-
-          </div>
-        </section>
-
-        {/* ── Stack ── */}
-        <section className="card" style={{ marginBottom: 24 }}>
-          <h2 className="section-title">Tech Stack</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-            {[
-              { layer: 'Frontend', detail: 'React · Vite' },
-              { layer: 'Backend', detail: 'Node.js / Express (×3 services)' },
-              { layer: 'Database', detail: 'SQL (MySQL / PostgreSQL)' },
-              { layer: 'Infrastructure', detail: 'AWS EC2' },
-              { layer: 'Auth', detail: 'Session cookies · JWT tokens' },
-              { layer: 'Integrations', detail: 'eBay Browse API' },
-            ].map(({ layer, detail }) => (
-              <div key={layer} style={{
-                padding: '14px 18px', borderRadius: 8,
+              {/* EC2 / Server */}
+              <div style={{
+                padding: '20px 24px', borderRadius: 10,
                 border: '1px solid var(--border)',
                 backgroundColor: 'var(--surface, #f9fafb)'
               }}>
-                <p style={{ margin: '0 0 4px', fontSize: '0.72em', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#9ca3af' }}>
-                  {layer}
+                <p style={{ margin: '0 0 8px', fontSize: '0.78em', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#6b7280' }}>
+                  EC2 Server
                 </p>
-                <p style={{ margin: 0, fontSize: '0.875em', fontWeight: 500, color: '#374151' }}>
-                  {detail}
+                <StatusBadge ok={serverOk} loading={loading} label={serverOk ? 'Reachable' : 'Unreachable'} />
+                {uptime != null && !loading && (
+                  <p style={{ margin: '10px 0 0', fontSize: '0.82em', color: '#6b7280' }}>
+                    Uptime: <strong style={{ color: '#374151' }}>{formatUptime(uptime)}</strong>
+                  </p>
+                )}
+              </div>
+
+              {/* SQL / Database */}
+              <div style={{
+                padding: '20px 24px', borderRadius: 10,
+                border: '1px solid var(--border)',
+                backgroundColor: 'var(--surface, #f9fafb)'
+              }}>
+                <p style={{ margin: '0 0 8px', fontSize: '0.78em', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#6b7280' }}>
+                  SQL Database
+                </p>
+                <StatusBadge ok={dbOk} loading={loading} label={dbOk ? 'Connected' : (fetchError ? 'Unknown' : 'Disconnected')} />
+                {health?.db?.type || health?.database?.type ? (
+                  <p style={{ margin: '10px 0 0', fontSize: '0.82em', color: '#6b7280' }}>
+                    Engine: <strong style={{ color: '#374151' }}>{health?.db?.type || health?.database?.type}</strong>
+                  </p>
+                ) : null}
+              </div>
+
+              {/* API Base */}
+              <div style={{
+                padding: '20px 24px', borderRadius: 10,
+                border: '1px solid var(--border)',
+                backgroundColor: 'var(--surface, #f9fafb)'
+              }}>
+                <p style={{ margin: '0 0 8px', fontSize: '0.78em', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#6b7280' }}>
+                  API Endpoint
+                </p>
+                <p style={{ margin: 0, fontSize: '0.82em', wordBreak: 'break-all', color: '#374151', fontFamily: 'monospace' }}>
+                  {apiBase || '—'}
                 </p>
               </div>
-            ))}
-          </div>
-        </section>
 
-        {/* ── Version / Build info ── */}
-        <section className="card">
-          <h2 className="section-title">Build Info</h2>
-          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-            {[
-              { label: 'App', value: 'Driver Rewards v1.0' },
-              { label: 'Active role', value: inferRoleFromBase(apiBase) },
-              { label: 'Environment', value: import.meta.env.MODE || 'development' },
-              { label: 'Build', value: import.meta.env.VITE_BUILD_TAG || 'local' },
-            ].map(({ label, value }) => (
-              <div key={label}>
-                <p style={{ margin: '0 0 2px', fontSize: '0.75em', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  {label}
-                </p>
-                <p style={{ margin: 0, fontWeight: 600, color: '#374151', fontSize: '0.9em', fontFamily: 'monospace' }}>
-                  {value}
+            </div>
+
+            {/* Raw health payload (collapsible, dev-friendly) */}
+            {health && !loading && (
+              <details style={{ marginTop: 16 }}>
+                <summary style={{ cursor: 'pointer', fontSize: '0.82em', color: '#6b7280', userSelect: 'none' }}>
+                  Raw /health response
+                </summary>
+                <pre style={{
+                  marginTop: 10, padding: 14, borderRadius: 8,
+                  backgroundColor: '#1e1e2e', color: '#cdd6f4',
+                  fontSize: '0.78em', overflowX: 'auto', lineHeight: 1.6
+                }}>
+                  {JSON.stringify(health, null, 2)}
+                </pre>
+              </details>
+            )}
+          </section>
+
+          {/* ── About the Platform ── */}
+          <section style={{ marginBottom: 24 }}>
+            <h2 className="section-title">About the Platform</h2>
+            <div className="landing-grid landing-grid--two">
+
+              <div className="card">
+                <h3 className="card-title">For Drivers</h3>
+                <p className="card-body">
+                  Log safe trips to earn points, climb the leaderboard, unlock achievements,
+                  and redeem rewards from participating sponsors. Connect with sponsors through
+                  the affiliation portal.
                 </p>
               </div>
-            ))}
-          </div>
-        </section>
 
-      </main>
+              <div className="card">
+                <h3 className="card-title">For Sponsors</h3>
+                <p className="card-body">
+                  Post sponsorship ads, review and accept driver applications, manage point
+                  balances, and curate a reward catalog sourced directly from eBay listings.
+                </p>
+              </div>
 
-      {/* Pulse animation for loading badge */}
-      <style>{`
+              <div className="card" style={{ gridColumn: '1 / -1' }}>
+                <h3 className="card-title">Current Sprint: Sprint 4</h3>
+                <p className="card-body">
+                  In this sprint, we successfully integrated the <strong>eBay Browse API</strong>.
+                  Sponsors can now search real-world items directly from eBay and add them to their custom rewards catalogs!
+                </p>
+              </div>
+
+            </div>
+          </section>
+
+          {/* ── Stack ── */}
+          <section className="card" style={{ marginBottom: 24 }}>
+            <h2 className="section-title">Tech Stack</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              {[
+                { layer: 'Frontend', detail: 'React · Vite' },
+                { layer: 'Backend', detail: 'Node.js / Express (×3 services)' },
+                { layer: 'Database', detail: 'SQL (MySQL / PostgreSQL)' },
+                { layer: 'Infrastructure', detail: 'AWS EC2' },
+                { layer: 'Auth', detail: 'Session cookies · JWT tokens' },
+                { layer: 'Integrations', detail: 'eBay Browse API' },
+              ].map(({ layer, detail }) => (
+                <div key={layer} style={{
+                  padding: '14px 18px', borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--surface, #f9fafb)'
+                }}>
+                  <p style={{ margin: '0 0 4px', fontSize: '0.72em', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#9ca3af' }}>
+                    {layer}
+                  </p>
+                  <p style={{ margin: 0, fontSize: '0.875em', fontWeight: 500, color: '#374151' }}>
+                    {detail}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* ── Version / Build info ── */}
+          <section className="card">
+            <h2 className="section-title">Build Info</h2>
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+              {[
+                { label: 'App', value: 'Driver Rewards v1.0' },
+                { label: 'Active role', value: inferRoleFromBase(apiBase) },
+                { label: 'Environment', value: import.meta.env.MODE || 'development' },
+                { label: 'Build', value: import.meta.env.VITE_BUILD_TAG || 'local' },
+              ].map(({ label, value }) => (
+                <div key={label}>
+                  <p style={{ margin: '0 0 2px', fontSize: '0.75em', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    {label}
+                  </p>
+                  <p style={{ margin: 0, fontWeight: 600, color: '#374151', fontSize: '0.9em', fontFamily: 'monospace' }}>
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+        </main>
+
+        {/* Pulse animation for loading badge */}
+        <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.4; }
         }
       `}</style>
-    </div>
-  )
-}
+      </div>
+    )
+  }
 
 
-// ─────────────────────────────────────────────
-// INTEGRATION INSTRUCTIONS (3 small changes)
-// ─────────────────────────────────────────────
-//
-// 1. getAllowedPages() — add 'about' to every role's array, e.g.:
-//
-//    if (role === 'driver') {
-//      return [...existingPages, 'about']
-//    }
-//    // repeat for sponsor, admin, and the default fallback
-//
-//
-// 2. Navigation component — add an "About" nav-link visible to all roles:
-//
-//    {allowed.includes('about') && (
-//      <button type="button" onClick={() => setCurrentPage('about')} className="nav-link">
-//        About
-//      </button>
-//    )}
-//
-//
-// 3. Main render block — add the route:
-//
-//    {isLoggedIn && currentPage === 'about' && <AboutPage />}
-//
-// ─────────────────────────────────────────────
-// BACKEND REQUIREMENT
-// ─────────────────────────────────────────────
-// The page calls GET /health on the active service.
-// A minimal response that covers all status fields looks like:
-//
-//   {
-//     "status": "ok",
-//     "db": { "status": "connected", "type": "mysql" },
-//     "uptime": 3600
-//   }
-//
-// If your /health already returns something different, the component
-// will still try to infer status from common field names automatically.
-// ─────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // INTEGRATION INSTRUCTIONS (3 small changes)
+  // ─────────────────────────────────────────────
+  //
+  // 1. getAllowedPages() — add 'about' to every role's array, e.g.:
+  //
+  //    if (role === 'driver') {
+  //      return [...existingPages, 'about']
+  //    }
+  //    // repeat for sponsor, admin, and the default fallback
+  //
+  //
+  // 2. Navigation component — add an "About" nav-link visible to all roles:
+  //
+  //    {allowed.includes('about') && (
+  //      <button type="button" onClick={() => setCurrentPage('about')} className="nav-link">
+  //        About
+  //      </button>
+  //    )}
+  //
+  //
+  // 3. Main render block — add the route:
+  //
+  //    {isLoggedIn && currentPage === 'about' && <AboutPage />}
+  //
+  // ─────────────────────────────────────────────
+  // BACKEND REQUIREMENT
+  // ─────────────────────────────────────────────
+  // The page calls GET /health on the active service.
+  // A minimal response that covers all status fields looks like:
+  //
+  //   {
+  //     "status": "ok",
+  //     "db": { "status": "connected", "type": "mysql" },
+  //     "uptime": 3600
+  //   }
+  //
+  // If your /health already returns something different, the component
+  // will still try to infer status from common field names automatically.
+  // ─────────────────────────────────────────────
 
   // ============ MAIN RENDER ============
   return (
