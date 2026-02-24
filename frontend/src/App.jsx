@@ -750,6 +750,20 @@ function App() {
             <button type="submit" className="btn btn-primary btn-block">
               Sign in
             </button>
+
+            <div className="login-secondary-actions">
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => {
+                  setAuthError('')
+                  setStatusMsg('')
+                  setCurrentPage('landing')
+                }}
+              >
+                ← Back
+              </button>
+            </div>
           </form>
 
           <p className="form-footer">

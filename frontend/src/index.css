@@ -388,6 +388,12 @@ body {
   box-shadow: 0 0 0 3px var(--accent-muted);
 }
 
+.login-secondary-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -445,6 +451,26 @@ body {
 .btn-secondary:hover {
   background: #404040;
   color: white;
+}
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border-focus);
+  color: var(--text-muted);
+  padding: 9px 14px;
+  font-weight: 600;
+}
+
+.btn-outline:hover {
+  background: var(--bg-page);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.btn-outline:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted);
 }
 
 .btn-danger {
