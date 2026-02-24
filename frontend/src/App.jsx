@@ -2554,78 +2554,98 @@ function App() {
     }
 
     return (
-      <div className="page-container">
-        <h1 className="page-title">Sponsor Shop Catalog</h1>
-        <p className="page-subtitle">Search for items to add to your driver rewards catalog.</p>
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Catalog</h1>
+          <p className="page-subtitle">Search eBay items and add them to your sponsor rewards catalog.</p>
 
-        <div style={{ display: 'flex', gap: '2rem', marginTop: '2rem' }}>
+          <div className="catalog-layout">
+            <section className="card catalog-panel">
+              <h2 className="section-title">Search eBay</h2>
+              <form onSubmit={handleSearch} className="catalog-search-form">
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Search items (e.g., iPhone 13)…"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+                <button type="submit" className="btn btn-primary">
+                  Search
+                </button>
+              </form>
 
-          {/* LEFT SIDE: Search eBay */}
-          <div style={{ flex: 1 }}>
-            <h2 className="section-title">Search eBay</h2>
-            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px', marginBottom: '1.5rem' }}>
-              <input
-                type="text"
-                className="input"
-                placeholder="Search items (e.g., iPhone 13)..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <button type="submit" className="btn btn-primary">Search</button>
-            </form>
+              <div className="landing-grid catalog-grid">
+                {searchResults.length === 0 ? (
+                  <p className="activity-empty">No search results yet.</p>
+                ) : (
+                  searchResults.map(item => (
+                    <div key={item.itemId} className="card catalog-item-card">
+                      {item.image ? (
+                        <img
+                          src={item.image}
+                          alt={item.title}
+                          className="catalog-item-img"
+                        />
+                      ) : null}
+                      <h3 className="card-title catalog-item-title">{item.title}</h3>
+                      <p className="catalog-item-price">Retail: ${item.price?.value ?? '-'}</p>
 
-            <div className="landing-grid">
-              {searchResults.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No search results.</p>}
-              {searchResults.map(item => (
-                <div key={item.itemId} className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <img src={item.image} alt={item.title} style={{ width: '100%', height: '150px', objectFit: 'contain', marginBottom: '1rem' }} />
-                  <h3 className="card-title" style={{ fontSize: '1rem', margin: '0 0 8px 0' }}>{item.title}</h3>
-                  <p className="card-body" style={{ fontWeight: 'bold', marginBottom: '1rem' }}>Retail Price: ${item.price?.value}</p>
+                      <div className="catalog-item-actions">
+                        <input
+                          type="number"
+                          className="form-input catalog-cost-input"
+                          placeholder="Points"
+                          value={draftCosts[item.itemId] || ''}
+                          onChange={(e) => handleCostChange(item.itemId, e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-success"
+                          onClick={() => handleAddToShop(item)}
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
 
-                  <div style={{ marginTop: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <input
-                      type="number"
-                      className="input"
-                      placeholder="Point Cost (e.g. 500)"
-                      value={draftCosts[item.itemId] || ''}
-                      onChange={(e) => handleCostChange(item.itemId, e.target.value)}
-                      style={{ width: '100px' }}
-                    />
-                    <button
-                      className="btn btn-success"
-                      onClick={() => handleAddToShop(item)}
-                      style={{ flex: 1, padding: '8px 12px' }}
-                    >
-                      Add to Shop
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <section className="card catalog-panel">
+              <h2 className="section-title">Your catalog</h2>
+              <p className="page-subtitle" style={{ marginTop: -8 }}>
+                Items currently available for drivers to redeem.
+              </p>
+
+              <div className="landing-grid catalog-grid">
+                {shopItems.length === 0 ? (
+                  <p className="activity-empty">Your catalog is currently empty.</p>
+                ) : (
+                  shopItems.map(item => (
+                    <div key={item.id} className="card catalog-item-card">
+                      {item.image_url ? (
+                        <img
+                          src={item.image_url}
+                          alt={item.title}
+                          className="catalog-item-img"
+                        />
+                      ) : null}
+                      <h3 className="card-title catalog-item-title">{item.title}</h3>
+
+                      <div className="catalog-item-meta">
+                        <span className="catalog-item-retail">Retail: ${item.price}</span>
+                        <span className="catalog-pill">{item.point_cost} pts</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
           </div>
-
-          {/* RIGHT SIDE: Current Shop Items */}
-          <div style={{ flex: 1 }}>
-            <h2 className="section-title">Your Current Shop</h2>
-            <div className="landing-grid">
-              {shopItems.length === 0 && <p style={{ color: 'var(--text-muted)' }}>Your shop is currently empty.</p>}
-              {shopItems.map(item => (
-                <div key={item.id} className="card">
-                  {item.image_url && <img src={item.image_url} alt={item.title} style={{ width: '100%', height: '150px', objectFit: 'contain', marginBottom: '1rem' }} />}
-                  <h3 className="card-title" style={{ fontSize: '1rem', margin: '0 0 8px 0' }}>{item.title}</h3>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <p className="card-body" style={{ fontWeight: 'bold', color: 'var(--text-muted)' }}>Retail: ${item.price}</p>
-                    <p className="card-body" style={{ fontWeight: 'bold', color: 'var(--success-fg)', backgroundColor: 'var(--success-bg)', padding: '4px 8px', borderRadius: '4px' }}>
-                      {item.point_cost} pts
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-        </div>
+        </main>
       </div>
     )
   }
