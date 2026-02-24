@@ -6,6 +6,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState('landing')
   const [currentUser, setCurrentUser] = useState(null)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [pendingRole, setPendingRole] = useState('driver') // chosen role for new accounts (driver | sponsor)
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
@@ -1350,9 +1351,7 @@ function App() {
   // ============ PROFILE PAGE (view) ============
   const ProfilePage = () => {
     const handleDeleteAccount = () => {
-      if (window.confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
-        handleLogout()
-      }
+      setShowDeleteConfirm(true)
     }
 
     return (
@@ -2708,6 +2707,36 @@ function App() {
                 type="button"
                 className="btn btn-ghost"
                 onClick={() => setShowLogoutConfirm(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteConfirm && (
+        <div className="modal-backdrop">
+          <div className="modal-card">
+            <h2 className="page-title" style={{ marginBottom: 4 }}>Delete account?</h2>
+            <p className="page-subtitle" style={{ marginBottom: 20 }}>
+              This will sign you out. Account deletion is not yet implemented.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={async () => {
+                  setShowDeleteConfirm(false)
+                  await handleLogout()
+                }}
+              >
+                Delete Account
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setShowDeleteConfirm(false)}
               >
                 Cancel
               </button>
