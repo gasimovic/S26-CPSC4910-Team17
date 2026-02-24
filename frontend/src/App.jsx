@@ -5,6 +5,7 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [currentPage, setCurrentPage] = useState('landing')
   const [currentUser, setCurrentUser] = useState(null)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [pendingRole, setPendingRole] = useState('driver') // chosen role for new accounts (driver | sponsor)
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
@@ -881,7 +882,13 @@ function App() {
           {/* Points are only meaningful for drivers; keep UI clean for sponsors/admin */}
           {isDriver ? <span className="nav-pts">{currentUser?.points ?? 0} pts</span> : null}
 
-          <button type="button" onClick={handleLogout} className="nav-logout">Log out</button>
+          <button
+            type="button"
+            onClick={() => setShowLogoutConfirm(true)}
+            className="nav-logout"
+          >
+            Log out
+          </button>
         </div>
       </nav>
     )
@@ -2678,6 +2685,36 @@ function App() {
       {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
       {isLoggedIn && currentPage === 'catalog' && <SponsorCatalogPage />}
       {/* ... any additional page renders ... */}
+
+      {showLogoutConfirm && (
+        <div className="modal-backdrop">
+          <div className="modal-card">
+            <h2 className="page-title" style={{ marginBottom: 4 }}>Log out?</h2>
+            <p className="page-subtitle" style={{ marginBottom: 20 }}>
+              You’ll be signed out of Driver Rewards and returned to the login screen.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={async () => {
+                  setShowLogoutConfirm(false)
+                  await handleLogout()
+                }}
+              >
+                Log out
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setShowLogoutConfirm(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
