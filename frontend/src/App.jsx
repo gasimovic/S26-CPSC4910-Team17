@@ -245,7 +245,7 @@ function App() {
     if (!isLoggedIn) return
 
     const allowed = getAllowedPages(currentUser)
-    if (!allowed.includes(currentPage)) {
+    if (currentPage !== 'about' && !allowed.includes(currentPage)) {
       setCurrentPage(allowed[0] || 'dashboard')
     }
   }, [currentUser, isLoggedIn, currentPage])
@@ -637,8 +637,51 @@ function App() {
             >
               Sign in
             </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                setAuthError('')
+                setStatusMsg('')
+                setCurrentPage('about')
+              }}
+            >
+              About Us
+            </button>
           </div>
         </footer>
+      </div>
+    )
+  }
+
+  // ============ ABOUT PAGE ============
+  const AboutPage = () => {
+    return (
+      <div className="landing">
+        <header className="landing-hero" style={{ paddingBottom: '40px' }}>
+          <div className="landing-hero-content" style={{ display: 'block', textAlign: 'center' }}>
+            <h1 className="landing-title">About Driver Rewards</h1>
+            <p className="landing-subtitle" style={{ margin: '0 auto 24px auto' }}>
+              We're dedicated to improving road safety by rewarding consistent, safe driving habits.
+            </p>
+          </div>
+        </header>
+
+        <main className="landing-main" style={{ textAlign: 'center' }}>
+          <div className="card" style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'left' }}>
+            <h3 className="card-title">Our Mission</h3>
+            <p className="card-body">
+              The Driver Incentive Program connects safe drivers with caring sponsors, creating a safer environment for everyone on the road. Drive safely, earn points, and redeem them for fantastic rewards!
+            </p>
+            <h3 className="card-title" style={{ marginTop: '24px' }}>Our Team</h3>
+            <p className="card-body">
+              We are Team 17, committed to building robust and user-friendly web applications. This app is part of our capstone/midterm project deliverables.
+            </p>
+            <div style={{ marginTop: '32px', textAlign: 'center' }}>
+              <button className="btn btn-ghost" onClick={() => setCurrentPage('landing')}>Back to Home</button>
+            </div>
+          </div>
+        </main>
       </div>
     )
   }
@@ -2619,6 +2662,7 @@ function App() {
   // ============ MAIN RENDER ============
   return (
     <div>
+      {currentPage === 'about' && <AboutPage />}
       {!isLoggedIn && currentPage === 'landing' && <LandingPage />}
       {!isLoggedIn && currentPage === 'login' && <LoginPage />}
       {!isLoggedIn && currentPage === 'login-sponsor' && <SponsorLoginPage />}
