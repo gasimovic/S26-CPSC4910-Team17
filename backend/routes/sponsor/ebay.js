@@ -24,11 +24,11 @@ router.get('/search', async (req, res) => {
 
         // Transform the massive response into a clean UI-friendly array
         const results = (response.data.itemSummaries || []).map(item => ({
-            ebay_item_id: item.itemId,
+            itemId: item.itemId,
             title: item.title,
-            price: item.price?.value || "0.00",
-            image_url: item.image?.imageUrl || null,
-            item_web_url: item.itemWebUrl
+            price: { value: item.price?.value || "0.00" },
+            image: item.image?.imageUrl || null,
+            itemWebUrl: item.itemWebUrl
         }));
 
         res.json({ items: results });
