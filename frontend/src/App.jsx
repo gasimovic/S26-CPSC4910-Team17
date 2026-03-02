@@ -262,6 +262,7 @@ function App() {
     if (!isLoggedIn) return
 
     const allowed = getAllowedPages(currentUser)
+    console.log('NAV DEBUG:', { role, isAdmin, allowed, apiBase, currentUserRole: currentUser?.role })
     if (!allowed.includes(currentPage)) {
       setCurrentPage(allowed[0] || 'dashboard')
     }
