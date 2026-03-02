@@ -3604,6 +3604,93 @@ const AdminUsersPage = () => {
         </main>
 
         {/* Pulse animation for loading badge */}
+                {showSprintModal && (
+          <div className="modal-backdrop">
+            <div className="modal-card" style={{ maxWidth: 520 }}>
+              <h2 className="page-title" style={{ marginBottom: 4 }}>Edit Sprint Info</h2>
+              <p className="page-subtitle" style={{ marginBottom: 16 }}>
+                This will be visible to all users on the About page.
+              </p>
+
+              <form onSubmit={saveSprintInfo}>
+                <div className="form-group">
+                  <label className="form-label">Sprint Number</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={sprintDraft.sprint_number}
+                    onChange={e => setSprintDraft({ ...sprintDraft, sprint_number: e.target.value })}
+                    placeholder="e.g. 3"
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Title</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={sprintDraft.title}
+                    onChange={e => setSprintDraft({ ...sprintDraft, title: e.target.value })}
+                    placeholder="e.g. Messaging & Catalog"
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Description</label>
+                  <textarea
+                    className="form-input"
+                    rows={3}
+                    value={sprintDraft.description}
+                    onChange={e => setSprintDraft({ ...sprintDraft, description: e.target.value })}
+                    placeholder="Brief description of what was built this sprint…"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Sprint Goals</label>
+                  <textarea
+                    className="form-input"
+                    rows={4}
+                    value={sprintDraft.goals}
+                    onChange={e => setSprintDraft({ ...sprintDraft, goals: e.target.value })}
+                    placeholder="List your sprint goals, one per line…"
+                  />
+                </div>
+
+                {sprintSaveError && (
+                  <p className="form-footer" style={{ color: 'crimson' }}>{sprintSaveError}</p>
+                )}
+                {sprintSaveMsg && (
+                  <p className="form-footer" style={{ color: 'green' }}>{sprintSaveMsg}</p>
+                )}
+
+                <div className="modal-actions" style={{ marginTop: 16 }}>
+                  <button
+                    type="submit"
+                    className="btn btn-success"
+                    disabled={sprintSaving}
+                  >
+                    {sprintSaving ? 'Saving…' : 'Save Sprint Info'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setShowSprintModal(false)
+                      setSprintSaveMsg('')
+                      setSprintSaveError('')
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }

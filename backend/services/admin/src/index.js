@@ -351,6 +351,51 @@ app.get('/admin/users', requireAuth, async (req, res) => {
   }
 })
 
+app.get('/sprint-info', async (_req, res) => {
+  try {
+    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1', [])
+    if (!rows || rows.length === 0) return res.json(null)
+    return res.json(rows[0])
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.put('/sprint-info', requireAuth, async (req, res) => {
+  const schema = z.object({
+    sprint_number: z.coerce.number().int().min(0),
+    title: z.string().min(1).max(255),
+    description: z.string().max(2000).optional().default(''),
+    goals: z.string().max(2000).optional().default(''),
+  })
+
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+  }
+
+  const { sprint_number, title, description, goals } = parsed.data
+
+  try {
+    await exec(
+      `UPDATE sprint_info
+       SET sprint_number = ?,
+           title         = ?,
+           description   = ?,
+           goals         = ?,
+           updated_at    = NOW()
+       WHERE id = 1`,
+      [sprint_number, title, description, goals]
+    )
+    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1', [])
+    return res.json(rows[0])
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`[admin] listening on :${PORT}`);
 });
