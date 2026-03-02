@@ -694,7 +694,8 @@ app.get("/drivers", requireAuth, async (req, res) => {
     const sponsorCompany = await getSponsorCompanyName(req.user.id);
     if (!sponsorCompany) {
       return res.status(400).json({
-        error: "Sponsor company_name is not set. Update your profile first.",
+        error:
+          "Your sponsor organization name is not set. Please set an organization name in your account details.",
       });
     }
 
