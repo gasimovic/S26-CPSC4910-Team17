@@ -560,6 +560,214 @@ app.get("/applications", requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// MESSAGING ENDPOINTS
+// ============================================================
+
+/**
+ * GET /messages
+ * Returns all sponsors the driver has a conversation with, plus unread counts.
+ */
+app.get('/messages', requireAuth, async (req, res) => {
+  try {
+    const driverId = req.user.id;
+
+    // Sponsors the driver has accepted applications with (or sent/received direct messages)
+    const sponsorRows = await query(
+      `SELECT DISTINCT
+         u.id AS sponsor_id,
+         u.email AS sponsor_email,
+         sp.company_name
+       FROM users u
+       JOIN sponsor_profiles sp ON u.id = sp.user_id
+       WHERE u.role = 'sponsor'
+         AND (
+           EXISTS (
+             SELECT 1 FROM applications a
+             WHERE a.driver_id = ? AND a.sponsor_id = u.id AND a.status = 'accepted'
+           )
+           OR EXISTS (
+             SELECT 1 FROM messages m
+             WHERE m.sponsor_id = u.id
+               AND (m.sender_id = ? OR m.recipient_id = ? OR m.is_broadcast = 1)
+           )
+         )`,
+      [driverId, driverId, driverId]
+    );
+
+    const conversations = await Promise.all(
+      sponsorRows.map(async (s) => {
+        const lastMsgRows = await query(
+          `SELECT body, created_at FROM messages
+           WHERE sponsor_id = ?
+             AND (
+               (sender_id = ? AND recipient_id = ?)
+               OR (sender_id = ? AND recipient_id = ?)
+               OR is_broadcast = 1
+             )
+           ORDER BY created_at DESC LIMIT 1`,
+          [s.sponsor_id, driverId, s.sponsor_id, s.sponsor_id, driverId]
+        );
+
+        const unreadRows = await query(
+          `SELECT COUNT(*) AS cnt FROM messages m
+           WHERE m.sponsor_id = ?
+             AND (
+               (m.sender_id = ? AND m.recipient_id = ?)
+               OR (m.is_broadcast = 1 AND m.sender_id = ?)
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM message_reads mr
+               WHERE mr.message_id = m.id AND mr.user_id = ?
+             )`,
+          [s.sponsor_id, s.sponsor_id, driverId, s.sponsor_id, driverId]
+        );
+
+        return {
+          sponsorId: s.sponsor_id,
+          sponsorEmail: s.sponsor_email,
+          companyName: s.company_name || s.sponsor_email,
+          unreadCount: Number(unreadRows[0]?.cnt || 0),
+          lastMessage: lastMsgRows[0]?.body ? lastMsgRows[0].body.substring(0, 120) : null,
+          lastAt: lastMsgRows[0]?.created_at || null,
+        };
+      })
+    );
+
+    conversations.sort((a, b) => (b.lastAt || 0) > (a.lastAt || 0) ? 1 : -1);
+
+    return res.json({ conversations });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * GET /messages/sponsor/:sponsorId
+ * Returns the full thread with a specific sponsor and marks incoming messages as read.
+ */
+app.get('/messages/sponsor/:sponsorId', requireAuth, async (req, res) => {
+  const sponsorId = Number(req.params.sponsorId);
+  if (!Number.isFinite(sponsorId)) return res.status(400).json({ error: 'Invalid sponsorId' });
+
+  const driverId = req.user.id;
+
+  try {
+    // Validate sponsor exists
+    const sponsorRows = await query(
+      `SELECT u.id, u.email, sp.company_name
+       FROM users u JOIN sponsor_profiles sp ON u.id = sp.user_id
+       WHERE u.id = ? AND u.role = 'sponsor' LIMIT 1`,
+      [sponsorId]
+    );
+    if (!sponsorRows || sponsorRows.length === 0) {
+      return res.status(404).json({ error: 'Sponsor not found' });
+    }
+
+    const messages = await query(
+      `SELECT m.id, m.sender_id, m.recipient_id, m.body, m.is_broadcast, m.created_at,
+              EXISTS (
+                SELECT 1 FROM message_reads mr WHERE mr.message_id = m.id AND mr.user_id = ?
+              ) AS is_read
+       FROM messages m
+       WHERE m.sponsor_id = ?
+         AND (
+           (m.sender_id = ? AND m.recipient_id = ?)
+           OR (m.sender_id = ? AND m.recipient_id = ?)
+           OR (m.is_broadcast = 1 AND m.sender_id = ?)
+         )
+       ORDER BY m.created_at ASC`,
+      [driverId, sponsorId, driverId, sponsorId, sponsorId, driverId, sponsorId]
+    );
+
+    // Mark all unread sponsor→driver messages (direct + broadcast) as read
+    const unreadIds = messages
+      .filter(m => m.sender_id === sponsorId && !m.is_read)
+      .map(m => m.id);
+
+    for (const msgId of unreadIds) {
+      await query(
+        `INSERT INTO message_reads (message_id, user_id) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE read_at = NOW()`,
+        [msgId, driverId]
+      );
+    }
+
+    const sponsor = sponsorRows[0];
+    return res.json({
+      messages: messages.map(m => ({ ...m, is_read: Boolean(m.is_read) })),
+      sponsor: {
+        id: sponsor.id,
+        email: sponsor.email,
+        companyName: sponsor.company_name || sponsor.email,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * POST /messages/sponsor/:sponsorId
+ * Send a message to a sponsor. Body: { body: string }
+ */
+app.post('/messages/sponsor/:sponsorId', requireAuth, async (req, res) => {
+  const sponsorId = Number(req.params.sponsorId);
+  if (!Number.isFinite(sponsorId)) return res.status(400).json({ error: 'Invalid sponsorId' });
+
+  const schema = z.object({ body: z.string().min(1).max(5000) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const driverId = req.user.id;
+
+  try {
+    // Validate sponsor exists
+    const sponsorRows = await query(
+      'SELECT id FROM users WHERE id = ? AND role = ? LIMIT 1',
+      [sponsorId, 'sponsor']
+    );
+    if (!sponsorRows || sponsorRows.length === 0) {
+      return res.status(404).json({ error: 'Sponsor not found' });
+    }
+
+    const result = await exec(
+      `INSERT INTO messages (sender_id, recipient_id, sponsor_id, body, is_broadcast)
+       VALUES (?, ?, ?, ?, 0)`,
+      [driverId, sponsorId, sponsorId, parsed.data.body]
+    );
+
+    const rows = await query('SELECT * FROM messages WHERE id = ?', [result.insertId]);
+    return res.status(201).json({ ok: true, message: rows[0] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * PUT /messages/:messageId/read
+ * Mark a message as read by the current driver.
+ */
+app.put('/messages/:messageId/read', requireAuth, async (req, res) => {
+  const messageId = Number(req.params.messageId);
+  if (!Number.isFinite(messageId)) return res.status(400).json({ error: 'Invalid messageId' });
+
+  try {
+    await query(
+      `INSERT INTO message_reads (message_id, user_id) VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE read_at = NOW()`,
+      [messageId, req.user.id]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
 const driverCatalogRoutes = require('../../../routes/driver/catalog');
 app.use('/catalog', requireAuth, driverCatalogRoutes);
 

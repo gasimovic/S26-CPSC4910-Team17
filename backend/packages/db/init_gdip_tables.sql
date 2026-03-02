@@ -173,3 +173,30 @@ CREATE TABLE sprint_info (
 );
 INSERT INTO sprint_info (id, sprint_number, title, description, goals)
 VALUES (1, 1, '', '', '');
+
+-- Messages between sponsors and drivers
+CREATE TABLE IF NOT EXISTS messages (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  sender_id    INT NOT NULL,
+  recipient_id INT NULL,            -- NULL for broadcast messages
+  sponsor_id   INT NOT NULL,        -- sponsorship program context
+  body         TEXT NOT NULL,
+  is_broadcast TINYINT(1) NOT NULL DEFAULT 0,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_messages_sender    (sender_id),
+  INDEX idx_messages_recipient (recipient_id),
+  INDEX idx_messages_sponsor   (sponsor_id),
+  CONSTRAINT fk_messages_sender    FOREIGN KEY (sender_id)    REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_messages_recipient FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_messages_sponsor   FOREIGN KEY (sponsor_id)   REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tracks which messages each user has read
+CREATE TABLE IF NOT EXISTS message_reads (
+  message_id INT NOT NULL,
+  user_id    INT NOT NULL,
+  read_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (message_id, user_id),
+  CONSTRAINT fk_mr_message FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+  CONSTRAINT fk_mr_user    FOREIGN KEY (user_id)    REFERENCES users(id)    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

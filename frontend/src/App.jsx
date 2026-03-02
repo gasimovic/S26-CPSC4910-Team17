@@ -233,19 +233,20 @@ function App() {
     ];
 
     const sponsorPages = [
-      'dashboard', 
-      'drivers', 
-      'applications', 
-      'catalog', 
-      'profile', 
-      'account-details', 
-      'change-password', 
+      'dashboard',
+      'drivers',
+      'applications',
+      'catalog',
+      'messages',
+      'profile',
+      'account-details',
+      'change-password',
       'about'
     ];
 
-    const driverPages = hasSponsor 
-      ? ['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
-      : ['dashboard', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
+    const driverPages = hasSponsor
+      ? ['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
+      : ['dashboard', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
 
     // 3. RETURN BASED ON ROLE:
     if (role === 'admin') return adminPages;
@@ -863,6 +864,13 @@ function App() {
           {isSponsor && allowed.includes('catalog') && (
             <button type="button" onClick={() => setCurrentPage('catalog')} className="nav-link">
               Catalog
+            </button>
+          )}
+
+          {/* Messages — sponsors and drivers */}
+          {(isSponsor || isDriver) && allowed.includes('messages') && (
+            <button type="button" onClick={() => setCurrentPage('messages')} className="nav-link">
+              Messages
             </button>
           )}
 
@@ -3456,6 +3464,301 @@ const AdminUsersPage = () => {
   }
 
 
+  // ============ MESSAGES PAGE ============
+  const MessagesPage = () => {
+    const role = ((currentUser?.role || inferRoleFromBase(apiBase)) + '').toLowerCase()
+    const isSponsorUser = role === 'sponsor'
+
+    const [conversations, setConversations] = useState([])
+    const [selectedId, setSelectedId] = useState(null)
+    const [thread, setThread] = useState([])
+    const [threadContact, setThreadContact] = useState(null)
+    const [loadingConvs, setLoadingConvs] = useState(false)
+    const [loadingThread, setLoadingThread] = useState(false)
+    const [msgBody, setMsgBody] = useState('')
+    const [broadcastBody, setBroadcastBody] = useState('')
+    const [showBroadcast, setShowBroadcast] = useState(false)
+    const [error, setError] = useState('')
+    const [sendError, setSendError] = useState('')
+    const [sending, setSending] = useState(false)
+
+    const loadConversations = async () => {
+      setLoadingConvs(true)
+      setError('')
+      try {
+        const data = await api('/messages', { method: 'GET' })
+        setConversations(data.conversations || [])
+      } catch (err) {
+        setError(err.message || 'Failed to load conversations')
+      } finally {
+        setLoadingConvs(false)
+      }
+    }
+
+    const loadThread = async (id) => {
+      setLoadingThread(true)
+      setSendError('')
+      try {
+        const path = isSponsorUser ? `/messages/driver/${id}` : `/messages/sponsor/${id}`
+        const data = await api(path, { method: 'GET' })
+        setThread(data.messages || [])
+        setThreadContact(isSponsorUser ? data.driver : data.sponsor)
+        // Refresh conversations to update unread counts
+        const convData = await api('/messages', { method: 'GET' })
+        setConversations(convData.conversations || [])
+      } catch (err) {
+        setError(err.message || 'Failed to load thread')
+      } finally {
+        setLoadingThread(false)
+      }
+    }
+
+    const handleSelectConversation = (id) => {
+      setSelectedId(id)
+      setThread([])
+      setThreadContact(null)
+      setMsgBody('')
+      setSendError('')
+      loadThread(id)
+    }
+
+    const handleSend = async () => {
+      if (!msgBody.trim()) return
+      setSending(true)
+      setSendError('')
+      try {
+        const path = isSponsorUser ? `/messages/driver/${selectedId}` : `/messages/sponsor/${selectedId}`
+        await api(path, { method: 'POST', body: JSON.stringify({ body: msgBody.trim() }) })
+        setMsgBody('')
+        await loadThread(selectedId)
+      } catch (err) {
+        setSendError(err.message || 'Failed to send message')
+      } finally {
+        setSending(false)
+      }
+    }
+
+    const handleBroadcast = async () => {
+      if (!broadcastBody.trim()) return
+      setSending(true)
+      setSendError('')
+      try {
+        await api('/messages/broadcast', { method: 'POST', body: JSON.stringify({ body: broadcastBody.trim() }) })
+        setBroadcastBody('')
+        setShowBroadcast(false)
+        await loadConversations()
+      } catch (err) {
+        setSendError(err.message || 'Failed to send broadcast')
+      } finally {
+        setSending(false)
+      }
+    }
+
+    useEffect(() => { loadConversations() }, [])
+
+    const myId = currentUser?.id
+
+    const formatTime = (ts) => {
+      if (!ts) return ''
+      try {
+        return new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      } catch { return '' }
+    }
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <div style={{ display: 'flex', gap: 0, height: 'calc(100vh - 120px)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+
+            {/* ── Left: Conversation List ── */}
+            <div style={{ width: 280, minWidth: 220, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--surface, #f9fafb)' }}>
+              <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Messages</h2>
+                {isSponsorUser && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+                    onClick={() => { setShowBroadcast(true); setSendError('') }}
+                  >
+                    Broadcast
+                  </button>
+                )}
+              </div>
+
+              {loadingConvs && <p style={{ padding: 16, color: '#9ca3af', fontSize: '0.85em' }}>Loading…</p>}
+              {error && <p style={{ padding: 16, color: '#ef4444', fontSize: '0.85em' }}>{error}</p>}
+
+              {!loadingConvs && conversations.length === 0 && (
+                <p style={{ padding: 16, color: '#9ca3af', fontSize: '0.85em' }}>
+                  {isSponsorUser ? 'No conversations yet. Message a driver from the Drivers page, or send a broadcast.' : 'No messages yet. Your sponsor will message you here.'}
+                </p>
+              )}
+
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                {conversations.map(conv => {
+                  const id = isSponsorUser ? conv.driverId : conv.sponsorId
+                  const name = isSponsorUser ? (conv.driverName || conv.driverEmail) : (conv.companyName || conv.sponsorEmail)
+                  const unread = conv.unreadCount || 0
+                  const isSelected = selectedId === id
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => handleSelectConversation(id)}
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left',
+                        padding: '12px 16px', border: 'none', cursor: 'pointer',
+                        backgroundColor: isSelected ? 'var(--primary-light, #eff6ff)' : 'transparent',
+                        borderLeft: isSelected ? '3px solid var(--primary, #2563eb)' : '3px solid transparent',
+                        borderBottom: '1px solid var(--border)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: unread > 0 ? 700 : 500, fontSize: '0.9em', color: '#111827' }}>{name}</span>
+                        {unread > 0 && (
+                          <span style={{ background: '#ef4444', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7em', fontWeight: 700, flexShrink: 0 }}>
+                            {unread > 9 ? '9+' : unread}
+                          </span>
+                        )}
+                      </div>
+                      {conv.lastMessage && (
+                        <p style={{ margin: '3px 0 0', fontSize: '0.78em', color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {conv.lastMessage}
+                        </p>
+                      )}
+                      {conv.lastAt && (
+                        <p style={{ margin: '2px 0 0', fontSize: '0.72em', color: '#9ca3af' }}>{formatTime(conv.lastAt)}</p>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* ── Right: Thread + Compose ── */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#fff' }}>
+              {!selectedId ? (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
+                  <p style={{ textAlign: 'center' }}>
+                    Select a conversation to view messages
+                    {isSponsorUser && <><br /><span style={{ fontSize: '0.85em' }}>or use Broadcast to message all your drivers</span></>}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Thread header */}
+                  <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95em' }}>
+                        {isSponsorUser
+                          ? (threadContact?.name || threadContact?.email || '…')
+                          : (threadContact?.companyName || threadContact?.email || '…')}
+                      </p>
+                      {threadContact?.email && (
+                        <p style={{ margin: 0, fontSize: '0.78em', color: '#6b7280' }}>{threadContact.email}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Messages */}
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {loadingThread && <p style={{ color: '#9ca3af', textAlign: 'center' }}>Loading messages…</p>}
+                    {!loadingThread && thread.length === 0 && (
+                      <p style={{ color: '#9ca3af', textAlign: 'center' }}>No messages yet. Start the conversation!</p>
+                    )}
+                    {thread.map(msg => {
+                      const isOwn = msg.sender_id === myId
+                      const isBroadcast = Boolean(msg.is_broadcast)
+                      return (
+                        <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: isOwn ? 'flex-end' : 'flex-start' }}>
+                          {isBroadcast && (
+                            <span style={{ fontSize: '0.7em', color: '#9ca3af', marginBottom: 2, alignSelf: 'flex-start' }}>📢 Broadcast</span>
+                          )}
+                          <div style={{
+                            maxWidth: '70%', padding: '10px 14px', borderRadius: isOwn ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                            backgroundColor: isOwn ? 'var(--primary, #2563eb)' : '#f3f4f6',
+                            color: isOwn ? '#fff' : '#111827',
+                            fontSize: '0.9em', lineHeight: 1.5,
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.08)'
+                          }}>
+                            {msg.body}
+                          </div>
+                          <p style={{ margin: '3px 4px 0', fontSize: '0.7em', color: '#9ca3af' }}>{formatTime(msg.created_at)}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Compose */}
+                  {sendError && <p style={{ margin: '0 20px', color: '#ef4444', fontSize: '0.85em' }}>{sendError}</p>}
+                  <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
+                    <textarea
+                      value={msgBody}
+                      onChange={e => setMsgBody(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                      placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
+                      rows={2}
+                      style={{ flex: 1, resize: 'none', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', fontSize: '0.9em', fontFamily: 'inherit' }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ alignSelf: 'flex-end' }}
+                      onClick={handleSend}
+                      disabled={sending || !msgBody.trim()}
+                    >
+                      {sending ? '…' : 'Send'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* ── Broadcast Modal ── */}
+          {showBroadcast && (
+            <div className="modal-backdrop">
+              <div className="modal-card" style={{ maxWidth: 480 }}>
+                <h2 className="page-title" style={{ marginBottom: 4 }}>Broadcast to All Drivers</h2>
+                <p className="page-subtitle" style={{ marginBottom: 16 }}>
+                  This message will be sent to all drivers currently in your program.
+                </p>
+                <textarea
+                  value={broadcastBody}
+                  onChange={e => setBroadcastBody(e.target.value)}
+                  placeholder="Type your message…"
+                  rows={4}
+                  style={{ width: '100%', resize: 'vertical', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', fontSize: '0.9em', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                />
+                {sendError && <p style={{ color: '#ef4444', fontSize: '0.85em', marginTop: 6 }}>{sendError}</p>}
+                <div className="modal-actions" style={{ marginTop: 16 }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleBroadcast}
+                    disabled={sending || !broadcastBody.trim()}
+                  >
+                    {sending ? 'Sending…' : 'Send Broadcast'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => { setShowBroadcast(false); setSendError('') }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+    )
+  }
+
+
   // ─────────────────────────────────────────────
   // INTEGRATION INSTRUCTIONS (3 small changes)
   // ─────────────────────────────────────────────
@@ -3525,6 +3828,7 @@ const AdminUsersPage = () => {
     {isLoggedIn && currentPage === 'applications' && <ApplicationsPage />}
     {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
     {isLoggedIn && currentPage === 'catalog' && <SponsorCatalogPage />}
+    {isLoggedIn && currentPage === 'messages' && <MessagesPage />}
 
     {/* Admin ONLY Pages */}
     {isLoggedIn && currentPage === 'admin-users' && <AdminUsersPage />}
