@@ -1411,7 +1411,7 @@ function App() {
 
 // ============ ADMIN USERS PAGE ============
 const AdminUsersPage = () => {
-  const [activeTab, setActiveTab] = useState('admin')
+  const [activeTab, setActiveTab] = useState('sponsors')
   const [sponsors, setSponsors] = useState([])
   const [drivers, setDrivers] = useState([])
   const [loading, setLoading] = useState(false)
@@ -1423,8 +1423,8 @@ const AdminUsersPage = () => {
     setError(''); setLoading(true)
     try {
       const [sponsorData, driverData] = await Promise.allSettled([
-        api('/admin/users?role=sponsor', { method: 'GET' }),
-        api('/admin/users?role=driver', { method: 'GET' })
+        api('/users?role=sponsor', { method: 'GET' }),
+        api('/users?role=driver', { method: 'GET' })
       ])
       if (sponsorData.status === 'fulfilled') setSponsors(Array.isArray(sponsorData.value?.users) ? sponsorData.value.users : [])
       else setError((sponsorData.reason?.message || 'Failed to load sponsors') + ' ')
