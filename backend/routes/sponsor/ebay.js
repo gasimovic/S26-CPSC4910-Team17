@@ -64,6 +64,10 @@ router.get('/popular', async (req, res) => {
             .filter((item, idx, arr) => arr.findIndex(x => x.itemId === item.itemId) === idx)
             .slice(0, 12);
 
+        if (items.length === 0) {
+            console.warn('[eBay] Sandbox returned 0 items — this is common in sandbox mode.');
+        }
+
         console.log(`[eBay] popular: ${items.length} items`);
         res.json({ items });
     } catch (error) {
