@@ -162,3 +162,14 @@ CREATE TABLE IF NOT EXISTS catalog_items (
   CONSTRAINT fk_catalog_items_sponsor
     FOREIGN KEY (sponsor_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+CREATE TABLE sprint_info (
+  id INT PRIMARY KEY DEFAULT 1,
+  sprint_number INT NOT NULL DEFAULT 1,
+  title VARCHAR(255),
+  description TEXT,
+  goals TEXT,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+INSERT INTO sprint_info (id, sprint_number, title, description, goals)
+VALUES (1, 1, '', '', '');

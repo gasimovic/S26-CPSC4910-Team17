@@ -217,7 +217,7 @@ function App() {
     const hasSponsor = Boolean((user.profile?.sponsor_org || '').toString().trim())
 
     if (role === 'admin') {
-      return ['dashboard', 'profile', 'account-details', 'change-password', 'about']
+     return ['dashboard', 'admin-users', 'profile', 'account-details', 'change-password', 'about']
     }
 
     if (role === 'sponsor') {
@@ -886,6 +886,10 @@ function App() {
             </button>
           )}
 
+          {isAdmin && allowed.includes('admin-users') && (
+            <button type="button" onClick={() => setCurrentPage('admin-users')} className="nav-link">Users</button>
+          )}
+
           {/* Points are only meaningful for drivers; keep UI clean for sponsors/admin */}
           {isDriver ? <span className="nav-pts">{currentUser?.points ?? 0} pts</span> : null}
 
@@ -1230,6 +1234,262 @@ function App() {
     )
   }
 
+// ============ ADMIN USERS PAGE ============
+const AdminUsersPage = () => {
+  const [activeTab, setActiveTab] = useState('sponsors')
+  const [sponsors, setSponsors] = useState([])
+  const [drivers, setDrivers] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [expandedUser, setExpandedUser] = useState(null)
+
+  const loadAll = async () => {
+    setError(''); setLoading(true)
+    try {
+      const [sponsorData, driverData] = await Promise.allSettled([
+        api('/admin/users?role=sponsor', { method: 'GET' }),
+        api('/admin/users?role=driver', { method: 'GET' })
+      ])
+      if (sponsorData.status === 'fulfilled') setSponsors(Array.isArray(sponsorData.value?.users) ? sponsorData.value.users : [])
+      else setError((sponsorData.reason?.message || 'Failed to load sponsors') + ' ')
+      if (driverData.status === 'fulfilled') setDrivers(Array.isArray(driverData.value?.users) ? driverData.value.users : [])
+      else setError(prev => prev + (driverData.reason?.message || 'Failed to load drivers'))
+    } finally { setLoading(false) }
+  }
+
+  useEffect(() => { loadAll() }, [])
+
+  const filteredSponsors = useMemo(() => {
+    const q = (searchQuery || '').trim().toLowerCase()
+    if (!q) return sponsors
+    return sponsors.filter(s =>
+      String(s.id ?? '').includes(q) ||
+      String(s.email ?? '').toLowerCase().includes(q) ||
+      String(s.company_name ?? '').toLowerCase().includes(q)
+    )
+  }, [sponsors, searchQuery])
+
+  const filteredDrivers = useMemo(() => {
+    const q = (searchQuery || '').trim().toLowerCase()
+    if (!q) return drivers
+    return drivers.filter(d =>
+      String(d.id ?? '').includes(q) ||
+      String(d.email ?? '').toLowerCase().includes(q) ||
+      String([d.first_name, d.last_name].filter(Boolean).join(' ')).toLowerCase().includes(q) ||
+      String(d.sponsor_org ?? '').toLowerCase().includes(q)
+    )
+  }, [drivers, searchQuery])
+
+  const tabStyle = (tab) => ({
+    padding: '8px 20px', borderRadius: '6px 6px 0 0',
+    border: '1px solid var(--border)',
+    borderBottom: activeTab === tab ? '2px solid white' : '1px solid var(--border)',
+    background: activeTab === tab ? 'white' : '#f3f4f6',
+    fontWeight: activeTab === tab ? 700 : 400,
+    cursor: 'pointer', marginBottom: -1
+  })
+
+  const DetailGrid = ({ fields }) => (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+      {fields.map(({ label, value }) => (
+        <div key={label} style={{ padding: '10px 14px', borderRadius: 6, background: '#fff', border: '1px solid var(--border)' }}>
+          <p style={{ margin: '0 0 2px', fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af' }}>{label}</p>
+          <p style={{ margin: 0, fontSize: '0.875em', fontWeight: 500, color: '#374151', wordBreak: 'break-all' }}>{String(value ?? '—')}</p>
+        </div>
+      ))}
+    </div>
+  )
+
+  return (
+    <div>
+      <Navigation />
+      <main className="app-main">
+        <h1 className="page-title">User Management</h1>
+        <p className="page-subtitle">View all registered sponsors and drivers</p>
+
+        <div className="stats-grid" style={{ marginBottom: 24 }}>
+          <div className="stat-card"><p className="stat-label">Total Sponsors</p><p className="stat-value stat-value-blue">{sponsors.length}</p></div>
+          <div className="stat-card"><p className="stat-label">Total Drivers</p><p className="stat-value stat-value-green">{drivers.length}</p></div>
+          <div className="stat-card"><p className="stat-label">All Users</p><p className="stat-value stat-value-amber">{sponsors.length + drivers.length}</p></div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input className="form-input" style={{ flex: 1, minWidth: 220 }}
+              placeholder="Search by name, email, company, or ID…"
+              value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            <button className="btn btn-primary" type="button" onClick={loadAll} disabled={loading}>
+              {loading ? 'Refreshing…' : '↺ Refresh'}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button type="button" style={tabStyle('sponsors')} onClick={() => { setActiveTab('sponsors'); setExpandedUser(null) }}>
+            Sponsor Orgs ({filteredSponsors.length})
+          </button>
+          <button type="button" style={tabStyle('drivers')} onClick={() => { setActiveTab('drivers'); setExpandedUser(null) }}>
+            Drivers ({filteredDrivers.length})
+          </button>
+        </div>
+
+        {error ? <p className="form-footer" style={{ color: 'crimson', marginTop: 8 }}>{error}</p> : null}
+
+        {/* Sponsors Tab */}
+        {activeTab === 'sponsors' && (
+          <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Email</th>
+                    <th>Organization</th>
+                    <th>Joined</th>
+                    <th className="text-right">Drivers</th>
+                    <th style={{ width: 90 }}>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading && sponsors.length === 0 ? (
+                    <tr><td colSpan="6" className="table-empty">Loading…</td></tr>
+                  ) : filteredSponsors.length === 0 ? (
+                    <tr><td colSpan="6" className="table-empty">No sponsors found</td></tr>
+                  ) : filteredSponsors.map(s => {
+                    const company = s.company_name || null
+                    const isExpanded = expandedUser === s.id
+                    return (
+                      <React.Fragment key={String(s.id)}>
+                        <tr>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{s.id}</td>
+                          <td>{s.email}</td>
+                          <td>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: company ? '#22c55e' : '#d1d5db', flexShrink: 0 }} />
+                              {company || <em style={{ color: '#9ca3af' }}>Not set</em>}
+                            </span>
+                          </td>
+                          <td>{s.created_at ? new Date(s.created_at).toLocaleDateString() : '—'}</td>
+                          <td className="text-right">
+                            {typeof s.driver_count === 'number' ? <strong style={{ color: '#2563eb' }}>{s.driver_count}</strong> : '—'}
+                          </td>
+                          <td>
+                            <button className="btn btn-primary" style={{ fontSize: '0.8em', padding: '4px 10px' }}
+                              type="button" onClick={() => setExpandedUser(isExpanded ? null : s.id)}>
+                              {isExpanded ? 'Close' : 'View'}
+                            </button>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr style={{ background: '#f9fafb' }}>
+                            <td colSpan="6" style={{ padding: '16px 20px' }}>
+                              <DetailGrid fields={[
+                                { label: 'User ID', value: s.id },
+                                { label: 'Email', value: s.email },
+                                { label: 'Organization', value: company || 'Not set' },
+                                { label: 'First Name', value: s.first_name },
+                                { label: 'Last Name', value: s.last_name },
+                                { label: 'Phone', value: s.phone },
+                                { label: 'City', value: s.city },
+                                { label: 'State', value: s.state },
+                                { label: 'Active Drivers', value: typeof s.driver_count === 'number' ? s.driver_count : '—' },
+                                { label: 'Joined', value: s.created_at ? new Date(s.created_at).toLocaleString() : '—' },
+                              ]} />
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Drivers Tab */}
+        {activeTab === 'drivers' && (
+          <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Sponsor Org</th>
+                    <th className="text-right">Points</th>
+                    <th>Joined</th>
+                    <th style={{ width: 90 }}>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading && drivers.length === 0 ? (
+                    <tr><td colSpan="7" className="table-empty">Loading…</td></tr>
+                  ) : filteredDrivers.length === 0 ? (
+                    <tr><td colSpan="7" className="table-empty">No drivers found</td></tr>
+                  ) : filteredDrivers.map(d => {
+                    const name = [d.first_name, d.last_name].filter(Boolean).join(' ') || '—'
+                    const sponsorOrg = d.sponsor_org || null
+                    const points = Number(d.points_balance ?? d.points ?? 0)
+                    const isExpanded = expandedUser === d.id
+                    return (
+                      <React.Fragment key={String(d.id)}>
+                        <tr>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{d.id}</td>
+                          <td>{name}</td>
+                          <td>{d.email}</td>
+                          <td>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: sponsorOrg ? '#22c55e' : '#d1d5db', flexShrink: 0 }} />
+                              {sponsorOrg || <em style={{ color: '#9ca3af' }}>Unaffiliated</em>}
+                            </span>
+                          </td>
+                          <td className="text-right" style={{ fontWeight: 600 }}>{points.toLocaleString()}</td>
+                          <td>{d.created_at ? new Date(d.created_at).toLocaleDateString() : '—'}</td>
+                          <td>
+                            <button className="btn btn-primary" style={{ fontSize: '0.8em', padding: '4px 10px' }}
+                              type="button" onClick={() => setExpandedUser(isExpanded ? null : d.id)}>
+                              {isExpanded ? 'Close' : 'View'}
+                            </button>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr style={{ background: '#f9fafb' }}>
+                            <td colSpan="7" style={{ padding: '16px 20px' }}>
+                              <DetailGrid fields={[
+                                { label: 'User ID', value: d.id },
+                                { label: 'Email', value: d.email },
+                                { label: 'Full Name', value: name },
+                                { label: 'DOB', value: d.dob },
+                                { label: 'Phone', value: d.phone },
+                                { label: 'Address', value: d.address_line1 },
+                                { label: 'City', value: d.city },
+                                { label: 'State', value: d.state },
+                                { label: 'Sponsor Org', value: sponsorOrg || 'Unaffiliated' },
+                                { label: 'Points Balance', value: points.toLocaleString() },
+                                { label: 'Miles', value: Number(d.miles ?? 0).toLocaleString() },
+                                { label: 'Streak', value: d.streak },
+                                { label: 'Rank', value: d.rank ? `#${d.rank}` : '—' },
+                                { label: 'Joined', value: d.created_at ? new Date(d.created_at).toLocaleString() : '—' },
+                              ]} />
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}
+
   // ============ LOG TRIP PAGE ============
   const LogTripPage = () => {
     const [formData, setFormData] = useState({
@@ -1359,7 +1619,54 @@ function App() {
     const handleDeleteAccount = () => {
       setShowDeleteConfirm(true)
     }
+    const SponsorAffiliationsDisplay = () => {
+      const [affiliations, setAffiliations] = useState([])
+      const [loading, setLoading] = useState(true)
 
+      useEffect(() => {
+        api('/applications', { method: 'GET' })
+          .then(data => setAffiliations((data?.applications || []).filter(a => a.status === 'accepted')))
+          .catch(() => {})
+          .finally(() => setLoading(false))
+      }, [])
+
+      return (
+        <div className="profile-field" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+          <p className="profile-label" style={{ marginBottom: 8 }}>Sponsor Affiliations</p>
+          {loading ? (
+            <p style={{ fontSize: '0.875em', color: '#9ca3af' }}>Loading…</p>
+          ) : affiliations.length === 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <em style={{ fontSize: '0.875em', color: '#9ca3af' }}>No active sponsor affiliations</em>
+              <button type="button" className="btn btn-primary"
+                style={{ fontSize: '0.8em', padding: '4px 12px' }}
+                onClick={() => setCurrentPage('sponsor-affiliation')}>
+                Find a Sponsor
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {affiliations.map(a => (
+                <span key={a.id} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '4px 12px', borderRadius: 999, fontSize: '0.85em',
+                  background: '#d1fae5', color: '#065f46', fontWeight: 600,
+                  border: '1px solid #6ee7b7'
+                }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981' }} />
+                  {a.sponsor_company || a.sponsor_email || `Sponsor #${a.sponsor_id}`}
+                </span>
+              ))}
+              <button type="button" className="btn btn-primary"
+                style={{ fontSize: '0.8em', padding: '4px 12px' }}
+                onClick={() => setCurrentPage('sponsor-affiliation')}>
+                + Add More
+              </button>
+            </div>
+          )}
+        </div>
+      )
+    }
     return (
       <div>
         <Navigation />
@@ -1389,6 +1696,10 @@ function App() {
               <p className="profile-label">Total points</p>
               <p className="profile-value profile-value-lg">{currentUser?.points ?? 0}</p>
             </div>
+            {/* Multi-sponsor affiliations — drivers only */}
+              {((currentUser?.role || '').toLowerCase() === 'driver') && (
+                <SponsorAffiliationsDisplay />
+              )}
             <div className="profile-actions">
               <button type="button" className="btn btn-primary" onClick={() => setCurrentPage('account-details')}>Edit profile</button>
               <button type="button" className="btn btn-primary" onClick={() => setCurrentPage('change-password')}>Change password</button>
@@ -1700,7 +2011,29 @@ function App() {
                   required
                 />
               </div>
-
+                                {/* Organization Name — sponsors only */}
+                  {((currentUser?.role || '').toLowerCase() === 'sponsor') && (
+                    <div className="form-group">
+                      <label className="form-label">
+                        Organization Name
+                        <span style={{ marginLeft: 6, fontSize: '0.78em', color: '#6b7280', fontWeight: 400 }}>
+                          (shown to drivers as your sponsor org)
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.company_name}
+                        onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
+                        className="form-input"
+                        placeholder="e.g. Acme Trucking Co."
+                      />
+                      {formData.company_name && (
+                        <p style={{ margin: '4px 0 0', fontSize: '0.78em', color: '#22c55e' }}>
+                          ✓ Drivers will see this as your sponsoring organization
+                        </p>
+                      )}
+                    </div>
+                  )}
               <div className="form-group">
                 <label className="form-label">Date of Birth</label>
                 <input
@@ -2694,14 +3027,64 @@ function App() {
   }
 
   // ============ ABOUT PAGE ============
-  // Drop this component inside your App() function (alongside DashboardPage, ProfilePage, etc.)
-  // Then wire it up in 3 places (see bottom of this file for integration instructions).
 
   const AboutPage = () => {
     const [health, setHealth] = useState(null)
     const [loading, setLoading] = useState(true)
     const [fetchError, setFetchError] = useState('')
     const [lastChecked, setLastChecked] = useState(null)
+
+    const role = ((currentUser?.role || inferRoleFromBase(apiBase) || 'driver') + '').toLowerCase().trim()
+    const isAdmin = role === 'admin'
+
+    const [sprintInfo, setSprintInfo] = useState(null)
+    const [sprintLoading, setSprintLoading] = useState(true)
+    const [showSprintModal, setShowSprintModal] = useState(false)
+    const [sprintDraft, setSprintDraft] = useState({ sprint_number: '', title: '', description: '', goals: '' })
+    const [sprintSaving, setSprintSaving] = useState(false)
+    const [sprintSaveMsg, setSprintSaveMsg] = useState('')
+    const [sprintSaveError, setSprintSaveError] = useState('')
+
+    const loadSprintInfo = async () => {
+      setSprintLoading(true)
+      try {
+        const data = await api('/sprint-info', { method: 'GET' })
+        setSprintInfo(data)
+        setSprintDraft({
+          sprint_number: String(data?.sprint_number || ''),
+          title: data?.title || '',
+          description: data?.description || '',
+          goals: data?.goals || ''
+        })
+      } catch {
+        setSprintInfo(null)
+      } finally {
+        setSprintLoading(false)
+      }
+    }
+
+    const saveSprintInfo = async (e) => {
+      e.preventDefault()
+      setSprintSaving(true); setSprintSaveMsg(''); setSprintSaveError('')
+      try {
+        await api('/sprint-info', {
+          method: 'PUT',
+          body: JSON.stringify({
+            sprint_number: Number(sprintDraft.sprint_number) || 0,
+            title: sprintDraft.title.trim(),
+            description: sprintDraft.description.trim(),
+            goals: sprintDraft.goals.trim()
+          })
+        })
+        setSprintSaveMsg('Sprint info updated!')
+        await loadSprintInfo()
+        setTimeout(() => { setShowSprintModal(false); setSprintSaveMsg('') }, 1200)
+      } catch (err) {
+        setSprintSaveError(err.message || 'Failed to save sprint info')
+      } finally {
+        setSprintSaving(false)
+      }
+    }
 
     const checkHealth = async () => {
       setLoading(true)
@@ -2721,6 +3104,7 @@ function App() {
 
     useEffect(() => {
       checkHealth()
+      loadSprintInfo()
     }, [])
 
     // Derive statuses from whatever shape your /health endpoint returns.
@@ -2931,13 +3315,63 @@ function App() {
                 </p>
               </div>
 
-              <div className="card" style={{ gridColumn: '1 / -1' }}>
-                <h3 className="card-title">Current Sprint: Sprint 4</h3>
-                <p className="card-body">
-                  In this sprint, we successfully integrated the <strong>eBay Browse API</strong>.
-                  Sponsors can now search real-world items directly from eBay and add them to their custom rewards catalogs!
-                </p>
-              </div>
+              {/* ── Sprint Info (from DB) ── */}
+              <section className="card" style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+                  <div>
+                    <h2 className="section-title" style={{ margin: 0 }}>Current Sprint</h2>
+                    {sprintInfo?.updated_at && (
+                      <p style={{ margin: '2px 0 0', fontSize: '0.78em', color: '#9ca3af' }}>
+                        Last updated {new Date(sprintInfo.updated_at).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ fontSize: '0.85em', padding: '6px 16px' }}
+                      onClick={() => { setShowSprintModal(true); setSprintSaveMsg(''); setSprintSaveError('') }}
+                    >
+                      ✎ Edit Sprint Info
+                    </button>
+                  )}
+                </div>
+
+                {sprintLoading ? (
+                  <p style={{ color: '#9ca3af', fontSize: '0.875em' }}>Loading sprint info…</p>
+                ) : sprintInfo ? (
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+                      <span style={{ padding: '3px 14px', borderRadius: 999, background: '#e0e7ff', color: '#3730a3', fontWeight: 700, fontSize: '0.85em' }}>
+                        Sprint {sprintInfo.sprint_number}
+                      </span>
+                      {sprintInfo.title && (
+                        <h3 style={{ margin: 0, fontSize: '1.1em', fontWeight: 700, color: '#1e293b' }}>{sprintInfo.title}</h3>
+                      )}
+                    </div>
+                    {sprintInfo.description && (
+                      <p style={{ margin: '0 0 12px', color: '#374151', lineHeight: 1.6 }}>{sprintInfo.description}</p>
+                    )}
+                    {sprintInfo.goals && (
+                      <div style={{ padding: '10px 14px', borderRadius: 6, background: '#f8fafc', border: '1px solid var(--border)' }}>
+                        <p style={{ margin: '0 0 4px', fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af' }}>Sprint Goals</p>
+                        <p style={{ margin: 0, color: '#374151', lineHeight: 1.6, whiteSpace: 'pre-line', fontSize: '0.875em' }}>{sprintInfo.goals}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <p style={{ margin: 0, color: '#9ca3af', fontStyle: 'italic', fontSize: '0.875em' }}>No sprint info configured yet.</p>
+                    {isAdmin && (
+                      <button type="button" className="btn btn-primary" style={{ fontSize: '0.8em', padding: '4px 12px' }}
+                        onClick={() => { setShowSprintModal(true); setSprintSaveMsg(''); setSprintSaveError('') }}>
+                        Set sprint info
+                      </button>
+                    )}
+                  </div>
+                )}
+              </section>
 
             </div>
           </section>
@@ -3071,7 +3505,9 @@ function App() {
       {isLoggedIn && currentPage === 'applications' && <ApplicationsPage />}
       {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
       {isLoggedIn && currentPage === 'catalog' && <SponsorCatalogPage />}
+      {isLoggedIn && currentPage === 'admin-users' && <AdminUsersPage />}
       {/* ... any additional page renders ... */}
+
 
       {showLogoutConfirm && (
         <div className="modal-backdrop">

@@ -271,6 +271,85 @@ app.put("/me/password", requireAuth, async (req, res) => {
   }
 });
 
+  // GET /sprint-info
+app.get('/sprint-info', requireAuth, async (_req, res) => {
+  try {
+    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1')
+    return res.json(rows?.[0] || null)
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// PUT /sprint-info (admin only)
+app.put('/sprint-info', requireAuth, async (req, res) => {
+  const { sprint_number, title, description, goals } = req.body
+  try {
+    await exec(
+      `INSERT INTO sprint_info (id, sprint_number, title, description, goals)
+       VALUES (1, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         sprint_number = VALUES(sprint_number),
+         title = VALUES(title),
+         description = VALUES(description),
+         goals = VALUES(goals),
+         updated_at = NOW()`,
+      [sprint_number, title || '', description || '', goals || '']
+    )
+    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1')
+    return res.json({ ok: true, sprintInfo: rows[0] })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.get('/admin/users', requireAuth, async (req, res) => {
+  const role = req.query.role
+  if (!['sponsor', 'driver'].includes(role)) {
+    return res.status(400).json({ error: 'role query param must be sponsor or driver' })
+  }
+
+  try {
+    if (role === 'sponsor') {
+      const users = await query(
+        `SELECT u.id, u.email, u.created_at,
+           sp.company_name, sp.first_name, sp.last_name,
+           sp.phone, sp.city, sp.state, sp.postal_code, sp.country,
+           COUNT(DISTINCT a.driver_id) AS driver_count
+         FROM users u
+         LEFT JOIN sponsor_profiles sp ON u.id = sp.user_id
+         LEFT JOIN applications a ON a.sponsor_id = u.id AND a.status = 'accepted'
+         WHERE u.role = 'sponsor'
+         GROUP BY u.id
+         ORDER BY u.created_at DESC`
+      )
+      return res.json({ users: users || [] })
+    }
+
+    if (role === 'driver') {
+      const users = await query(
+        `SELECT u.id, u.email, u.created_at,
+           dp.first_name, dp.last_name, dp.dob, dp.phone,
+           dp.address_line1, dp.city, dp.state, dp.postal_code, dp.country,
+           dp.sponsor_org,
+           COALESCE(SUM(l.delta), 0) AS points_balance
+         FROM users u
+         LEFT JOIN driver_profiles dp ON u.id = dp.user_id
+         LEFT JOIN driver_points_ledger l ON l.driver_id = u.id
+         WHERE u.role = 'driver'
+         GROUP BY u.id
+         ORDER BY u.created_at DESC`
+      )
+      return res.json({ users: users || [] })
+    }
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`[admin] listening on :${PORT}`);
 });
