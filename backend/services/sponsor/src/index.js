@@ -2,7 +2,7 @@ const { makeApp } = require("@gdip/server");
 const { query, exec } = require("@gdip/db");
 const { hashPassword, verifyPassword, signToken, verifyToken } = require("@gdip/auth");
 const { z } = require("zod");
-const ebayService = require("./ebay");
+
 
 const app = makeApp();
 
