@@ -2510,6 +2510,7 @@ function App() {
     const [searchQuery, setSearchQuery] = useState('')
     const [searchResults, setSearchResults] = useState([])
     const [shopItems, setShopItems] = useState([])
+    const [searching, setSearching] = useState(false)
 
     // We need a state to temporarily store the cost the user types in for each item
     // Key: itemId, Value: point cost string
@@ -2529,11 +2530,15 @@ function App() {
     const handleSearch = async (e) => {
       e.preventDefault()
       if (!searchQuery) return
+      setSearching(true)
       try {
         const res = await api(`/ebay/search?q=${encodeURIComponent(searchQuery)}`, { method: 'GET' })
         setSearchResults(res.items || [])
       } catch (err) {
         console.error('eBay search failed', err)
+        alert('eBay search failed. Check the console for details.')
+      } finally {
+        setSearching(false)
       }
     }
 
@@ -2569,6 +2574,17 @@ function App() {
       }
     }
 
+    const handleDeleteItem = async (itemId) => {
+      if (!window.confirm('Remove this item from your catalog?')) return
+      try {
+        await api(`/catalog/${itemId}`, { method: 'DELETE' })
+        fetchShopItems()
+      } catch (err) {
+        console.error('Failed to delete item', err)
+        alert('Failed to remove item from catalog.')
+      }
+    }
+
     return (
       <div>
         <Navigation />
@@ -2587,8 +2603,8 @@ function App() {
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                 />
-                <button type="submit" className="btn btn-primary">
-                  Search
+                <button type="submit" className="btn btn-primary" disabled={searching}>
+                  {searching ? 'Searching…' : 'Search'}
                 </button>
               </form>
 
@@ -2654,6 +2670,17 @@ function App() {
                       <div className="catalog-item-meta">
                         <span className="catalog-item-retail">Retail: ${item.price}</span>
                         <span className="catalog-pill">{item.point_cost} pts</span>
+                      </div>
+
+                      <div className="catalog-item-actions" style={{ marginTop: 8 }}>
+                        <button
+                          type="button"
+                          className="btn btn-outline"
+                          style={{ color: 'crimson', borderColor: 'crimson' }}
+                          onClick={() => handleDeleteItem(item.id)}
+                        >
+                          Remove
+                        </button>
                       </div>
                     </div>
                   ))
