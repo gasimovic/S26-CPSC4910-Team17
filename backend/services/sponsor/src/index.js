@@ -190,8 +190,8 @@ app.post("/auth/login", async (req, res) => {
       httpOnly: true,
       secure: COOKIE_SECURE,
       sameSite: "lax",
-      path: "/",
       maxAge: 2 * 60 * 60 * 1000,
+      path: "/api/sponsor",
     });
 
     return res.json({ ok: true, user: { id: user.id, email: user.email, role: user.role } });

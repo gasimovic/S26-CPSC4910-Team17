@@ -1411,7 +1411,7 @@ function App() {
 
 // ============ ADMIN USERS PAGE ============
 const AdminUsersPage = () => {
-  const [activeTab, setActiveTab] = useState('sponsors')
+  const [activeTab, setActiveTab] = useState('admin')
   const [sponsors, setSponsors] = useState([])
   const [drivers, setDrivers] = useState([])
   const [loading, setLoading] = useState(false)

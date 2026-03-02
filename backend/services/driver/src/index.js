@@ -137,6 +137,7 @@ app.post("/auth/login", async (req, res) => {
       secure: COOKIE_SECURE,
       sameSite: "lax",
       maxAge: 2 * 60 * 60 * 1000,
+      path: "/api/driver",
     });
 
     return res.json({ ok: true, user: { id: user.id, email: user.email, role: user.role } });
