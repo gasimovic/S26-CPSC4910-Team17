@@ -211,13 +211,28 @@ function App() {
   // ===== Role-based page access =====
   const getAllowedPages = (user) => {
     // Default conservative set for anonymous/unknown
-    if (!user) return ['dashboard']
+    if (!user) {
+      const role = inferRoleFromBase(apiBase)
+      if (role === 'admin') return ['dashboard', 'admin-users', 'profile', 'account-details', 'change-password', 'about']
+      if (role === 'sponsor') return ['dashboard', 'drivers', 'applications', 'catalog', 'profile', 'account-details', 'change-password', 'about']
+      return ['dashboard', 'profile', 'account-details', 'change-password', 'about']
+    }
 
     const role = (user.role || inferRoleFromBase(apiBase) || 'driver').toLowerCase()
     const hasSponsor = Boolean((user.profile?.sponsor_org || '').toString().trim())
 
     if (role === 'admin') {
-     return ['dashboard', 'admin-users', 'profile', 'account-details', 'change-password', 'about']
+      return [
+        'dashboard',
+        'admin-users',
+        'applications',
+        'drivers',
+        'catalog',
+        'profile',
+        'account-details',
+        'change-password',
+        'about'
+      ]
     }
 
     if (role === 'sponsor') {
@@ -809,7 +824,7 @@ function App() {
     const allowed = getAllowedPages(currentUser)
 
     const isDriver = role === 'driver'
-    const isSponsor = role === 'sponsor'
+    const isSponsor = role === 'sponsor' || role === 'admin'
     const isAdmin = role === 'admin'
 
     return (
