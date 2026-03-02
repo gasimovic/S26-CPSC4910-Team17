@@ -774,6 +774,17 @@ app.put('/messages/:messageId/read', requireAuth, async (req, res) => {
 const driverCatalogRoutes = require('../../../routes/driver/catalog');
 app.use('/catalog', requireAuth, driverCatalogRoutes);
 
+app.get('/sprint-info', async (_req, res) => {
+  try {
+    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1', [])
+    if (!rows || rows.length === 0) return res.json(null)
+    return res.json(rows[0])
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`[driver] listening on :${PORT}`);
 });
