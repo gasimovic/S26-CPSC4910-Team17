@@ -208,35 +208,53 @@ function App() {
     )
   }
 
-  // ===== Role-based page access =====
+ 
+ // ===== Role-based page access =====
   const getAllowedPages = (user) => {
-    if (!user) return ['dashboard'];
+    // 1. DETERMINE ROLE: 
+    // Use the user object role if available, otherwise fall back to the apiBase
+    const role = (user?.role || inferRoleFromBase(apiBase) || 'driver').toString().trim().toLowerCase();
+    const hasSponsor = Boolean((user?.profile?.sponsor_org || '').toString().trim());
 
-    const role = String(user?.role || '').trim().toLowerCase();
-    const hasSponsor = Boolean((user.profile?.sponsor_org || '').toString().trim());
+    // 2. DEFINE PAGE SETS:
+    // We define these in variables so we can use them for both the "loading" state 
+    // (when user is null) and the "final" state.
+    
+    const adminPages = [
+      'dashboard', 
+      'admin-users', 
+      'drivers', 
+      'applications', 
+      'catalog', 
+      'profile', 
+      'account-details', 
+      'change-password', 
+      'about'
+    ];
 
-    if (role === 'admin') {
-      // Admins should see Admin tools AND Sponsor tools
-      return [
-        'dashboard', 'admin-users', 'applications', 'drivers', 
-        'catalog', 'profile', 'account-details', 'change-password', 'about'
-      ];
-    }
+    const sponsorPages = [
+      'dashboard', 
+      'drivers', 
+      'applications', 
+      'catalog', 
+      'profile', 
+      'account-details', 
+      'change-password', 
+      'about'
+    ];
 
-    if (role === 'sponsor') {
-      return ['dashboard', 'drivers', 'applications', 'catalog', 'profile', 'account-details', 'change-password', 'about']
-    }
+    const driverPages = hasSponsor 
+      ? ['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
+      : ['dashboard', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
 
-    if (role === 'driver') {
-      if (hasSponsor) {
-        return ['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
-      }
-      return ['dashboard', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
-    }
+    // 3. RETURN BASED ON ROLE:
+    if (role === 'admin') return adminPages;
+    if (role === 'sponsor') return sponsorPages;
+    if (role === 'driver') return driverPages;
 
-    return ['dashboard', 'profile', 'about']
+    // Fallback
+    return ['dashboard', 'profile', 'about'];
   }
-
   // Ensure currentPage is valid for the current user
   useEffect(() => {
     // Only enforce allowed pages when the user is logged in to avoid
