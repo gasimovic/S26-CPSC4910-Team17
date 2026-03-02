@@ -21,7 +21,10 @@ async function getEbayToken() {
         const response = await axios.post(
             'https://api.sandbox.ebay.com/identity/v1/oauth2/token',
             // Browse API item_summary/search requires the buy.item.summary scope
-            'grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope',
+            new URLSearchParams({
+                grant_type: 'client_credentials',
+                scope: 'https://api.ebay.com/oauth/api_scope'
+            }).toString(),
             {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
