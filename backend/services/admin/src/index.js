@@ -1,3 +1,4 @@
+require("dotenv").config({ path: require("path").resolve(__dirname, "../../../.env") })
 const { makeApp } = require("@gdip/server");
 const { query, exec } = require("@gdip/db");
 const { hashPassword, verifyPassword, signToken, verifyToken } = require("@gdip/auth");
@@ -272,7 +273,7 @@ app.put("/me/password", requireAuth, async (req, res) => {
   }
 });
 
-app.get('/admin/users', requireAuth, async (req, res) => {
+app.get('/users', requireAuth, async (req, res) => {
   const role = req.query.role
   if (!['sponsor', 'driver'].includes(role)) {
     return res.status(400).json({ error: 'role query param must be sponsor or driver' })
