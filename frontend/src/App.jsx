@@ -11,6 +11,30 @@ function App() {
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
 
+  // Keep the browser URL in sync with the current page so that
+  // each page has its own URL and can be bookmarked.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    try {
+      const url = new URL(window.location.href)
+
+      if (currentPage === 'landing') {
+        // For the default landing page, keep the URL clean and
+        // remove any lingering ?page= query parameter.
+        url.searchParams.delete('page')
+      } else {
+        url.searchParams.set('page', currentPage)
+      }
+
+      // Push the updated URL into the browser history so that
+      // navigation updates the address bar.
+      window.history.pushState({ page: currentPage }, '', url.toString())
+    } catch {
+      // If URL manipulation fails for any reason, do nothing.
+    }
+  }, [currentPage])
+
   // ======= API base selection (supports logging in as driver OR sponsor without changing .env) =======
   // Vite proxy bases (same-origin). These MUST match `vite.config.js`.
   const DRIVER_API_BASE = (import.meta.env.VITE_DRIVER_API_BASE || '/api/driver').replace(/\/$/, '')
