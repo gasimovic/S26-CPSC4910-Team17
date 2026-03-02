@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 
 function App() {
   // ============ STATE MANAGEMENT ============
@@ -11,10 +11,21 @@ function App() {
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
 
+  // Tracks when navigation came from the browser's back/forward
+  // buttons so we don't immediately push another history entry.
+  const historyNavRef = useRef(false)
+
   // Keep the browser URL in sync with the current page so that
   // each page has its own URL and can be bookmarked.
   useEffect(() => {
     if (typeof window === 'undefined') return
+
+    // If this change was triggered by a browser history
+    // navigation (back/forward), skip pushing a new entry.
+    if (historyNavRef.current) {
+      historyNavRef.current = false
+      return
+    }
 
     try {
       const url = new URL(window.location.href)
@@ -534,42 +545,58 @@ function App() {
     try { window.localStorage.removeItem('gdip_api_base') } catch { }
   }
 
-  // Optional: if user refreshes while logged in, try to restore
+  // Keep the current page in sync with the URL when the user
+  // uses the browser back/forward buttons or loads a deep link.
   useEffect(() => {
-    // Support reset-password deep links like:
-    //   /?page=reset-password&email=...&token=...
-    // This enables the forgot/reset flow without changing the UI elsewhere.
-    try {
-      const params = new URLSearchParams(window.location.search)
-      const page = (params.get('page') || '').toLowerCase()
+    if (typeof window === 'undefined') return
 
-      if (page === 'reset-password') {
-        const email = params.get('email') || ''
-        const token = params.get('token') || ''
-        setResetPrefill({ email, token })
-        setAuthError('')
-        setStatusMsg('')
-        setCurrentPage('reset-password')
-        return
-      }
+    const applyPageFromUrl = () => {
+      try {
+        const params = new URLSearchParams(window.location.search)
+        const page = (params.get('page') || '').toLowerCase()
 
-      // Back-compat: redirect legacy sponsor login deep link to unified login
-      if (page === 'login-sponsor') {
-        setAuthError('')
-        setStatusMsg('')
-        setCurrentPage('login')
-        return
-      }
+        if (page === 'reset-password') {
+          const email = params.get('email') || ''
+          const token = params.get('token') || ''
+          setResetPrefill({ email, token })
+          setAuthError('')
+          setStatusMsg('')
+          setCurrentPage('reset-password')
+          return
+        }
 
-      if (page === 'login') {
-        setAuthError('')
-        setStatusMsg('')
-        setCurrentPage('login')
-        return
+        // Back-compat: redirect legacy sponsor login deep link to unified login
+        if (page === 'login-sponsor' || page === 'login') {
+          setAuthError('')
+          setStatusMsg('')
+          setCurrentPage('login')
+          return
+        }
+
+        if (!page) {
+          // No explicit page in the URL: fall back to the landing page.
+          setCurrentPage('landing')
+          return
+        }
+
+        // For all other pages, trust the value from the URL.
+        setCurrentPage(page)
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
+
+    // Handle the initial load (refresh/direct deep link).
+    applyPageFromUrl()
+
+    // Handle browser back/forward navigation.
+    const onPopState = () => {
+      historyNavRef.current = true
+      applyPageFromUrl()
+    }
+
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
   // ============ LANDING PAGE ============
