@@ -15,6 +15,85 @@ function App() {
   // buttons so we don't immediately push another history entry.
   const historyNavRef = useRef(false)
 
+  const pageToPath = (page) => {
+    switch (page) {
+      case 'landing':
+        return '/'
+      case 'login':
+        return '/login'
+      case 'account-type':
+        return '/account-type'
+      case 'create-account':
+        return '/create-account'
+      case 'reset-password':
+        return '/reset-password'
+      case 'dashboard':
+        return '/dashboard'
+      case 'log-trip':
+        return '/log-trip'
+      case 'applications':
+        return '/applications'
+      case 'drivers':
+        return '/drivers'
+      case 'catalog':
+        return '/catalog'
+      case 'messages':
+        return '/messages'
+      case 'rewards':
+        return '/rewards'
+      case 'leaderboard':
+        return '/leaderboard'
+      case 'achievements':
+        return '/achievements'
+      case 'profile':
+        return '/profile'
+      case 'account-details':
+        return '/account-details'
+      case 'change-password':
+        return '/change-password'
+      case 'sponsor-affiliation':
+        return '/sponsor-affiliation'
+      case 'admin-users':
+        return '/admin-users'
+      case 'about':
+        return '/about'
+      default:
+        return '/'
+    }
+  }
+
+  const pathToPage = (pathname, searchParams) => {
+    const rawPath = (pathname || '/').toLowerCase()
+    const path = rawPath.replace(/\/+$/, '') || '/'
+
+    if (path === '/' || path === '') return 'landing'
+    if (path === '/login') return 'login'
+    if (path === '/account-type') return 'account-type'
+    if (path === '/create-account') return 'create-account'
+    if (path === '/reset-password') return 'reset-password'
+    if (path === '/dashboard') return 'dashboard'
+    if (path === '/log-trip') return 'log-trip'
+    if (path === '/applications') return 'applications'
+    if (path === '/drivers') return 'drivers'
+    if (path === '/catalog') return 'catalog'
+    if (path === '/messages') return 'messages'
+    if (path === '/rewards') return 'rewards'
+    if (path === '/leaderboard') return 'leaderboard'
+    if (path === '/achievements') return 'achievements'
+    if (path === '/profile') return 'profile'
+    if (path === '/account-details') return 'account-details'
+    if (path === '/change-password') return 'change-password'
+    if (path === '/sponsor-affiliation') return 'sponsor-affiliation'
+    if (path === '/admin-users') return 'admin-users'
+    if (path === '/about') return 'about'
+
+    // Back-compat: if the path is unknown, fall back to any legacy ?page= value.
+    const pageFromQuery = (searchParams.get('page') || '').toLowerCase()
+    if (pageFromQuery) return pageFromQuery
+
+    return 'landing'
+  }
+
   // Keep the browser URL in sync with the current page so that
   // each page has its own URL and can be bookmarked.
   useEffect(() => {
@@ -29,14 +108,15 @@ function App() {
 
     try {
       const url = new URL(window.location.href)
+      const targetPath = pageToPath(currentPage)
 
-      if (currentPage === 'landing') {
-        // For the default landing page, keep the URL clean and
-        // remove any lingering ?page= query parameter.
-        url.searchParams.delete('page')
-      } else {
-        url.searchParams.set('page', currentPage)
+      if (url.pathname !== targetPath) {
+        url.pathname = targetPath
       }
+
+      // We no longer rely on ?page=, so strip it out. Keep any
+      // other query parameters (like reset-password email/token).
+      url.searchParams.delete('page')
 
       // Push the updated URL into the browser history so that
       // navigation updates the address bar.
@@ -553,9 +633,9 @@ function App() {
     const applyPageFromUrl = () => {
       try {
         const params = new URLSearchParams(window.location.search)
-        const page = (params.get('page') || '').toLowerCase()
+        const pageFromPath = pathToPage(window.location.pathname, params)
 
-        if (page === 'reset-password') {
+        if (pageFromPath === 'reset-password') {
           const email = params.get('email') || ''
           const token = params.get('token') || ''
           setResetPrefill({ email, token })
@@ -565,22 +645,15 @@ function App() {
           return
         }
 
-        // Back-compat: redirect legacy sponsor login deep link to unified login
-        if (page === 'login-sponsor' || page === 'login') {
+        // Back-compat: redirect legacy sponsor login deep links to unified login
+        if (pageFromPath === 'login-sponsor' || pageFromPath === 'login') {
           setAuthError('')
           setStatusMsg('')
           setCurrentPage('login')
           return
         }
 
-        if (!page) {
-          // No explicit page in the URL: fall back to the landing page.
-          setCurrentPage('landing')
-          return
-        }
-
-        // For all other pages, trust the value from the URL.
-        setCurrentPage(page)
+        setCurrentPage(pageFromPath || 'landing')
       } catch {
         // ignore
       }
