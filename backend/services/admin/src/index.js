@@ -272,40 +272,6 @@ app.put("/me/password", requireAuth, async (req, res) => {
   }
 });
 
-  // GET /sprint-info
-app.get('/sprint-info', requireAuth, async (_req, res) => {
-  try {
-    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1')
-    return res.json(rows?.[0] || null)
-  } catch (err) {
-    console.error(err)
-    return res.status(500).json({ error: 'Server error' })
-  }
-})
-
-// PUT /sprint-info (admin only)
-app.put('/sprint-info', requireAuth, async (req, res) => {
-  const { sprint_number, title, description, goals } = req.body
-  try {
-    await exec(
-      `INSERT INTO sprint_info (id, sprint_number, title, description, goals)
-       VALUES (1, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         sprint_number = VALUES(sprint_number),
-         title = VALUES(title),
-         description = VALUES(description),
-         goals = VALUES(goals),
-         updated_at = NOW()`,
-      [sprint_number, title || '', description || '', goals || '']
-    )
-    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1')
-    return res.json({ ok: true, sprintInfo: rows[0] })
-  } catch (err) {
-    console.error(err)
-    return res.status(500).json({ error: 'Server error' })
-  }
-})
-
 app.get('/admin/users', requireAuth, async (req, res) => {
   const role = req.query.role
   if (!['sponsor', 'driver'].includes(role)) {
@@ -365,27 +331,18 @@ app.get('/sprint-info', async (_req, res) => {
 app.put('/sprint-info', requireAuth, async (req, res) => {
   const schema = z.object({
     sprint_number: z.coerce.number().int().min(0),
-    title: z.string().min(1).max(255),
+    title: z.string().max(255).optional().default(''),
     description: z.string().max(2000).optional().default(''),
     goals: z.string().max(2000).optional().default(''),
   })
-
   const parsed = schema.safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
   }
-
   const { sprint_number, title, description, goals } = parsed.data
-
   try {
     await exec(
-      `UPDATE sprint_info
-       SET sprint_number = ?,
-           title         = ?,
-           description   = ?,
-           goals         = ?,
-           updated_at    = NOW()
-       WHERE id = 1`,
+      `UPDATE sprint_info SET sprint_number=?, title=?, description=?, goals=?, updated_at=NOW() WHERE id=1`,
       [sprint_number, title, description, goals]
     )
     const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1', [])
