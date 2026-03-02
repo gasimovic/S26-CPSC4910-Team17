@@ -310,6 +310,34 @@ function App() {
     return u
   }
 
+  // On initial load, try to restore an existing session using the
+  // backend session cookie. This makes refreshes and direct visits
+  // to routes like /dashboard work without logging the user out.
+  useEffect(() => {
+    let cancelled = false
+
+    const restoreSession = async () => {
+      try {
+        const u = await loadMe()
+        if (cancelled) return
+        setIsLoggedIn(true)
+        setCurrentUser(u)
+      } catch (err) {
+        // If the user is not authenticated (401/403), stay logged out.
+        const status = err?.status
+        if (status === 401 || status === 403) return
+        // For other errors (network, server issues), just log to console
+        // so the UI doesn't get stuck in an error state on load.
+        console.error('Failed to restore session on load:', err)
+      }
+    }
+
+    restoreSession()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const profileLooksEmpty = (u) => {
     const p = u?.profile
     if (!p) return true
