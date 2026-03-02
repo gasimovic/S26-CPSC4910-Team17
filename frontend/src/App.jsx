@@ -210,48 +210,30 @@ function App() {
 
   // ===== Role-based page access =====
   const getAllowedPages = (user) => {
-    // Default conservative set for anonymous/unknown
-    if (!user) {
-      const role = inferRoleFromBase(apiBase)
-      if (role === 'admin') return ['dashboard', 'admin-users', 'profile', 'account-details', 'change-password', 'about']
-      if (role === 'sponsor') return ['dashboard', 'drivers', 'applications', 'catalog', 'profile', 'account-details', 'change-password', 'about']
-      return ['dashboard', 'profile', 'account-details', 'change-password', 'about']
-    }
+    if (!user) return ['dashboard'];
 
-    const role = (user.role || inferRoleFromBase(apiBase) || 'driver').toLowerCase()
-    const hasSponsor = Boolean((user.profile?.sponsor_org || '').toString().trim())
+    const role = String(user?.role || '').trim().toLowerCase();
+    const hasSponsor = Boolean((user.profile?.sponsor_org || '').toString().trim());
 
     if (role === 'admin') {
+      // Admins should see Admin tools AND Sponsor tools
       return [
-        'dashboard',
-        'admin-users',
-        'applications',
-        'drivers',
-        'catalog',
-        'profile',
-        'account-details',
-        'change-password',
-        'about'
-      ]
+        'dashboard', 'admin-users', 'applications', 'drivers', 
+        'catalog', 'profile', 'account-details', 'change-password', 'about'
+      ];
     }
 
     if (role === 'sponsor') {
-      // Sponsors should manage ads/applications + their own profile/account.
-      // Driver-only pages like Rewards, Leaderboard, Achievements, Log Trip, and Sponsor Affiliation
-      // must NOT appear for sponsors.
       return ['dashboard', 'drivers', 'applications', 'catalog', 'profile', 'account-details', 'change-password', 'about']
     }
 
-    // driver
     if (role === 'driver') {
       if (hasSponsor) {
         return ['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
       }
-      // Unaffiliated drivers get a minimal view
       return ['dashboard', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
     }
 
-    // Fallback
     return ['dashboard', 'profile', 'about']
   }
 
@@ -3498,31 +3480,35 @@ const AdminUsersPage = () => {
 
   // ============ MAIN RENDER ============
   return (
-    <div>
-      {!isLoggedIn && currentPage === 'landing' && <LandingPage />}
-      {!isLoggedIn && currentPage === 'login' && <LoginPage />}
-      {!isLoggedIn && currentPage === 'login-sponsor' && <SponsorLoginPage />}
-      {!isLoggedIn && currentPage === 'account-type' && <AccountTypePage />}
-      {/* ... other not-logged-in renders ... */}
-      {/* Logged-in page renders */}
-      {isLoggedIn && currentPage === 'dashboard' && <DashboardPage />}
-      {isLoggedIn && currentPage === 'log-trip' && <LogTripPage />}
-      {isLoggedIn && currentPage === 'rewards' && <RewardsPage />}
-      {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
-      {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}
-      {isLoggedIn && currentPage === 'profile' && <ProfilePage />}
-      {isLoggedIn && currentPage === 'account-details' && <AccountDetailsPage />}
-      {isLoggedIn && currentPage === 'change-password' && <ChangePasswordPage />}
-      {isLoggedIn && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
-      {isLoggedIn && currentPage === 'reset-password' && <ResetPasswordPage prefill={resetPrefill} />}
-      {isLoggedIn && currentPage === 'about' && <AboutPage />}
-      {/* Sponsor-only pages */}
-      {isLoggedIn && currentPage === 'applications' && <ApplicationsPage />}
-      {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
-      {isLoggedIn && currentPage === 'catalog' && <SponsorCatalogPage />}
-      {isLoggedIn && currentPage === 'admin-users' && <AdminUsersPage />}
-      {/* ... any additional page renders ... */}
+  <div>
+    {/* Public Pages */}
+    {!isLoggedIn && currentPage === 'landing' && <LandingPage />}
+    {!isLoggedIn && currentPage === 'login' && <LoginPage />}
+    {!isLoggedIn && currentPage === 'account-type' && <AccountTypePage />}
+    {!isLoggedIn && currentPage === 'create-account' && <CreateAccountPage />}
+    {!isLoggedIn && currentPage === 'reset-password' && <ResetPasswordPage prefill={resetPrefill} />}
 
+    {/* Logged-in Pages */}
+    {isLoggedIn && currentPage === 'dashboard' && <DashboardPage />}
+    {isLoggedIn && currentPage === 'profile' && <ProfilePage />}
+    {isLoggedIn && currentPage === 'account-details' && <AccountDetailsPage />}
+    {isLoggedIn && currentPage === 'change-password' && <ChangePasswordPage />}
+    {isLoggedIn && currentPage === 'about' && <AboutPage />}
+
+    {/* Driver Pages */}
+    {isLoggedIn && currentPage === 'log-trip' && <LogTripPage />}
+    {isLoggedIn && currentPage === 'rewards' && <RewardsPage />}
+    {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
+    {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}
+    {isLoggedIn && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
+
+    {/* Sponsor/Admin shared Pages */}
+    {isLoggedIn && currentPage === 'applications' && <ApplicationsPage />}
+    {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
+    {isLoggedIn && currentPage === 'catalog' && <SponsorCatalogPage />}
+
+    {/* Admin ONLY Pages */}
+    {isLoggedIn && currentPage === 'admin-users' && <AdminUsersPage />}
 
       {showLogoutConfirm && (
         <div className="modal-backdrop">
