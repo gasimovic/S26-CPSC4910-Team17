@@ -197,11 +197,13 @@ app.post("/auth/forgot-password", async (req, res) => {
       [userId, tokenHash]
     );
 
-    // Dev-mode: return link instead of email
+    // Dev-mode: return link instead of email.
+    // Use the SPA's path-based routing so the reset page opens at
+    // /reset-password with email/token as query parameters.
     const publicBase =
       process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.FRONTEND_PORT || 5173}`;
 
-    const resetUrl = `${publicBase}/?page=reset-password&email=${encodeURIComponent(
+    const resetUrl = `${publicBase.replace(/\/+$/, '')}/reset-password?email=${encodeURIComponent(
       email
     )}&token=${encodeURIComponent(token)}`;
 
