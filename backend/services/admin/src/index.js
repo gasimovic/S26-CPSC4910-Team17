@@ -1,3 +1,4 @@
+require("dotenv").config({ path: require("path").resolve(__dirname, "../../../.env") })
 const { makeApp } = require("@gdip/server");
 const { query, exec } = require("@gdip/db");
 const { hashPassword, verifyPassword, signToken, verifyToken } = require("@gdip/auth");
@@ -124,7 +125,8 @@ app.post("/auth/login", async (req, res) => {
       secure: COOKIE_SECURE,
       sameSite: "lax",
       maxAge: 2 * 60 * 60 * 1000,
-    });
+      path: "/api/admin",
+      });
 
     return res.json({ ok: true, user: { id: user.id, email: user.email, role: user.role } });
   } catch (err) {
@@ -271,41 +273,7 @@ app.put("/me/password", requireAuth, async (req, res) => {
   }
 });
 
-  // GET /sprint-info
-app.get('/sprint-info', requireAuth, async (_req, res) => {
-  try {
-    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1')
-    return res.json(rows?.[0] || null)
-  } catch (err) {
-    console.error(err)
-    return res.status(500).json({ error: 'Server error' })
-  }
-})
-
-// PUT /sprint-info (admin only)
-app.put('/sprint-info', requireAuth, async (req, res) => {
-  const { sprint_number, title, description, goals } = req.body
-  try {
-    await exec(
-      `INSERT INTO sprint_info (id, sprint_number, title, description, goals)
-       VALUES (1, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         sprint_number = VALUES(sprint_number),
-         title = VALUES(title),
-         description = VALUES(description),
-         goals = VALUES(goals),
-         updated_at = NOW()`,
-      [sprint_number, title || '', description || '', goals || '']
-    )
-    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1')
-    return res.json({ ok: true, sprintInfo: rows[0] })
-  } catch (err) {
-    console.error(err)
-    return res.status(500).json({ error: 'Server error' })
-  }
-})
-
-app.get('/admin/users', requireAuth, async (req, res) => {
+app.get('/users', requireAuth, async (req, res) => {
   const role = req.query.role
   if (!['sponsor', 'driver'].includes(role)) {
     return res.status(400).json({ error: 'role query param must be sponsor or driver' })
@@ -344,6 +312,42 @@ app.get('/admin/users', requireAuth, async (req, res) => {
       )
       return res.json({ users: users || [] })
     }
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.get('/sprint-info', async (_req, res) => {
+  try {
+    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1', [])
+    if (!rows || rows.length === 0) return res.json(null)
+    return res.json(rows[0])
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.put('/sprint-info', requireAuth, async (req, res) => {
+  const schema = z.object({
+    sprint_number: z.coerce.number().int().min(0),
+    title: z.string().max(255).optional().default(''),
+    description: z.string().max(2000).optional().default(''),
+    goals: z.string().max(2000).optional().default(''),
+  })
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+  }
+  const { sprint_number, title, description, goals } = parsed.data
+  try {
+    await exec(
+      `UPDATE sprint_info SET sprint_number=?, title=?, description=?, goals=?, updated_at=NOW() WHERE id=1`,
+      [sprint_number, title, description, goals]
+    )
+    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1', [])
+    return res.json(rows[0])
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: 'Server error' })

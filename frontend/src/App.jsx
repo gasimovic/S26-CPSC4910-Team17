@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 
 function App() {
   // ============ STATE MANAGEMENT ============
@@ -10,6 +10,121 @@ function App() {
   const [pendingRole, setPendingRole] = useState('driver') // chosen role for new accounts (driver | sponsor)
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
+
+  // Tracks when navigation came from the browser's back/forward
+  // buttons so we don't immediately push another history entry.
+  const historyNavRef = useRef(false)
+
+  const pageToPath = (page) => {
+    switch (page) {
+      case 'landing':
+        return '/'
+      case 'login':
+        return '/login'
+      case 'account-type':
+        return '/account-type'
+      case 'create-account':
+        return '/create-account'
+      case 'reset-password':
+        return '/reset-password'
+      case 'dashboard':
+        return '/dashboard'
+      case 'log-trip':
+        return '/log-trip'
+      case 'applications':
+        return '/applications'
+      case 'drivers':
+        return '/drivers'
+      case 'catalog':
+        return '/catalog'
+      case 'messages':
+        return '/messages'
+      case 'rewards':
+        return '/rewards'
+      case 'leaderboard':
+        return '/leaderboard'
+      case 'achievements':
+        return '/achievements'
+      case 'profile':
+        return '/profile'
+      case 'account-details':
+        return '/account-details'
+      case 'change-password':
+        return '/change-password'
+      case 'sponsor-affiliation':
+        return '/sponsor-affiliation'
+      case 'admin-users':
+        return '/admin-users'
+      case 'about':
+        return '/about'
+      default:
+        return '/'
+    }
+  }
+
+  const pathToPage = (pathname, searchParams) => {
+    const rawPath = (pathname || '/').toLowerCase()
+    const path = rawPath.replace(/\/+$/, '') || '/'
+
+    if (path === '/' || path === '') return 'landing'
+    if (path === '/login') return 'login'
+    if (path === '/account-type') return 'account-type'
+    if (path === '/create-account') return 'create-account'
+    if (path === '/reset-password') return 'reset-password'
+    if (path === '/dashboard') return 'dashboard'
+    if (path === '/log-trip') return 'log-trip'
+    if (path === '/applications') return 'applications'
+    if (path === '/drivers') return 'drivers'
+    if (path === '/catalog') return 'catalog'
+    if (path === '/messages') return 'messages'
+    if (path === '/rewards') return 'rewards'
+    if (path === '/leaderboard') return 'leaderboard'
+    if (path === '/achievements') return 'achievements'
+    if (path === '/profile') return 'profile'
+    if (path === '/account-details') return 'account-details'
+    if (path === '/change-password') return 'change-password'
+    if (path === '/sponsor-affiliation') return 'sponsor-affiliation'
+    if (path === '/admin-users') return 'admin-users'
+    if (path === '/about') return 'about'
+
+    // Back-compat: if the path is unknown, fall back to any legacy ?page= value.
+    const pageFromQuery = (searchParams.get('page') || '').toLowerCase()
+    if (pageFromQuery) return pageFromQuery
+
+    return 'landing'
+  }
+
+  // Keep the browser URL in sync with the current page so that
+  // each page has its own URL and can be bookmarked.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    // If this change was triggered by a browser history
+    // navigation (back/forward), skip pushing a new entry.
+    if (historyNavRef.current) {
+      historyNavRef.current = false
+      return
+    }
+
+    try {
+      const url = new URL(window.location.href)
+      const targetPath = pageToPath(currentPage)
+
+      if (url.pathname !== targetPath) {
+        url.pathname = targetPath
+      }
+
+      // We no longer rely on ?page=, so strip it out. Keep any
+      // other query parameters (like reset-password email/token).
+      url.searchParams.delete('page')
+
+      // Push the updated URL into the browser history so that
+      // navigation updates the address bar.
+      window.history.pushState({ page: currentPage }, '', url.toString())
+    } catch {
+      // If URL manipulation fails for any reason, do nothing.
+    }
+  }, [currentPage])
 
   // ======= API base selection (supports logging in as driver OR sponsor without changing .env) =======
   // Vite proxy bases (same-origin). These MUST match `vite.config.js`.
@@ -195,6 +310,34 @@ function App() {
     return u
   }
 
+  // On initial load, try to restore an existing session using the
+  // backend session cookie. This makes refreshes and direct visits
+  // to routes like /dashboard work without logging the user out.
+  useEffect(() => {
+    let cancelled = false
+
+    const restoreSession = async () => {
+      try {
+        const u = await loadMe()
+        if (cancelled) return
+        setIsLoggedIn(true)
+        setCurrentUser(u)
+      } catch (err) {
+        // If the user is not authenticated (401/403), stay logged out.
+        const status = err?.status
+        if (status === 401 || status === 403) return
+        // For other errors (network, server issues), just log to console
+        // so the UI doesn't get stuck in an error state on load.
+        console.error('Failed to restore session on load:', err)
+      }
+    }
+
+    restoreSession()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const profileLooksEmpty = (u) => {
     const p = u?.profile
     if (!p) return true
@@ -208,8 +351,8 @@ function App() {
     )
   }
 
- 
- // ===== Role-based page access =====
+
+  // ===== Role-based page access =====
   const getAllowedPages = (user) => {
     // 1. DETERMINE ROLE: 
     // Use the user object role if available, otherwise fall back to the apiBase
@@ -219,16 +362,16 @@ function App() {
     // 2. DEFINE PAGE SETS:
     // We define these in variables so we can use them for both the "loading" state 
     // (when user is null) and the "final" state.
-    
+
     const adminPages = [
-      'dashboard', 
-      'admin-users', 
-      'drivers', 
-      'applications', 
-      'catalog', 
-      'profile', 
-      'account-details', 
-      'change-password', 
+      'dashboard',
+      'admin-users',
+      'drivers',
+      'applications',
+      'catalog',
+      'profile',
+      'account-details',
+      'change-password',
       'about'
     ];
 
@@ -508,42 +651,51 @@ function App() {
     try { window.localStorage.removeItem('gdip_api_base') } catch { }
   }
 
-  // Optional: if user refreshes while logged in, try to restore
+  // Keep the current page in sync with the URL when the user
+  // uses the browser back/forward buttons or loads a deep link.
   useEffect(() => {
-    // Support reset-password deep links like:
-    //   /?page=reset-password&email=...&token=...
-    // This enables the forgot/reset flow without changing the UI elsewhere.
-    try {
-      const params = new URLSearchParams(window.location.search)
-      const page = (params.get('page') || '').toLowerCase()
+    if (typeof window === 'undefined') return
 
-      if (page === 'reset-password') {
-        const email = params.get('email') || ''
-        const token = params.get('token') || ''
-        setResetPrefill({ email, token })
-        setAuthError('')
-        setStatusMsg('')
-        setCurrentPage('reset-password')
-        return
-      }
+    const applyPageFromUrl = () => {
+      try {
+        const params = new URLSearchParams(window.location.search)
+        const pageFromPath = pathToPage(window.location.pathname, params)
 
-      // Back-compat: redirect legacy sponsor login deep link to unified login
-      if (page === 'login-sponsor') {
-        setAuthError('')
-        setStatusMsg('')
-        setCurrentPage('login')
-        return
-      }
+        if (pageFromPath === 'reset-password') {
+          const email = params.get('email') || ''
+          const token = params.get('token') || ''
+          setResetPrefill({ email, token })
+          setAuthError('')
+          setStatusMsg('')
+          setCurrentPage('reset-password')
+          return
+        }
 
-      if (page === 'login') {
-        setAuthError('')
-        setStatusMsg('')
-        setCurrentPage('login')
-        return
+        // Back-compat: redirect legacy sponsor login deep links to unified login
+        if (pageFromPath === 'login-sponsor' || pageFromPath === 'login') {
+          setAuthError('')
+          setStatusMsg('')
+          setCurrentPage('login')
+          return
+        }
+
+        setCurrentPage(pageFromPath || 'landing')
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
+
+    // Handle the initial load (refresh/direct deep link).
+    applyPageFromUrl()
+
+    // Handle browser back/forward navigation.
+    const onPopState = () => {
+      historyNavRef.current = true
+      applyPageFromUrl()
+    }
+
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
   // ============ LANDING PAGE ============
@@ -1255,261 +1407,261 @@ function App() {
     )
   }
 
-// ============ ADMIN USERS PAGE ============
-const AdminUsersPage = () => {
-  const [activeTab, setActiveTab] = useState('sponsors')
-  const [sponsors, setSponsors] = useState([])
-  const [drivers, setDrivers] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [expandedUser, setExpandedUser] = useState(null)
+  // ============ ADMIN USERS PAGE ============
+  const AdminUsersPage = () => {
+    const [activeTab, setActiveTab] = useState('sponsors')
+    const [sponsors, setSponsors] = useState([])
+    const [drivers, setDrivers] = useState([])
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState('')
+    const [searchQuery, setSearchQuery] = useState('')
+    const [expandedUser, setExpandedUser] = useState(null)
 
-  const loadAll = async () => {
-    setError(''); setLoading(true)
-    try {
-      const [sponsorData, driverData] = await Promise.allSettled([
-        api('/admin/users?role=sponsor', { method: 'GET' }),
-        api('/admin/users?role=driver', { method: 'GET' })
-      ])
-      if (sponsorData.status === 'fulfilled') setSponsors(Array.isArray(sponsorData.value?.users) ? sponsorData.value.users : [])
-      else setError((sponsorData.reason?.message || 'Failed to load sponsors') + ' ')
-      if (driverData.status === 'fulfilled') setDrivers(Array.isArray(driverData.value?.users) ? driverData.value.users : [])
-      else setError(prev => prev + (driverData.reason?.message || 'Failed to load drivers'))
-    } finally { setLoading(false) }
-  }
+    const loadAll = async () => {
+      setError(''); setLoading(true)
+      try {
+        const [sponsorData, driverData] = await Promise.allSettled([
+          api('/users?role=sponsor', { method: 'GET' }),
+          api('/users?role=driver', { method: 'GET' })
+        ])
+        if (sponsorData.status === 'fulfilled') setSponsors(Array.isArray(sponsorData.value?.users) ? sponsorData.value.users : [])
+        else setError((sponsorData.reason?.message || 'Failed to load sponsors') + ' ')
+        if (driverData.status === 'fulfilled') setDrivers(Array.isArray(driverData.value?.users) ? driverData.value.users : [])
+        else setError(prev => prev + (driverData.reason?.message || 'Failed to load drivers'))
+      } finally { setLoading(false) }
+    }
 
-  useEffect(() => { loadAll() }, [])
+    useEffect(() => { loadAll() }, [])
 
-  const filteredSponsors = useMemo(() => {
-    const q = (searchQuery || '').trim().toLowerCase()
-    if (!q) return sponsors
-    return sponsors.filter(s =>
-      String(s.id ?? '').includes(q) ||
-      String(s.email ?? '').toLowerCase().includes(q) ||
-      String(s.company_name ?? '').toLowerCase().includes(q)
+    const filteredSponsors = useMemo(() => {
+      const q = (searchQuery || '').trim().toLowerCase()
+      if (!q) return sponsors
+      return sponsors.filter(s =>
+        String(s.id ?? '').includes(q) ||
+        String(s.email ?? '').toLowerCase().includes(q) ||
+        String(s.company_name ?? '').toLowerCase().includes(q)
+      )
+    }, [sponsors, searchQuery])
+
+    const filteredDrivers = useMemo(() => {
+      const q = (searchQuery || '').trim().toLowerCase()
+      if (!q) return drivers
+      return drivers.filter(d =>
+        String(d.id ?? '').includes(q) ||
+        String(d.email ?? '').toLowerCase().includes(q) ||
+        String([d.first_name, d.last_name].filter(Boolean).join(' ')).toLowerCase().includes(q) ||
+        String(d.sponsor_org ?? '').toLowerCase().includes(q)
+      )
+    }, [drivers, searchQuery])
+
+    const tabStyle = (tab) => ({
+      padding: '8px 20px', borderRadius: '6px 6px 0 0',
+      border: '1px solid var(--border)',
+      borderBottom: activeTab === tab ? '2px solid white' : '1px solid var(--border)',
+      background: activeTab === tab ? 'white' : '#f3f4f6',
+      fontWeight: activeTab === tab ? 700 : 400,
+      cursor: 'pointer', marginBottom: -1
+    })
+
+    const DetailGrid = ({ fields }) => (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+        {fields.map(({ label, value }) => (
+          <div key={label} style={{ padding: '10px 14px', borderRadius: 6, background: '#fff', border: '1px solid var(--border)' }}>
+            <p style={{ margin: '0 0 2px', fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af' }}>{label}</p>
+            <p style={{ margin: 0, fontSize: '0.875em', fontWeight: 500, color: '#374151', wordBreak: 'break-all' }}>{String(value ?? '—')}</p>
+          </div>
+        ))}
+      </div>
     )
-  }, [sponsors, searchQuery])
 
-  const filteredDrivers = useMemo(() => {
-    const q = (searchQuery || '').trim().toLowerCase()
-    if (!q) return drivers
-    return drivers.filter(d =>
-      String(d.id ?? '').includes(q) ||
-      String(d.email ?? '').toLowerCase().includes(q) ||
-      String([d.first_name, d.last_name].filter(Boolean).join(' ')).toLowerCase().includes(q) ||
-      String(d.sponsor_org ?? '').toLowerCase().includes(q)
-    )
-  }, [drivers, searchQuery])
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">User Management</h1>
+          <p className="page-subtitle">View all registered sponsors and drivers</p>
 
-  const tabStyle = (tab) => ({
-    padding: '8px 20px', borderRadius: '6px 6px 0 0',
-    border: '1px solid var(--border)',
-    borderBottom: activeTab === tab ? '2px solid white' : '1px solid var(--border)',
-    background: activeTab === tab ? 'white' : '#f3f4f6',
-    fontWeight: activeTab === tab ? 700 : 400,
-    cursor: 'pointer', marginBottom: -1
-  })
+          <div className="stats-grid" style={{ marginBottom: 24 }}>
+            <div className="stat-card"><p className="stat-label">Total Sponsors</p><p className="stat-value stat-value-blue">{sponsors.length}</p></div>
+            <div className="stat-card"><p className="stat-label">Total Drivers</p><p className="stat-value stat-value-green">{drivers.length}</p></div>
+            <div className="stat-card"><p className="stat-label">All Users</p><p className="stat-value stat-value-amber">{sponsors.length + drivers.length}</p></div>
+          </div>
 
-  const DetailGrid = ({ fields }) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-      {fields.map(({ label, value }) => (
-        <div key={label} style={{ padding: '10px 14px', borderRadius: 6, background: '#fff', border: '1px solid var(--border)' }}>
-          <p style={{ margin: '0 0 2px', fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af' }}>{label}</p>
-          <p style={{ margin: 0, fontSize: '0.875em', fontWeight: 500, color: '#374151', wordBreak: 'break-all' }}>{String(value ?? '—')}</p>
-        </div>
-      ))}
-    </div>
-  )
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input className="form-input" style={{ flex: 1, minWidth: 220 }}
+                placeholder="Search by name, email, company, or ID…"
+                value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+              <button className="btn btn-primary" type="button" onClick={loadAll} disabled={loading}>
+                {loading ? 'Refreshing…' : '↺ Refresh'}
+              </button>
+            </div>
+          </div>
 
-  return (
-    <div>
-      <Navigation />
-      <main className="app-main">
-        <h1 className="page-title">User Management</h1>
-        <p className="page-subtitle">View all registered sponsors and drivers</p>
-
-        <div className="stats-grid" style={{ marginBottom: 24 }}>
-          <div className="stat-card"><p className="stat-label">Total Sponsors</p><p className="stat-value stat-value-blue">{sponsors.length}</p></div>
-          <div className="stat-card"><p className="stat-label">Total Drivers</p><p className="stat-value stat-value-green">{drivers.length}</p></div>
-          <div className="stat-card"><p className="stat-label">All Users</p><p className="stat-value stat-value-amber">{sponsors.length + drivers.length}</p></div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input className="form-input" style={{ flex: 1, minWidth: 220 }}
-              placeholder="Search by name, email, company, or ID…"
-              value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-            <button className="btn btn-primary" type="button" onClick={loadAll} disabled={loading}>
-              {loading ? 'Refreshing…' : '↺ Refresh'}
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button type="button" style={tabStyle('sponsors')} onClick={() => { setActiveTab('sponsors'); setExpandedUser(null) }}>
+              Sponsor Orgs ({filteredSponsors.length})
+            </button>
+            <button type="button" style={tabStyle('drivers')} onClick={() => { setActiveTab('drivers'); setExpandedUser(null) }}>
+              Drivers ({filteredDrivers.length})
             </button>
           </div>
-        </div>
 
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button type="button" style={tabStyle('sponsors')} onClick={() => { setActiveTab('sponsors'); setExpandedUser(null) }}>
-            Sponsor Orgs ({filteredSponsors.length})
-          </button>
-          <button type="button" style={tabStyle('drivers')} onClick={() => { setActiveTab('drivers'); setExpandedUser(null) }}>
-            Drivers ({filteredDrivers.length})
-          </button>
-        </div>
+          {error ? <p className="form-footer" style={{ color: 'crimson', marginTop: 8 }}>{error}</p> : null}
 
-        {error ? <p className="form-footer" style={{ color: 'crimson', marginTop: 8 }}>{error}</p> : null}
-
-        {/* Sponsors Tab */}
-        {activeTab === 'sponsors' && (
-          <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Email</th>
-                    <th>Organization</th>
-                    <th>Joined</th>
-                    <th className="text-right">Drivers</th>
-                    <th style={{ width: 90 }}>Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading && sponsors.length === 0 ? (
-                    <tr><td colSpan="6" className="table-empty">Loading…</td></tr>
-                  ) : filteredSponsors.length === 0 ? (
-                    <tr><td colSpan="6" className="table-empty">No sponsors found</td></tr>
-                  ) : filteredSponsors.map(s => {
-                    const company = s.company_name || null
-                    const isExpanded = expandedUser === s.id
-                    return (
-                      <React.Fragment key={String(s.id)}>
-                        <tr>
-                          <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{s.id}</td>
-                          <td>{s.email}</td>
-                          <td>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: company ? '#22c55e' : '#d1d5db', flexShrink: 0 }} />
-                              {company || <em style={{ color: '#9ca3af' }}>Not set</em>}
-                            </span>
-                          </td>
-                          <td>{s.created_at ? new Date(s.created_at).toLocaleDateString() : '—'}</td>
-                          <td className="text-right">
-                            {typeof s.driver_count === 'number' ? <strong style={{ color: '#2563eb' }}>{s.driver_count}</strong> : '—'}
-                          </td>
-                          <td>
-                            <button className="btn btn-primary" style={{ fontSize: '0.8em', padding: '4px 10px' }}
-                              type="button" onClick={() => setExpandedUser(isExpanded ? null : s.id)}>
-                              {isExpanded ? 'Close' : 'View'}
-                            </button>
-                          </td>
-                        </tr>
-                        {isExpanded && (
-                          <tr style={{ background: '#f9fafb' }}>
-                            <td colSpan="6" style={{ padding: '16px 20px' }}>
-                              <DetailGrid fields={[
-                                { label: 'User ID', value: s.id },
-                                { label: 'Email', value: s.email },
-                                { label: 'Organization', value: company || 'Not set' },
-                                { label: 'First Name', value: s.first_name },
-                                { label: 'Last Name', value: s.last_name },
-                                { label: 'Phone', value: s.phone },
-                                { label: 'City', value: s.city },
-                                { label: 'State', value: s.state },
-                                { label: 'Active Drivers', value: typeof s.driver_count === 'number' ? s.driver_count : '—' },
-                                { label: 'Joined', value: s.created_at ? new Date(s.created_at).toLocaleString() : '—' },
-                              ]} />
+          {/* Sponsors Tab */}
+          {activeTab === 'sponsors' && (
+            <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Email</th>
+                      <th>Organization</th>
+                      <th>Joined</th>
+                      <th className="text-right">Drivers</th>
+                      <th style={{ width: 90 }}>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading && sponsors.length === 0 ? (
+                      <tr><td colSpan="6" className="table-empty">Loading…</td></tr>
+                    ) : filteredSponsors.length === 0 ? (
+                      <tr><td colSpan="6" className="table-empty">No sponsors found</td></tr>
+                    ) : filteredSponsors.map(s => {
+                      const company = s.company_name || null
+                      const isExpanded = expandedUser === s.id
+                      return (
+                        <React.Fragment key={String(s.id)}>
+                          <tr>
+                            <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{s.id}</td>
+                            <td>{s.email}</td>
+                            <td>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ width: 8, height: 8, borderRadius: '50%', background: company ? '#22c55e' : '#d1d5db', flexShrink: 0 }} />
+                                {company || <em style={{ color: '#9ca3af' }}>Not set</em>}
+                              </span>
+                            </td>
+                            <td>{s.created_at ? new Date(s.created_at).toLocaleDateString() : '—'}</td>
+                            <td className="text-right">
+                              {typeof s.driver_count === 'number' ? <strong style={{ color: '#2563eb' }}>{s.driver_count}</strong> : '—'}
+                            </td>
+                            <td>
+                              <button className="btn btn-primary" style={{ fontSize: '0.8em', padding: '4px 10px' }}
+                                type="button" onClick={() => setExpandedUser(isExpanded ? null : s.id)}>
+                                {isExpanded ? 'Close' : 'View'}
+                              </button>
                             </td>
                           </tr>
-                        )}
-                      </React.Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
+                          {isExpanded && (
+                            <tr style={{ background: '#f9fafb' }}>
+                              <td colSpan="6" style={{ padding: '16px 20px' }}>
+                                <DetailGrid fields={[
+                                  { label: 'User ID', value: s.id },
+                                  { label: 'Email', value: s.email },
+                                  { label: 'Organization', value: company || 'Not set' },
+                                  { label: 'First Name', value: s.first_name },
+                                  { label: 'Last Name', value: s.last_name },
+                                  { label: 'Phone', value: s.phone },
+                                  { label: 'City', value: s.city },
+                                  { label: 'State', value: s.state },
+                                  { label: 'Active Drivers', value: typeof s.driver_count === 'number' ? s.driver_count : '—' },
+                                  { label: 'Joined', value: s.created_at ? new Date(s.created_at).toLocaleString() : '—' },
+                                ]} />
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Drivers Tab */}
-        {activeTab === 'drivers' && (
-          <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Sponsor Org</th>
-                    <th className="text-right">Points</th>
-                    <th>Joined</th>
-                    <th style={{ width: 90 }}>Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading && drivers.length === 0 ? (
-                    <tr><td colSpan="7" className="table-empty">Loading…</td></tr>
-                  ) : filteredDrivers.length === 0 ? (
-                    <tr><td colSpan="7" className="table-empty">No drivers found</td></tr>
-                  ) : filteredDrivers.map(d => {
-                    const name = [d.first_name, d.last_name].filter(Boolean).join(' ') || '—'
-                    const sponsorOrg = d.sponsor_org || null
-                    const points = Number(d.points_balance ?? d.points ?? 0)
-                    const isExpanded = expandedUser === d.id
-                    return (
-                      <React.Fragment key={String(d.id)}>
-                        <tr>
-                          <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{d.id}</td>
-                          <td>{name}</td>
-                          <td>{d.email}</td>
-                          <td>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: sponsorOrg ? '#22c55e' : '#d1d5db', flexShrink: 0 }} />
-                              {sponsorOrg || <em style={{ color: '#9ca3af' }}>Unaffiliated</em>}
-                            </span>
-                          </td>
-                          <td className="text-right" style={{ fontWeight: 600 }}>{points.toLocaleString()}</td>
-                          <td>{d.created_at ? new Date(d.created_at).toLocaleDateString() : '—'}</td>
-                          <td>
-                            <button className="btn btn-primary" style={{ fontSize: '0.8em', padding: '4px 10px' }}
-                              type="button" onClick={() => setExpandedUser(isExpanded ? null : d.id)}>
-                              {isExpanded ? 'Close' : 'View'}
-                            </button>
-                          </td>
-                        </tr>
-                        {isExpanded && (
-                          <tr style={{ background: '#f9fafb' }}>
-                            <td colSpan="7" style={{ padding: '16px 20px' }}>
-                              <DetailGrid fields={[
-                                { label: 'User ID', value: d.id },
-                                { label: 'Email', value: d.email },
-                                { label: 'Full Name', value: name },
-                                { label: 'DOB', value: d.dob },
-                                { label: 'Phone', value: d.phone },
-                                { label: 'Address', value: d.address_line1 },
-                                { label: 'City', value: d.city },
-                                { label: 'State', value: d.state },
-                                { label: 'Sponsor Org', value: sponsorOrg || 'Unaffiliated' },
-                                { label: 'Points Balance', value: points.toLocaleString() },
-                                { label: 'Miles', value: Number(d.miles ?? 0).toLocaleString() },
-                                { label: 'Streak', value: d.streak },
-                                { label: 'Rank', value: d.rank ? `#${d.rank}` : '—' },
-                                { label: 'Joined', value: d.created_at ? new Date(d.created_at).toLocaleString() : '—' },
-                              ]} />
+          {/* Drivers Tab */}
+          {activeTab === 'drivers' && (
+            <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Sponsor Org</th>
+                      <th className="text-right">Points</th>
+                      <th>Joined</th>
+                      <th style={{ width: 90 }}>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading && drivers.length === 0 ? (
+                      <tr><td colSpan="7" className="table-empty">Loading…</td></tr>
+                    ) : filteredDrivers.length === 0 ? (
+                      <tr><td colSpan="7" className="table-empty">No drivers found</td></tr>
+                    ) : filteredDrivers.map(d => {
+                      const name = [d.first_name, d.last_name].filter(Boolean).join(' ') || '—'
+                      const sponsorOrg = d.sponsor_org || null
+                      const points = Number(d.points_balance ?? d.points ?? 0)
+                      const isExpanded = expandedUser === d.id
+                      return (
+                        <React.Fragment key={String(d.id)}>
+                          <tr>
+                            <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{d.id}</td>
+                            <td>{name}</td>
+                            <td>{d.email}</td>
+                            <td>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ width: 8, height: 8, borderRadius: '50%', background: sponsorOrg ? '#22c55e' : '#d1d5db', flexShrink: 0 }} />
+                                {sponsorOrg || <em style={{ color: '#9ca3af' }}>Unaffiliated</em>}
+                              </span>
+                            </td>
+                            <td className="text-right" style={{ fontWeight: 600 }}>{points.toLocaleString()}</td>
+                            <td>{d.created_at ? new Date(d.created_at).toLocaleDateString() : '—'}</td>
+                            <td>
+                              <button className="btn btn-primary" style={{ fontSize: '0.8em', padding: '4px 10px' }}
+                                type="button" onClick={() => setExpandedUser(isExpanded ? null : d.id)}>
+                                {isExpanded ? 'Close' : 'View'}
+                              </button>
                             </td>
                           </tr>
-                        )}
-                      </React.Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
+                          {isExpanded && (
+                            <tr style={{ background: '#f9fafb' }}>
+                              <td colSpan="7" style={{ padding: '16px 20px' }}>
+                                <DetailGrid fields={[
+                                  { label: 'User ID', value: d.id },
+                                  { label: 'Email', value: d.email },
+                                  { label: 'Full Name', value: name },
+                                  { label: 'DOB', value: d.dob },
+                                  { label: 'Phone', value: d.phone },
+                                  { label: 'Address', value: d.address_line1 },
+                                  { label: 'City', value: d.city },
+                                  { label: 'State', value: d.state },
+                                  { label: 'Sponsor Org', value: sponsorOrg || 'Unaffiliated' },
+                                  { label: 'Points Balance', value: points.toLocaleString() },
+                                  { label: 'Miles', value: Number(d.miles ?? 0).toLocaleString() },
+                                  { label: 'Streak', value: d.streak },
+                                  { label: 'Rank', value: d.rank ? `#${d.rank}` : '—' },
+                                  { label: 'Joined', value: d.created_at ? new Date(d.created_at).toLocaleString() : '—' },
+                                ]} />
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
-      </main>
-    </div>
-  )
-}
+          )}
+        </main>
+      </div>
+    )
+  }
 
   // ============ LOG TRIP PAGE ============
   const LogTripPage = () => {
@@ -1647,7 +1799,7 @@ const AdminUsersPage = () => {
       useEffect(() => {
         api('/applications', { method: 'GET' })
           .then(data => setAffiliations((data?.applications || []).filter(a => a.status === 'accepted')))
-          .catch(() => {})
+          .catch(() => { })
           .finally(() => setLoading(false))
       }, [])
 
@@ -1718,9 +1870,9 @@ const AdminUsersPage = () => {
               <p className="profile-value profile-value-lg">{currentUser?.points ?? 0}</p>
             </div>
             {/* Multi-sponsor affiliations — drivers only */}
-              {((currentUser?.role || '').toLowerCase() === 'driver') && (
-                <SponsorAffiliationsDisplay />
-              )}
+            {((currentUser?.role || '').toLowerCase() === 'driver') && (
+              <SponsorAffiliationsDisplay />
+            )}
             <div className="profile-actions">
               <button type="button" className="btn btn-primary" onClick={() => setCurrentPage('account-details')}>Edit profile</button>
               <button type="button" className="btn btn-primary" onClick={() => setCurrentPage('change-password')}>Change password</button>
@@ -2032,29 +2184,29 @@ const AdminUsersPage = () => {
                   required
                 />
               </div>
-                                {/* Organization Name — sponsors only */}
-                  {((currentUser?.role || '').toLowerCase() === 'sponsor') && (
-                    <div className="form-group">
-                      <label className="form-label">
-                        Organization Name
-                        <span style={{ marginLeft: 6, fontSize: '0.78em', color: '#6b7280', fontWeight: 400 }}>
-                          (shown to drivers as your sponsor org)
-                        </span>
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.company_name}
-                        onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
-                        className="form-input"
-                        placeholder="e.g. Acme Trucking Co."
-                      />
-                      {formData.company_name && (
-                        <p style={{ margin: '4px 0 0', fontSize: '0.78em', color: '#22c55e' }}>
-                          ✓ Drivers will see this as your sponsoring organization
-                        </p>
-                      )}
-                    </div>
+              {/* Organization Name — sponsors only */}
+              {((currentUser?.role || '').toLowerCase() === 'sponsor') && (
+                <div className="form-group">
+                  <label className="form-label">
+                    Organization Name
+                    <span style={{ marginLeft: 6, fontSize: '0.78em', color: '#6b7280', fontWeight: 400 }}>
+                      (shown to drivers as your sponsor org)
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.company_name}
+                    onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
+                    className="form-input"
+                    placeholder="e.g. Acme Trucking Co."
+                  />
+                  {formData.company_name && (
+                    <p style={{ margin: '4px 0 0', fontSize: '0.78em', color: '#22c55e' }}>
+                      ✓ Drivers will see this as your sponsoring organization
+                    </p>
                   )}
+                </div>
+              )}
               <div className="form-group">
                 <label className="form-label">Date of Birth</label>
                 <input
@@ -2865,6 +3017,8 @@ const AdminUsersPage = () => {
     const [searchResults, setSearchResults] = useState([])
     const [shopItems, setShopItems] = useState([])
     const [searching, setSearching] = useState(false)
+    // '' = loading, 'popular' = showing defaults, otherwise = the search term used
+    const [resultsLabel, setResultsLabel] = useState('')
 
     // We need a state to temporarily store the cost the user types in for each item
     // Key: itemId, Value: point cost string
@@ -2879,7 +3033,21 @@ const AdminUsersPage = () => {
       }
     }
 
-    useEffect(() => { fetchShopItems() }, [])
+    const fetchPopularItems = async () => {
+      try {
+        const res = await api('/ebay/popular', { method: 'GET' })
+        setSearchResults(res.items || [])
+      } catch (err) {
+        console.warn('Could not load popular eBay items:', err.message)
+      } finally {
+        setResultsLabel('popular')
+      }
+    }
+
+    useEffect(() => {
+      fetchShopItems()
+      fetchPopularItems()
+    }, [])
 
     const handleSearch = async (e) => {
       e.preventDefault()
@@ -2888,6 +3056,7 @@ const AdminUsersPage = () => {
       try {
         const res = await api(`/ebay/search?q=${encodeURIComponent(searchQuery)}`, { method: 'GET' })
         setSearchResults(res.items || [])
+        setResultsLabel(searchQuery)
       } catch (err) {
         console.error('eBay search failed', err)
         alert('eBay search failed. Check the console for details.')
@@ -2962,9 +3131,23 @@ const AdminUsersPage = () => {
                 </button>
               </form>
 
+              {/* Label swaps between Popular / search results */}
+              {resultsLabel === 'popular' && (
+                <p className="page-subtitle" style={{ marginTop: 0, marginBottom: 8 }}>
+                  Popular on eBay — or search above for something specific.
+                </p>
+              )}
+              {resultsLabel !== '' && resultsLabel !== 'popular' && (
+                <p className="page-subtitle" style={{ marginTop: 0, marginBottom: 8 }}>
+                  Results for <strong>"{resultsLabel}"</strong>
+                </p>
+              )}
+
               <div className="landing-grid catalog-grid">
-                {searchResults.length === 0 ? (
-                  <p className="activity-empty">No search results yet.</p>
+                {resultsLabel === '' ? (
+                  <p className="activity-empty">Loading popular items…</p>
+                ) : searchResults.length === 0 ? (
+                  <p className="activity-empty">No results found. Try a different search term.</p>
                 ) : (
                   searchResults.map(item => (
                     <div key={item.itemId} className="card catalog-item-card">
@@ -3450,6 +3633,93 @@ const AdminUsersPage = () => {
         </main>
 
         {/* Pulse animation for loading badge */}
+                {showSprintModal && (
+          <div className="modal-backdrop">
+            <div className="modal-card" style={{ maxWidth: 520 }}>
+              <h2 className="page-title" style={{ marginBottom: 4 }}>Edit Sprint Info</h2>
+              <p className="page-subtitle" style={{ marginBottom: 16 }}>
+                This will be visible to all users on the About page.
+              </p>
+
+              <form onSubmit={saveSprintInfo}>
+                <div className="form-group">
+                  <label className="form-label">Sprint Number</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={sprintDraft.sprint_number}
+                    onChange={e => setSprintDraft({ ...sprintDraft, sprint_number: e.target.value })}
+                    placeholder="e.g. 3"
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Title</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={sprintDraft.title}
+                    onChange={e => setSprintDraft({ ...sprintDraft, title: e.target.value })}
+                    placeholder="e.g. Messaging & Catalog"
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Description</label>
+                  <textarea
+                    className="form-input"
+                    rows={3}
+                    value={sprintDraft.description}
+                    onChange={e => setSprintDraft({ ...sprintDraft, description: e.target.value })}
+                    placeholder="Brief description of what was built this sprint…"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Sprint Goals</label>
+                  <textarea
+                    className="form-input"
+                    rows={4}
+                    value={sprintDraft.goals}
+                    onChange={e => setSprintDraft({ ...sprintDraft, goals: e.target.value })}
+                    placeholder="List your sprint goals, one per line…"
+                  />
+                </div>
+
+                {sprintSaveError && (
+                  <p className="form-footer" style={{ color: 'crimson' }}>{sprintSaveError}</p>
+                )}
+                {sprintSaveMsg && (
+                  <p className="form-footer" style={{ color: 'green' }}>{sprintSaveMsg}</p>
+                )}
+
+                <div className="modal-actions" style={{ marginTop: 16 }}>
+                  <button
+                    type="submit"
+                    className="btn btn-success"
+                    disabled={sprintSaving}
+                  >
+                    {sprintSaving ? 'Saving…' : 'Save Sprint Info'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setShowSprintModal(false)
+                      setSprintSaveMsg('')
+                      setSprintSaveError('')
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
@@ -3799,36 +4069,36 @@ const AdminUsersPage = () => {
 
   // ============ MAIN RENDER ============
   return (
-  <div>
-    {/* Public Pages */}
-    {!isLoggedIn && currentPage === 'landing' && <LandingPage />}
-    {!isLoggedIn && currentPage === 'login' && <LoginPage />}
-    {!isLoggedIn && currentPage === 'account-type' && <AccountTypePage />}
-    {!isLoggedIn && currentPage === 'create-account' && <CreateAccountPage />}
-    {!isLoggedIn && currentPage === 'reset-password' && <ResetPasswordPage prefill={resetPrefill} />}
+    <div>
+      {/* Public Pages */}
+      {!isLoggedIn && currentPage === 'landing' && <LandingPage />}
+      {!isLoggedIn && currentPage === 'login' && <LoginPage />}
+      {!isLoggedIn && currentPage === 'account-type' && <AccountTypePage />}
+      {!isLoggedIn && currentPage === 'create-account' && <CreateAccountPage />}
+      {!isLoggedIn && currentPage === 'reset-password' && <ResetPasswordPage prefill={resetPrefill} />}
 
-    {/* Logged-in Pages */}
-    {isLoggedIn && currentPage === 'dashboard' && <DashboardPage />}
-    {isLoggedIn && currentPage === 'profile' && <ProfilePage />}
-    {isLoggedIn && currentPage === 'account-details' && <AccountDetailsPage />}
-    {isLoggedIn && currentPage === 'change-password' && <ChangePasswordPage />}
-    {isLoggedIn && currentPage === 'about' && <AboutPage />}
+      {/* Logged-in Pages */}
+      {isLoggedIn && currentPage === 'dashboard' && <DashboardPage />}
+      {isLoggedIn && currentPage === 'profile' && <ProfilePage />}
+      {isLoggedIn && currentPage === 'account-details' && <AccountDetailsPage />}
+      {isLoggedIn && currentPage === 'change-password' && <ChangePasswordPage />}
+      {isLoggedIn && currentPage === 'about' && <AboutPage />}
 
-    {/* Driver Pages */}
-    {isLoggedIn && currentPage === 'log-trip' && <LogTripPage />}
-    {isLoggedIn && currentPage === 'rewards' && <RewardsPage />}
-    {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
-    {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}
-    {isLoggedIn && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
+      {/* Driver Pages */}
+      {isLoggedIn && currentPage === 'log-trip' && <LogTripPage />}
+      {isLoggedIn && currentPage === 'rewards' && <RewardsPage />}
+      {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
+      {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}
+      {isLoggedIn && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
 
-    {/* Sponsor/Admin shared Pages */}
-    {isLoggedIn && currentPage === 'applications' && <ApplicationsPage />}
-    {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
-    {isLoggedIn && currentPage === 'catalog' && <SponsorCatalogPage />}
-    {isLoggedIn && currentPage === 'messages' && <MessagesPage />}
+      {/* Sponsor/Admin shared Pages */}
+      {isLoggedIn && currentPage === 'applications' && <ApplicationsPage />}
+      {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
+      {isLoggedIn && currentPage === 'catalog' && <SponsorCatalogPage />}
+      {isLoggedIn && currentPage === 'messages' && <MessagesPage />}
 
-    {/* Admin ONLY Pages */}
-    {isLoggedIn && currentPage === 'admin-users' && <AdminUsersPage />}
+      {/* Admin ONLY Pages */}
+      {isLoggedIn && currentPage === 'admin-users' && <AdminUsersPage />}
 
       {showLogoutConfirm && (
         <div className="modal-backdrop">

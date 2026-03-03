@@ -2,7 +2,7 @@ const { makeApp } = require("@gdip/server");
 const { query, exec } = require("@gdip/db");
 const { hashPassword, verifyPassword, signToken, verifyToken } = require("@gdip/auth");
 const { z } = require("zod");
-const ebayService = require("./ebay");
+
 
 const app = makeApp();
 
@@ -190,8 +190,8 @@ app.post("/auth/login", async (req, res) => {
       httpOnly: true,
       secure: COOKIE_SECURE,
       sameSite: "lax",
-      path: "/",
       maxAge: 2 * 60 * 60 * 1000,
+      path: "/api/sponsor",
     });
 
     return res.json({ ok: true, user: { id: user.id, email: user.email, role: user.role } });
@@ -626,6 +626,13 @@ app.put("/applications/:applicationId", requireAuth, async (req, res) => {
       [dbStatus, parsed.data.notes || null, req.user.id, req.params.applicationId, req.user.id]
     );
 
+    await exec(
+      `UPDATE driver_profiles 
+      SET sponsor_org = (SELECT company_name FROM sponsor_profiles WHERE user_id = ?)
+      WHERE user_id = ?`,
+      [sponsorId, driverId]
+    )
+
     // If accepted, set the driver's sponsor_org to this sponsor's company_name
     if (dbStatus === 'accepted' && Number.isFinite(driverId)) {
       const sponsorCompany = await getSponsorCompanyName(req.user.id);
@@ -694,7 +701,8 @@ app.get("/drivers", requireAuth, async (req, res) => {
     const sponsorCompany = await getSponsorCompanyName(req.user.id);
     if (!sponsorCompany) {
       return res.status(400).json({
-        error: "Sponsor company_name is not set. Update your profile first.",
+        error:
+          "Your sponsor organization name is not set. Please set an organization name in your account details.",
       });
     }
 
@@ -1198,6 +1206,17 @@ const sponsorCatalogRoutes = require('../../../routes/sponsor/catalog');
 
 app.use('/ebay', requireAuth, sponsorEbayRoutes);
 app.use('/catalog', requireAuth, sponsorCatalogRoutes);
+
+app.get('/sprint-info', async (_req, res) => {
+  try {
+    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1', [])
+    if (!rows || rows.length === 0) return res.json(null)
+    return res.json(rows[0])
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
 
 app.listen(PORT, () => {
   console.log(`[sponsor] listening on :${PORT}`);

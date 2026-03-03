@@ -20,7 +20,11 @@ async function getEbayToken() {
     try {
         const response = await axios.post(
             'https://api.sandbox.ebay.com/identity/v1/oauth2/token',
-            'grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope',
+            // Browse API item_summary/search requires the buy.item.summary scope
+            new URLSearchParams({
+                grant_type: 'client_credentials',
+                scope: 'https://api.ebay.com/oauth/api_scope/buy.item.summary'
+            }).toString(),
             {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -40,4 +44,9 @@ async function getEbayToken() {
     }
 }
 
-module.exports = { getEbayToken };
+function clearEbayTokenCache() {
+    cachedToken = null;
+    tokenExpiresAt = null;
+}
+
+module.exports = { getEbayToken, clearEbayTokenCache };

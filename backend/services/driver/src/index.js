@@ -137,6 +137,7 @@ app.post("/auth/login", async (req, res) => {
       secure: COOKIE_SECURE,
       sameSite: "lax",
       maxAge: 2 * 60 * 60 * 1000,
+      path: "/api/driver",
     });
 
     return res.json({ ok: true, user: { id: user.id, email: user.email, role: user.role } });
@@ -197,11 +198,13 @@ app.post("/auth/forgot-password", async (req, res) => {
       [userId, tokenHash]
     );
 
-    // Dev-mode: return link instead of email
+    // Dev-mode: return link instead of email.
+    // Use the SPA's path-based routing so the reset page opens at
+    // /reset-password with email/token as query parameters.
     const publicBase =
       process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.FRONTEND_PORT || 5173}`;
 
-    const resetUrl = `${publicBase}/?page=reset-password&email=${encodeURIComponent(
+    const resetUrl = `${publicBase.replace(/\/+$/, '')}/reset-password?email=${encodeURIComponent(
       email
     )}&token=${encodeURIComponent(token)}`;
 
@@ -770,6 +773,17 @@ app.put('/messages/:messageId/read', requireAuth, async (req, res) => {
 
 const driverCatalogRoutes = require('../../../routes/driver/catalog');
 app.use('/catalog', requireAuth, driverCatalogRoutes);
+
+app.get('/sprint-info', async (_req, res) => {
+  try {
+    const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1', [])
+    if (!rows || rows.length === 0) return res.json(null)
+    return res.json(rows[0])
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
 
 app.listen(PORT, () => {
   console.log(`[driver] listening on :${PORT}`);
