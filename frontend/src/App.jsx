@@ -1096,6 +1096,9 @@ function App() {
     const [ledgerBalance, setLedgerBalance] = useState(null)
     const [ledgerLoading, setLedgerLoading] = useState(false)
 
+    // profile/details state
+    const [selectedProfileDriver, setSelectedProfileDriver] = useState(null)
+
     const loadDrivers = async () => {
       setError('')
       setSuccess('')
@@ -1262,7 +1265,22 @@ function App() {
 
                     return (
                       <tr key={String(id)}>
-                        <td>{name}</td>
+                        <td>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedProfileDriver(d)}
+                            style={{
+                              padding: 0,
+                              border: 'none',
+                              background: 'none',
+                              color: '#2563eb',
+                              cursor: 'pointer',
+                              textAlign: 'left'
+                            }}
+                          >
+                            {name}
+                          </button>
+                        </td>
                         <td>{email}</td>
                         <td className="text-right">{points}</td>
                         <td>
@@ -1355,6 +1373,110 @@ function App() {
               )}
             </div>
           ) : null}
+
+          {selectedProfileDriver && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'start',
+                gap: 12,
+                flexWrap: 'wrap'
+              }}>
+                <div>
+                  <h2 className="section-title" style={{ marginTop: 0 }}>Driver details</h2>
+                  <p className="page-subtitle" style={{ marginTop: 4 }}>
+                    {(() => {
+                      const id = selectedProfileDriver.id ?? selectedProfileDriver.user_id
+                      const name =
+                        selectedProfileDriver.name ||
+                        selectedProfileDriver.driver_name ||
+                        [selectedProfileDriver.first_name, selectedProfileDriver.last_name].filter(Boolean).join(' ') ||
+                        `Driver ${id}`
+                      const email = selectedProfileDriver.email || selectedProfileDriver.driver_email || '-'
+                      return `${name} · ${email}`
+                    })()}
+                  </p>
+                </div>
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  onClick={() => setSelectedProfileDriver(null)}
+                >
+                  Close
+                </button>
+              </div>
+
+              {(() => {
+                const d = selectedProfileDriver
+                const id = d.id ?? d.user_id
+                const name =
+                  d.name ||
+                  d.driver_name ||
+                  [d.first_name, d.last_name].filter(Boolean).join(' ') ||
+                  `Driver ${id}`
+                const email = d.email || d.driver_email || '-'
+                const points = Number(d.pointsBalance ?? d.points_balance ?? d.points ?? d.total_points ?? ledgerBalance ?? 0)
+
+                const fields = [
+                  { label: 'User ID', value: id },
+                  { label: 'Email', value: email },
+                  { label: 'Full Name', value: name },
+                  { label: 'DOB', value: d.dob },
+                  { label: 'Phone', value: d.phone },
+                  { label: 'Address', value: d.address_line1 },
+                  { label: 'City', value: d.city },
+                  { label: 'State', value: d.state },
+                  { label: 'Postal Code', value: d.postal_code },
+                  { label: 'Country', value: d.country },
+                  { label: 'Sponsor Org', value: d.sponsor_org },
+                  { label: 'Points Balance', value: points.toLocaleString() },
+                ]
+
+                return (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                      gap: 10
+                    }}>
+                      {fields.map(({ label, value }) => (
+                        <div
+                          key={label}
+                          style={{
+                            padding: '10px 14px',
+                            borderRadius: 6,
+                            background: '#fff',
+                            border: '1px solid var(--border)'
+                          }}
+                        >
+                          <p style={{
+                            margin: '0 0 2px',
+                            fontSize: '0.72em',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.07em',
+                            color: '#9ca3af'
+                          }}>
+                            {label}
+                          </p>
+                          <p style={{
+                            margin: 0,
+                            fontSize: '0.875em',
+                            fontWeight: 500,
+                            color: '#374151',
+                            wordBreak: 'break-all'
+                          }}>
+                            {String(value ?? '—')}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          )}
 
           <p className="form-footer" style={{ marginTop: 12 }}>
             Tip: use positive numbers to add points and negative numbers to deduct points. A reason is required.
