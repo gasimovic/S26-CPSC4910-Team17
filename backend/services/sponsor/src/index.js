@@ -939,6 +939,50 @@ app.post("/drivers/:driverId/points/deduct", requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * DELETE /drivers/:driverId
+ * Remove a driver from this sponsor's program.
+ * This clears the sponsor_org on the driver profile (for this sponsor)
+ * and marks any accepted applications with this sponsor as removed.
+ */
+app.delete("/drivers/:driverId", requireAuth, async (req, res) => {
+  const driverId = toInt(req.params.driverId);
+  if (!Number.isFinite(driverId)) {
+    return res.status(400).json({ error: "Invalid driverId" });
+  }
+
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) {
+      return res.status(400).json({
+        error: "Sponsor company_name is not set. Update your profile first.",
+      });
+    }
+
+    const driver = await driverBelongsToSponsorOr404(res, req.user.id, sponsorCompany, driverId);
+    if (!driver) return;
+
+    // Detach this driver from the sponsor's organization string
+    await exec(
+      "UPDATE driver_profiles SET sponsor_org = NULL WHERE user_id = ? AND sponsor_org = ?",
+      [driverId, sponsorCompany]
+    );
+
+    // Mark any accepted applications between this driver and sponsor as removed
+    await exec(
+      `UPDATE applications
+       SET status = 'removed', reviewed_at = NOW(), reviewed_by = ?
+       WHERE driver_id = ? AND sponsor_id = ? AND status = 'accepted'`,
+      [req.user.id, driverId, req.user.id]
+    );
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ============================================================
 // MESSAGING ENDPOINTS
 // ============================================================

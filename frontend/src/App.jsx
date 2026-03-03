@@ -1099,6 +1099,41 @@ function App() {
     // profile/details state
     const [selectedProfileDriver, setSelectedProfileDriver] = useState(null)
 
+    const removeDriver = async (driver) => {
+      setError('')
+      setSuccess('')
+
+      const driverId = driver?.id ?? driver?.user_id
+      if (!driverId) {
+        setError('Missing driver id')
+        return
+      }
+
+      // Basic confirm to avoid accidental removals
+      // eslint-disable-next-line no-alert
+      const confirmed = window.confirm('Remove this driver from your program? This keeps historical points but detaches them from your organization.')
+      if (!confirmed) return
+
+      try {
+        await api(`/drivers/${driverId}`, { method: 'DELETE' })
+        setSuccess(`Removed driver ${driverId} from your program.`)
+        await loadDrivers()
+
+        if ((selectedDriver?.id ?? selectedDriver?.user_id) === driverId) {
+          setSelectedDriver(null)
+          setLedger([])
+          setLedgerBalance(null)
+        }
+
+        if ((selectedProfileDriver?.id ?? selectedProfileDriver?.user_id) === driverId) {
+          setSelectedProfileDriver(null)
+        }
+      } catch (e) {
+        setError(e?.message || 'Failed to remove driver')
+        if (e?.responseBody) console.error('Remove driver error response:', e.responseBody)
+      }
+    }
+
     const loadDrivers = async () => {
       setError('')
       setSuccess('')
@@ -1245,13 +1280,14 @@ function App() {
                   <th style={{ width: 260 }}>Reason (required)</th>
                   <th style={{ width: 140 }}>Action</th>
                   <th style={{ width: 110 }}>Ledger</th>
+                  <th style={{ width: 120 }}>Remove</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && drivers.length === 0 ? (
-                  <tr><td colSpan="7" className="table-empty">Loading…</td></tr>
+                  <tr><td colSpan="8" className="table-empty">Loading…</td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan="7" className="table-empty">No drivers found</td></tr>
+                  <tr><td colSpan="8" className="table-empty">No drivers found</td></tr>
                 ) : (
                   filtered.map((d) => {
                     const id = d.id ?? d.user_id
@@ -1317,6 +1353,15 @@ function App() {
                             onClick={() => openLedger(d)}
                           >
                             View
+                          </button>
+                        </td>
+                        <td>
+                          <button
+                            className="btn btn-secondary"
+                            type="button"
+                            onClick={() => removeDriver({ ...d, id })}
+                          >
+                            Remove
                           </button>
                         </td>
                       </tr>
