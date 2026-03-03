@@ -378,7 +378,6 @@ function App() {
             DRIVER_API_BASE
 
       setApiBasePersisted(baseForRole)
-      setIsLoggedIn(true)
       setStatusMsg('Signed in. Loading your profile…')
 
       const u = await (async () => {
@@ -422,12 +421,11 @@ function App() {
         return normalized
       })()
 
-      if (profileLooksEmpty(u)) {
-        setCurrentPage('account-details')
-        setStatusMsg('Welcome! Please complete your account details.')
-      } else {
-        setCurrentPage('dashboard')
-      }
+      const targetPage = profileLooksEmpty(u) ? 'account-details' : 'dashboard'
+      const targetMsg = profileLooksEmpty(u) ? 'Welcome! Please complete your account details.' : ''
+      setIsLoggedIn(true)
+      setCurrentPage(targetPage)
+      setStatusMsg(targetMsg)
     } catch (err) {
       setIsLoggedIn(false)
       setCurrentUser(null)
@@ -477,13 +475,13 @@ function App() {
         body: JSON.stringify({ email, password })
       })
       setApiBasePersisted(roleBase)
-      setIsLoggedIn(true)
       setStatusMsg('Account created. Loading your profile…')
 
       // Load the user profile from backend
       await loadMe()
 
-      // Always send new users to complete their profile with phone/address
+      // Batch isLoggedIn + currentPage in one render to avoid white screen
+      setIsLoggedIn(true)
       setCurrentPage('account-details')
       setStatusMsg('Account created. Please complete your account details.')
     } catch (err) {
