@@ -14,8 +14,16 @@ async function getEbayToken() {
         return cachedToken;
     }
 
-    const clientId = process.env.EBAY_CLIENT_ID;
-    const clientSecret = process.env.EBAY_CLIENT_SECRET;
+    // Use production keys if available (gives real data), otherwise fall back to sandbox
+    const useProd = !!(process.env.EBAY_PROD_CLIENT_ID && process.env.EBAY_PROD_CLIENT_SECRET);
+    const clientId = useProd ? process.env.EBAY_PROD_CLIENT_ID : process.env.EBAY_CLIENT_ID;
+    const clientSecret = useProd ? process.env.EBAY_PROD_CLIENT_SECRET : process.env.EBAY_CLIENT_SECRET;
+    const tokenUrl = useProd
+        ? 'https://api.ebay.com/identity/v1/oauth2/token'
+        : 'https://api.sandbox.ebay.com/identity/v1/oauth2/token';
+
+    // Store which environment we're using so ebaySearch can pick the right host
+    process.env._EBAY_USE_PROD = useProd ? 'true' : 'false';
 
     // 2. Guard: fail fast if credentials are missing
     if (!clientId || !clientSecret) {
@@ -23,14 +31,14 @@ async function getEbayToken() {
         throw new Error('eBay API credentials are not configured on this server.');
     }
 
-    console.log(`[eBay] Requesting new token for client: ${clientId.substring(0, 10)}...`);
+    console.log(`[eBay] Requesting new token (${useProd ? 'PRODUCTION' : 'SANDBOX'}) for client: ${clientId.substring(0, 10)}...`);
 
     // 3. Request a new token from eBay Sandbox
     const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
     try {
         const response = await axios.post(
-            'https://api.sandbox.ebay.com/identity/v1/oauth2/token',
+            tokenUrl,
             // Browse API item_summary/search uses client_credentials + api_scope
             new URLSearchParams({
                 grant_type: 'client_credentials',
