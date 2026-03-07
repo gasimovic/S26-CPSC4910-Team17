@@ -4,15 +4,17 @@ const router = express.Router();
 const { getEbayToken } = require('../../utils/ebayTokenManager');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NOTE ON eBay SANDBOX:
-// The eBay Sandbox environment has almost NO real listings.
-// Searches via item_summary/search almost always return 0 items.
-// This is a known, documented eBay limitation — the sandbox is meant to test
-// your auth flow and code structure, NOT to browse real products.
+// eBay Browse API — environment-aware (Production or Sandbox)
 //
-// SOLUTION: We attempt the real eBay Sandbox call first. If it returns 0 items
-// (which it almost always will), we fall back to realistic mock data so that
-// the catalog feature remains testable.
+// PRODUCTION:  Uses real eBay credentials (EBAY_PROD_CLIENT_ID / EBAY_PROD_CLIENT_SECRET).
+//              Returns real listings with real prices and images.
+//              Rate limit: ~1,000 req/day for client_credentials tokens (application-level).
+//              The account-deletion webhook MUST be configured in the eBay developer portal
+//              or eBay may suspend your production keyset.
+//
+// SANDBOX:     Uses sandbox credentials (EBAY_CLIENT_ID / EBAY_CLIENT_SECRET).
+//              Almost NO real listings — meant only to test auth flow and code structure.
+//              If sandbox returns 0 results, code falls back to mock data.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Realistic mock items for sandbox fallback
@@ -104,19 +106,20 @@ const MOCK_ITEMS = [
 ];
 
 // Filter mock items by keyword (simple case-insensitive substring match)
+// Returns empty array when nothing matches so the UI can show a "no results" message.
 function filterMockItems(keyword, limit = 12) {
     const kw = keyword.toLowerCase();
     const matched = MOCK_ITEMS.filter(item =>
         item.title.toLowerCase().includes(kw)
     );
-    // If nothing matched, return all items (sandbox has no real data anyway)
-    return (matched.length > 0 ? matched : MOCK_ITEMS).slice(0, limit);
+    return matched.slice(0, limit);
 }
 
 // Shared helper: call eBay Browse API (auto-selects production vs sandbox)
+// Returns { items: [...], useProd: boolean }
 async function ebaySearch(keyword, limit = 12) {
-    const token = await getEbayToken();
-    const host = process.env._EBAY_USE_PROD === 'true'
+    const { token, useProd } = await getEbayToken();
+    const host = useProd
         ? 'https://api.ebay.com'
         : 'https://api.sandbox.ebay.com';
     const url = `${host}/buy/browse/v1/item_summary/search?q=${encodeURIComponent(keyword)}&limit=${limit}`;
@@ -129,13 +132,15 @@ async function ebaySearch(keyword, limit = 12) {
         timeout: 8000
     });
 
-    return (response.data.itemSummaries || []).map(item => ({
+    const items = (response.data.itemSummaries || []).map(item => ({
         itemId: item.itemId,
         title: item.title,
         price: { value: item.price?.value || '0.00' },
         image: item.image?.imageUrl || null,
         itemWebUrl: item.itemWebUrl
     }));
+
+    return { items, useProd };
 }
 
 // GET /api/sponsor/ebay/search?q=headphones
@@ -150,22 +155,29 @@ router.get('/search', async (req, res) => {
     try {
         let results = [];
         let usedMock = false;
+        let ebayEnv = 'API';
 
         try {
-            results = await ebaySearch(keyword, 12);
-            console.log(`[eBay] Sandbox returned ${results.length} live items for "${keyword}"`);
+            const { items, useProd } = await ebaySearch(keyword, 12);
+            results = items;
+            ebayEnv = useProd ? 'PRODUCTION' : 'SANDBOX';
+            console.log(`[eBay] ${ebayEnv} returned ${results.length} items for "${keyword}"`);
         } catch (ebayErr) {
             const status = ebayErr.response?.status;
             const body = ebayErr.response?.data;
-            console.warn(`[eBay] Sandbox call failed (HTTP ${status || 'N/A'}):`, JSON.stringify(body || ebayErr.message));
+            console.warn(`[eBay] API call failed (HTTP ${status || 'N/A'}):`, JSON.stringify(body || ebayErr.message));
             console.warn(`[eBay] Falling back to mock data for "${keyword}"`);
         }
 
-        // If sandbox returned nothing (extremely common), use mock data
+        // If API returned nothing, use mock data
         if (results.length === 0) {
             results = filterMockItems(keyword, 12);
             usedMock = true;
-            console.log(`[eBay] Using ${results.length} mock items for "${keyword}" (sandbox has no data — this is expected)`);
+            if (results.length === 0) {
+                console.log(`[eBay] No mock items matched "${keyword}" — returning empty results`);
+            } else {
+                console.log(`[eBay] Using ${results.length} mock items for "${keyword}"`);
+            }
         }
 
         res.json({ items: results, mock: usedMock });
@@ -179,33 +191,51 @@ router.get('/search', async (req, res) => {
 });
 
 // GET /api/sponsor/ebay/popular
-// Returns a curated mix of popular items. Tries the Sandbox first,
-// falls back to mock data (standard for eBay sandbox environments).
+// Returns a curated mix of popular items across trending categories.
+// Falls back to mock data if eBay returns 0 results (always the case in sandbox).
+// Results are cached in-memory for 10 minutes to avoid hitting the API on every page load.
 const POPULAR_TERMS = ['headphones', 'smartwatch', 'gaming', 'gift card', 'bluetooth'];
+let popularCache = null;
+let popularCacheExpiresAt = 0;
 
 router.get('/popular', async (req, res) => {
+    // Serve from cache if still fresh
+    if (popularCache && Date.now() < popularCacheExpiresAt) {
+        console.log('[eBay] popular: serving from cache');
+        return res.json(popularCache);
+    }
+
     console.log('[eBay] fetching popular items');
     try {
-        // Attempt sandbox calls in parallel
+        // Attempt API calls in parallel across popular search terms
         const results = await Promise.allSettled(
             POPULAR_TERMS.map(term => ebaySearch(term, 3))
         );
 
         let items = results
             .filter(r => r.status === 'fulfilled')
-            .flatMap(r => r.value)
+            .flatMap(r => r.value.items)
             .filter((item, idx, arr) => arr.findIndex(x => x.itemId === item.itemId) === idx)
             .slice(0, 12);
 
+        // Detect which environment was used (from any fulfilled result)
+        const firstFulfilled = results.find(r => r.status === 'fulfilled');
+        const ebayEnv = firstFulfilled?.value?.useProd ? 'PRODUCTION' : 'SANDBOX';
+
         let usedMock = false;
         if (items.length === 0) {
-            console.warn('[eBay] Sandbox returned 0 popular items — using mock data (expected sandbox behavior)');
+            console.warn(`[eBay] ${ebayEnv} returned 0 popular items — using mock data`);
             items = MOCK_ITEMS.slice(0, 12);
             usedMock = true;
         }
 
         console.log(`[eBay] popular: ${items.length} items (mock=${usedMock})`);
-        res.json({ items, mock: usedMock });
+
+        // Cache for 10 minutes
+        popularCache = { items, mock: usedMock };
+        popularCacheExpiresAt = Date.now() + 10 * 60 * 1000;
+
+        res.json(popularCache);
 
     } catch (error) {
         console.error('[eBay] popular error:', error.message);

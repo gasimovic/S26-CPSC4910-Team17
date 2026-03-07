@@ -7,11 +7,12 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 let cachedToken = null;
 let tokenExpiresAt = null;
+let cachedUseProd = false;
 
 async function getEbayToken() {
     // 1. Return cached token if still valid
     if (cachedToken && Date.now() < tokenExpiresAt) {
-        return cachedToken;
+        return { token: cachedToken, useProd: cachedUseProd };
     }
 
     // Use production keys if available (gives real data), otherwise fall back to sandbox
@@ -22,9 +23,6 @@ async function getEbayToken() {
         ? 'https://api.ebay.com/identity/v1/oauth2/token'
         : 'https://api.sandbox.ebay.com/identity/v1/oauth2/token';
 
-    // Store which environment we're using so ebaySearch can pick the right host
-    process.env._EBAY_USE_PROD = useProd ? 'true' : 'false';
-
     // 2. Guard: fail fast if credentials are missing
     if (!clientId || !clientSecret) {
         console.error('[eBay] EBAY_CLIENT_ID or EBAY_CLIENT_SECRET is not set in environment variables!');
@@ -33,7 +31,7 @@ async function getEbayToken() {
 
     console.log(`[eBay] Requesting new token (${useProd ? 'PRODUCTION' : 'SANDBOX'}) for client: ${clientId.substring(0, 10)}...`);
 
-    // 3. Request a new token from eBay Sandbox
+    // 3. Request a new token from eBay
     const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
     try {
@@ -54,10 +52,11 @@ async function getEbayToken() {
 
         // 4. Cache token & set expiration (buffer of 60 seconds)
         cachedToken = response.data.access_token;
+        cachedUseProd = useProd;
         tokenExpiresAt = Date.now() + response.data.expires_in * 1000 - 60000;
 
         console.log(`[eBay] Token acquired successfully, expires in ${response.data.expires_in}s`);
-        return cachedToken;
+        return { token: cachedToken, useProd };
     } catch (error) {
         const status = error.response?.status;
         const body = error.response?.data;
@@ -69,6 +68,7 @@ async function getEbayToken() {
 function clearEbayTokenCache() {
     cachedToken = null;
     tokenExpiresAt = null;
+    cachedUseProd = false;
 }
 
 module.exports = { getEbayToken, clearEbayTokenCache };

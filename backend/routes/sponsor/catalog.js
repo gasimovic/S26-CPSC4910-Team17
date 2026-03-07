@@ -29,11 +29,15 @@ router.post('/', async (req, res) => {
         const description = req.body.description || null;
         // Accept imageUrl (frontend sends camelCase) or image_url
         const image_url = req.body.imageUrl || req.body.image_url || null;
-        const price = parseFloat(req.body.price) || 0;
+        const rawPrice = req.body.price;
+        const price = (rawPrice !== undefined && rawPrice !== null && rawPrice !== '') ? parseFloat(rawPrice) : null;
         const point_cost = parseInt(req.body.pointCost || req.body.point_cost, 10);
 
         if (!title) {
             return res.status(400).json({ error: 'title is required' });
+        }
+        if (price === null || !Number.isFinite(price) || price < 0) {
+            return res.status(400).json({ error: 'price must be a non-negative number' });
         }
         if (!Number.isFinite(point_cost) || point_cost <= 0) {
             return res.status(400).json({ error: 'pointCost must be a positive integer' });
@@ -43,7 +47,7 @@ router.post('/', async (req, res) => {
             `INSERT INTO catalog_items 
             (sponsor_id, ebay_item_id, title, description, image_url, price, point_cost) 
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [sponsorId, ebay_item_id, title, description, image_url, price, point_cost]
+            [sponsorId, ebay_item_id, title, description, image_url, price !== null ? price : 0, point_cost]
         );
 
         res.status(201).json({ ok: true, itemId: result.insertId, message: 'Item added to catalog' });
