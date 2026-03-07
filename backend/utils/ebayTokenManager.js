@@ -23,7 +23,7 @@ async function getEbayToken() {
             // Browse API item_summary/search requires the buy.item.summary scope
             new URLSearchParams({
                 grant_type: 'client_credentials',
-                scope: 'https://api.ebay.com/oauth/api_scope'
+                scope: 'https://api.ebay.com/oauth/api_scope/buy.item.summary'
             }).toString(),
             {
                 headers: {
