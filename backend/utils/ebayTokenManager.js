@@ -5,43 +5,43 @@ const dotenv = require('dotenv');
 // Load .env from the backend root (two levels up from utils/)
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
-let cachedToken = null;
-let tokenExpiresAt = null;
-let cachedUseProd = false;
+// ─────────────────────────────────────────────────────────────────────────────
+// eBay Production OAuth token manager.
+// Uses the Client Credentials grant (no user sign-in required).
+// Scope: https://api.ebay.com/oauth/api_scope  (View public data from eBay)
+// Token is cached in memory and auto-refreshed 60 seconds before expiry.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TOKEN_URL = 'https://api.ebay.com/identity/v1/oauth2/token';
+const OAUTH_SCOPE = 'https://api.ebay.com/oauth/api_scope';
+
+let _cachedToken = null;
+let _tokenExpiresAt = 0;
 
 async function getEbayToken() {
-    // 1. Return cached token if still valid
-    if (cachedToken && Date.now() < tokenExpiresAt) {
-        return { token: cachedToken, useProd: cachedUseProd };
+    // Return cached token if still valid
+    if (_cachedToken && Date.now() < _tokenExpiresAt) {
+        return _cachedToken;
     }
 
-    // Use production keys if available (gives real data), otherwise fall back to sandbox
-    const useProd = !!(process.env.EBAY_PROD_CLIENT_ID && process.env.EBAY_PROD_CLIENT_SECRET);
-    const clientId = useProd ? process.env.EBAY_PROD_CLIENT_ID : process.env.EBAY_CLIENT_ID;
-    const clientSecret = useProd ? process.env.EBAY_PROD_CLIENT_SECRET : process.env.EBAY_CLIENT_SECRET;
-    const tokenUrl = useProd
-        ? 'https://api.ebay.com/identity/v1/oauth2/token'
-        : 'https://api.sandbox.ebay.com/identity/v1/oauth2/token';
+    const clientId = process.env.EBAY_PROD_CLIENT_ID;
+    const clientSecret = process.env.EBAY_PROD_CLIENT_SECRET;
 
-    // 2. Guard: fail fast if credentials are missing
     if (!clientId || !clientSecret) {
-        console.error('[eBay] EBAY_CLIENT_ID or EBAY_CLIENT_SECRET is not set in environment variables!');
-        throw new Error('eBay API credentials are not configured on this server.');
+        throw new Error(
+            'eBay production credentials missing. ' +
+            'Set EBAY_PROD_CLIENT_ID and EBAY_PROD_CLIENT_SECRET in .env'
+        );
     }
 
-    console.log(`[eBay] Requesting new token (${useProd ? 'PRODUCTION' : 'SANDBOX'}) for client: ${clientId.substring(0, 10)}...`);
+    console.log(`[eBay] Requesting production token for client: ${clientId.substring(0, 10)}...`);
 
-    // 3. Request a new token from eBay
     const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
     try {
         const response = await axios.post(
-            tokenUrl,
-            // Browse API item_summary/search uses client_credentials + api_scope
-            new URLSearchParams({
-                grant_type: 'client_credentials',
-                scope: 'https://api.ebay.com/oauth/api_scope'
-            }).toString(),
+            TOKEN_URL,
+            new URLSearchParams({ grant_type: 'client_credentials', scope: OAUTH_SCOPE }).toString(),
             {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -50,25 +50,26 @@ async function getEbayToken() {
             }
         );
 
-        // 4. Cache token & set expiration (buffer of 60 seconds)
-        cachedToken = response.data.access_token;
-        cachedUseProd = useProd;
-        tokenExpiresAt = Date.now() + response.data.expires_in * 1000 - 60000;
+        const token = response.data.access_token;
+        const expiresIn = response.data.expires_in; // seconds
 
-        console.log(`[eBay] Token acquired successfully, expires in ${response.data.expires_in}s`);
-        return { token: cachedToken, useProd };
-    } catch (error) {
-        const status = error.response?.status;
-        const body = error.response?.data;
-        console.error(`[eBay] Token fetch failed (HTTP ${status || 'N/A'}):`, JSON.stringify(body || error.message));
-        throw new Error(`Failed to authenticate with eBay API: ${body?.error_description || body?.error || error.message}`);
+        // Cache with a 60-second safety buffer
+        _cachedToken = token;
+        _tokenExpiresAt = Date.now() + expiresIn * 1000 - 60_000;
+
+        console.log(`[eBay] Token acquired, expires in ${expiresIn}s`);
+        return token;
+    } catch (err) {
+        const status = err.response?.status;
+        const body = err.response?.data;
+        console.error(`[eBay] Token request failed (HTTP ${status ?? 'N/A'}):`, JSON.stringify(body ?? err.message));
+        throw new Error(`eBay authentication failed: ${body?.error_description ?? body?.error ?? err.message}`);
     }
 }
 
 function clearEbayTokenCache() {
-    cachedToken = null;
-    tokenExpiresAt = null;
-    cachedUseProd = false;
+    _cachedToken = null;
+    _tokenExpiresAt = 0;
 }
 
 module.exports = { getEbayToken, clearEbayTokenCache };
