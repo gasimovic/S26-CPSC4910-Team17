@@ -274,31 +274,13 @@ app.put("/me/password", requireAuth, async (req, res) => {
 });
 
 app.get('/users', requireAuth, async (req, res) => {
-  const role = req.query.role
-  if (!['sponsor', 'driver'].includes(role)) {
-    return res.status(400).json({ error: 'role query param must be sponsor or driver' })
-  }
-
+  const { role } = req.query
   try {
-    if (role === 'sponsor') {
-      const users = await query(
-        `SELECT u.id, u.email, u.created_at,
-           sp.company_name, sp.first_name, sp.last_name,
-           sp.phone, sp.city, sp.state, sp.postal_code, sp.country,
-           COUNT(DISTINCT a.driver_id) AS driver_count
-         FROM users u
-         LEFT JOIN sponsor_profiles sp ON u.id = sp.user_id
-         LEFT JOIN applications a ON a.sponsor_id = u.id AND a.status = 'accepted'
-         WHERE u.role = 'sponsor'
-         GROUP BY u.id
-         ORDER BY u.created_at DESC`
-      )
-      return res.json({ users: users || [] })
-    }
-
+    let rows
     if (role === 'driver') {
-      const users = await query(
-        `SELECT u.id, u.email, u.created_at,
+      rows = await query(
+        `SELECT
+           u.id, u.email, u.role, u.created_at,
            dp.first_name, dp.last_name, dp.dob, dp.phone,
            dp.address_line1, dp.city, dp.state, dp.postal_code, dp.country,
            dp.sponsor_org,
@@ -308,10 +290,31 @@ app.get('/users', requireAuth, async (req, res) => {
          LEFT JOIN driver_points_ledger l ON l.driver_id = u.id
          WHERE u.role = 'driver'
          GROUP BY u.id
-         ORDER BY u.created_at DESC`
+         ORDER BY u.created_at DESC`,
+        []
       )
-      return res.json({ users: users || [] })
+    } else if (role === 'sponsor') {
+      rows = await query(
+        `SELECT
+           u.id, u.email, u.role, u.created_at,
+           sp.first_name, sp.last_name, sp.phone,
+           sp.city, sp.state, sp.company_name,
+           COUNT(DISTINCT dp.user_id) AS driver_count
+         FROM users u
+         LEFT JOIN sponsor_profiles sp ON u.id = sp.user_id
+         LEFT JOIN driver_profiles dp ON dp.sponsor_org = sp.company_name
+         WHERE u.role = 'sponsor'
+         GROUP BY u.id
+         ORDER BY u.created_at DESC`,
+        []
+      )
+    } else {
+      rows = await query(
+        `SELECT id, email, role, created_at FROM users ORDER BY created_at DESC`,
+        []
+      )
     }
+    return res.json({ users: rows || [] })
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: 'Server error' })
@@ -517,6 +520,67 @@ app.post('/drivers/:driverId/points/deduct', requireAuth, async (req, res) => {
 
     const bal = await query('SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?', [driverId])
     return res.json({ ok: true, driverId, delta, reason: parsed.data.reason, balance: Number(bal[0]?.balance || 0) })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.delete('/drivers/:driverId/sponsor', requireAuth, async (req, res) => {
+  const driverId = Number(req.params.driverId)
+  if (!Number.isFinite(driverId)) return res.status(400).json({ error: 'Invalid driverId' })
+
+  try {
+    const check = await query('SELECT id FROM users WHERE id = ? AND role = ? LIMIT 1', [driverId, 'driver'])
+    if (!check || check.length === 0) return res.status(404).json({ error: 'Driver not found' })
+
+    await exec('UPDATE driver_profiles SET sponsor_org = NULL WHERE user_id = ?', [driverId])
+
+    // Also cancel any accepted applications for this driver so state stays consistent
+    await exec(
+      `UPDATE applications SET status = 'cancelled', notes = 'Removed by admin', reviewed_at = NOW(), reviewed_by = ?
+       WHERE driver_id = ? AND status = 'accepted'`,
+      [req.user.id, driverId]
+    )
+
+    return res.json({ ok: true, driverId })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.get('/transactions', requireAuth, async (req, res) => {
+  const { driver_id, sponsor_id, date_from, date_to } = req.query
+  const conditions = []
+  const params = []
+
+  if (driver_id)  { conditions.push('dpl.driver_id = ?');  params.push(Number(driver_id)) }
+  if (sponsor_id) { conditions.push('dpl.sponsor_id = ?'); params.push(Number(sponsor_id)) }
+  if (date_from)  { conditions.push('dpl.created_at >= ?'); params.push(date_from) }
+  if (date_to)    { conditions.push('dpl.created_at <= ?'); params.push(date_to + ' 23:59:59') }
+
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
+
+  try {
+    const rows = await query(
+      `SELECT
+         dpl.id, dpl.driver_id, dpl.sponsor_id, dpl.delta, dpl.reason, dpl.created_at,
+         u_driver.email AS driver_email,
+         TRIM(CONCAT(COALESCE(dp.first_name,''), ' ', COALESCE(dp.last_name,''))) AS driver_name,
+         sp.company_name AS sponsor_company,
+         u_sponsor.email AS sponsor_email
+       FROM driver_points_ledger dpl
+       JOIN users u_driver ON dpl.driver_id = u_driver.id
+       LEFT JOIN driver_profiles dp ON dpl.driver_id = dp.user_id
+       LEFT JOIN users u_sponsor ON dpl.sponsor_id = u_sponsor.id
+       LEFT JOIN sponsor_profiles sp ON dpl.sponsor_id = sp.user_id
+       ${where}
+       ORDER BY dpl.created_at DESC
+       LIMIT 2000`,
+      params
+    )
+    return res.json({ transactions: rows || [] })
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: 'Server error' })

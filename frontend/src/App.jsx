@@ -1613,6 +1613,14 @@ const AdminUsersPage = () => {
   const [ledgerBalance, setLedgerBalance] = useState(null)
   const [ledgerLoading, setLedgerLoading] = useState(false)
 
+  // Transactions tab
+  const [transactions, setTransactions] = useState([])
+  const [txLoading, setTxLoading] = useState(false)
+  const [txDriverFilter, setTxDriverFilter] = useState('')
+  const [txSponsorFilter, setTxSponsorFilter] = useState('')
+  const [txDateFrom, setTxDateFrom] = useState('')
+  const [txDateTo, setTxDateTo] = useState('')
+
   // ── Data loaders ──────────────────────────────────────────
 
   const loadAll = async () => {
@@ -1670,6 +1678,65 @@ const AdminUsersPage = () => {
     } finally {
       setLedgerLoading(false)
     }
+  }
+
+  const loadTransactions = async () => {
+    setTxLoading(true)
+    setError('')
+    try {
+      const params = new URLSearchParams()
+      // resolve driver name filter to id
+      if (txDriverFilter.trim()) {
+        const match = drivers.find(d =>
+          String(d.id) === txDriverFilter.trim() ||
+          (d.email || '').toLowerCase().includes(txDriverFilter.trim().toLowerCase()) ||
+          [d.first_name, d.last_name].filter(Boolean).join(' ').toLowerCase().includes(txDriverFilter.trim().toLowerCase())
+        )
+        if (match) params.set('driver_id', match.id)
+      }
+      if (txSponsorFilter.trim()) {
+        const match = sponsors.find(s =>
+          String(s.id) === txSponsorFilter.trim() ||
+          (s.email || '').toLowerCase().includes(txSponsorFilter.trim().toLowerCase()) ||
+          (s.company_name || '').toLowerCase().includes(txSponsorFilter.trim().toLowerCase())
+        )
+        if (match) params.set('sponsor_id', match.id)
+      }
+      if (txDateFrom) params.set('date_from', txDateFrom)
+      if (txDateTo)   params.set('date_to',   txDateTo)
+
+      const qs = params.toString()
+      const data = await api(`/transactions${qs ? '?' + qs : ''}`, { method: 'GET' })
+      setTransactions(Array.isArray(data?.transactions) ? data.transactions : [])
+    } catch (e) {
+      setError(e?.message || 'Failed to load transactions')
+    } finally {
+      setTxLoading(false)
+    }
+  }
+
+  const exportCSV = () => {
+    if (transactions.length === 0) return
+    const headers = ['ID', 'Date', 'Driver ID', 'Driver Name', 'Driver Email', 'Sponsor', 'Sponsor Email', 'Delta', 'Reason']
+    const rows = transactions.map(t => [
+      t.id,
+      t.created_at ? new Date(t.created_at).toLocaleString() : '',
+      t.driver_id,
+      (t.driver_name || '').trim(),
+      t.driver_email || '',
+      t.sponsor_company || (t.sponsor_id == null ? 'Admin' : `#${t.sponsor_id}`),
+      t.sponsor_email || '',
+      t.delta,
+      `"${(t.reason || '').replace(/"/g, '""')}"`
+    ])
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `point-transactions-${new Date().toISOString().slice(0,10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   useEffect(() => { loadAll() }, [])
@@ -1740,6 +1807,26 @@ const AdminUsersPage = () => {
       setError(e?.message || 'Failed to adjust points')
     }
   }
+
+  const removeFromSponsor = async (driver) => {
+  const driverId = driver?.id ?? driver?.user_id
+  if (!driverId) { setError('Missing driver id'); return }
+
+  const name = [driver.first_name, driver.last_name].filter(Boolean).join(' ') || driver.email || `Driver ${driverId}`
+  if (!window.confirm(`Remove ${name} from their sponsor org? This will cancel their accepted application.`)) return
+
+  setError('')
+  setSuccess('')
+  try {
+    await api(`/drivers/${driverId}/sponsor`, { method: 'DELETE' })
+    setSuccess(`Removed ${name} from their sponsor org.`)
+    const data = await api('/users?role=driver', { method: 'GET' })
+    setDrivers(Array.isArray(data?.users) ? data.users : [])
+    await reloadApplications()
+  } catch (e) {
+    setError(e?.message || 'Failed to remove from sponsor')
+  }
+}
 
   // ── Filtered data ─────────────────────────────────────────
 
@@ -1896,6 +1983,9 @@ const AdminUsersPage = () => {
           </button>
           <button type="button" style={tabStyle('drivers')} onClick={() => { setActiveTab('drivers'); setExpandedUser(null); setSelectedLedgerDriver(null) }}>
             Drivers ({filteredDrivers.length})
+          </button>
+          <button type="button" style={tabStyle('transactions')} onClick={() => { setActiveTab('transactions'); setExpandedUser(null) }}>
+            Transactions
           </button>
         </div>
 
@@ -2089,6 +2179,7 @@ const AdminUsersPage = () => {
                     <th>Joined</th>
                     <th className="text-right">Drivers</th>
                     <th style={{ width: 90 }}>Details</th>
+                    <th style={{ width: 110 }}>Remove Org</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2248,6 +2339,20 @@ const AdminUsersPage = () => {
                                 {isExpanded ? 'Close' : 'Info'}
                               </button>
                             </td>
+                            <td>
+                              {d.sponsor_org ? (
+                                <button
+                                  className="btn btn-secondary"
+                                  style={{ fontSize: '0.8em', padding: '4px 10px', color: '#dc2626', borderColor: '#dc2626' }}
+                                  type="button"
+                                  onClick={() => removeFromSponsor({ ...d, id })}
+                                >
+                                  Remove Org
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: '0.78em', color: '#9ca3af', fontStyle: 'italic' }}>—</span>
+                              )}
+                            </td>
                           </tr>
 
                           {/* Ledger inline row */}
@@ -2333,6 +2438,136 @@ const AdminUsersPage = () => {
             </div>
           </>
         )}
+
+        {/* ══════════════════════════════════════════════════
+            TAB: TRANSACTIONS
+        ══════════════════════════════════════════════════ */}
+        {activeTab === 'transactions' && (
+          <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
+
+            {/* Filters */}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>Filter by Driver</label>
+                <input
+                  className="form-input"
+                  style={{ minWidth: 180 }}
+                  placeholder="Name, email, or ID"
+                  value={txDriverFilter}
+                  onChange={e => setTxDriverFilter(e.target.value)}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>Filter by Sponsor</label>
+                <input
+                  className="form-input"
+                  style={{ minWidth: 180 }}
+                  placeholder="Org name, email, or ID"
+                  value={txSponsorFilter}
+                  onChange={e => setTxSponsorFilter(e.target.value)}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>From</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={txDateFrom}
+                  onChange={e => setTxDateFrom(e.target.value)}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>To</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={txDateTo}
+                  onChange={e => setTxDateTo(e.target.value)}
+                />
+              </div>
+              <button className="btn btn-primary" type="button" onClick={loadTransactions} disabled={txLoading}>
+                {txLoading ? 'Loading…' : '🔍 Apply Filters'}
+              </button>
+              <button
+                className="btn btn-secondary"
+                type="button"
+                onClick={() => { setTxDriverFilter(''); setTxSponsorFilter(''); setTxDateFrom(''); setTxDateTo(''); }}
+              >
+                Clear
+              </button>
+              <button
+                className="btn btn-success"
+                type="button"
+                onClick={exportCSV}
+                disabled={transactions.length === 0}
+                style={{ marginLeft: 'auto' }}
+              >
+                ⬇ Export CSV
+              </button>
+            </div>
+
+            {transactions.length === 0 && !txLoading && (
+              <p style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: '0.875em', marginBottom: 12 }}>
+                Apply filters and click "Apply Filters" to load transactions, or load all with no filters.
+              </p>
+            )}
+
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Driver</th>
+                    <th>Sponsor</th>
+                    <th className="text-right">Delta</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {txLoading ? (
+                    <tr><td colSpan="5" className="table-empty">Loading…</td></tr>
+                  ) : transactions.length === 0 ? (
+                    <tr><td colSpan="5" className="table-empty">No transactions found</td></tr>
+                  ) : transactions.map((t, idx) => (
+                    <tr key={t.id ?? idx}>
+                      <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap', color: '#6b7280' }}>
+                        {t.created_at ? new Date(t.created_at).toLocaleString() : '—'}
+                      </td>
+                      <td>
+                        <div style={{ lineHeight: 1.4 }}>
+                          <strong style={{ fontSize: '0.88em' }}>{(t.driver_name || '').trim() || '—'}</strong>
+                          <br />
+                          <span style={{ fontSize: '0.78em', color: '#6b7280' }}>{t.driver_email}</span>
+                        </div>
+                      </td>
+                      <td style={{ fontSize: '0.85em' }}>
+                        {t.sponsor_company
+                          ? <><strong>{t.sponsor_company}</strong><br /><span style={{ fontSize: '0.85em', color: '#6b7280' }}>{t.sponsor_email}</span></>
+                          : t.sponsor_id == null
+                            ? <em style={{ color: '#6b7280' }}>Admin</em>
+                            : `#${t.sponsor_id}`}
+                      </td>
+                      <td className="text-right" style={{
+                        fontWeight: 700,
+                        color: Number(t.delta) >= 0 ? '#16a34a' : '#dc2626'
+                      }}>
+                        {Number(t.delta) >= 0 ? '+' : ''}{t.delta}
+                      </td>
+                      <td style={{ fontSize: '0.85em', color: '#374151' }}>{t.reason || <em style={{ color: '#9ca3af' }}>—</em>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {transactions.length > 0 && (
+              <p style={{ fontSize: '0.78em', color: '#9ca3af', marginTop: 8 }}>
+                Showing {transactions.length} transaction{transactions.length !== 1 ? 's' : ''}
+                {transactions.length === 2000 ? ' (limit 2000 — apply filters to narrow results)' : ''}
+              </p>
+            )}
+          </div>
+        )}
+
       </main>
     </div>
   )
