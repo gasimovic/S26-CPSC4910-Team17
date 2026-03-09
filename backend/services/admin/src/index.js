@@ -53,7 +53,7 @@ app.post("/auth/register", async (req, res) => {
   const schema = z.object({
     email: z.string().email(),
     password: z.string().min(8),
-    displayName: z.string().optional(),
+    display_name: z.string().optional(), // Changed from displayName
   });
 
   const parsed = schema.safeParse(req.body);
@@ -63,22 +63,19 @@ app.post("/auth/register", async (req, res) => {
 
   const email = parsed.data.email.toLowerCase();
   const password = parsed.data.password;
-  const displayName = parsed.data.displayName || null;
+  const display_name = parsed.data.display_name || null;
 
   try {
     const password_hash = await hashPassword(password);
-
-    // Create user
     const userInsert = await exec(
       "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
       [email, password_hash, ROLE]
     );
     const userId = userInsert.insertId;
 
-    // Create admin profile row
     await exec(
       "INSERT INTO admin_profiles (user_id, display_name) VALUES (?, ?)",
-      [userId, displayName]
+      [userId, display_name]
     );
 
     const userRows = await query("SELECT id, email, role, created_at FROM users WHERE id = ?", [userId]);
@@ -125,7 +122,7 @@ app.post("/auth/login", async (req, res) => {
       secure: COOKIE_SECURE,
       sameSite: "lax",
       maxAge: 2 * 60 * 60 * 1000,
-      path: "/api/admin",
+      path: "/",
       });
 
     return res.json({ ok: true, user: { id: user.id, email: user.email, role: user.role } });
@@ -169,13 +166,14 @@ app.get("/me", requireAuth, async (req, res) => {
  * PUT /me/profile
  */
 app.put("/me/profile", requireAuth, async (req, res) => {
+  // Update schema to match App.jsx snake_case
   const schema = z.object({
-    displayName: z.string().min(1).optional(),
-    firstName: z.string().min(1).optional(),
-    lastName: z.string().min(1).optional(),
-    dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    phone: z.string().min(7).max(25).optional(),
-    address: z.string().min(3).max(200).optional(),
+    display_name: z.string().min(1).optional(),
+    first_name: z.string().min(1).optional(),
+    last_name: z.string().min(1).optional(),
+    dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
+    phone: z.string().max(25).optional().or(z.literal('')),
+    address_line1: z.string().max(200).optional().or(z.literal('')), // match App.jsx
   });
 
   const parsed = schema.safeParse(req.body);
@@ -186,14 +184,13 @@ app.put("/me/profile", requireAuth, async (req, res) => {
   const d = parsed.data;
 
   try {
-    // Ensure profile exists
     await exec(
       "INSERT INTO admin_profiles (user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id = user_id",
       [req.user.id]
     );
 
     await exec(
-      `UPDATE admin_profiles
+      `UPDATE admin_profiles 
        SET display_name = COALESCE(?, display_name),
            first_name   = COALESCE(?, first_name),
            last_name    = COALESCE(?, last_name),
@@ -202,12 +199,12 @@ app.put("/me/profile", requireAuth, async (req, res) => {
            address      = COALESCE(?, address)
        WHERE user_id = ?`,
       [
-        d.displayName || null,
-        d.firstName || null,
-        d.lastName || null,
+        d.display_name || null,
+        d.first_name || null,
+        d.last_name || null,
         d.dob || null,
         d.phone || null,
-        d.address || null,
+        d.address_line1 || null, 
         req.user.id,
       ]
     );
