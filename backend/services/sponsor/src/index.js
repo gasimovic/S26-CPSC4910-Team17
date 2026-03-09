@@ -95,13 +95,14 @@ function requireAuth(req, res, next) {
 
   try {
     const payload = verifyToken(token);
-    if (payload.role !== ROLE) {
-      return res.status(403).json({ error: "Wrong role for this service" });
+    if (payload.role !== 'admin' && payload.role !== 'sponsor') {
+      return res.status(403).json({ error: "Insufficient permissions" });
     }
-    req.user = { id: payload.sub, role: payload.role };
-    return next();
-  } catch {
-    return res.status(401).json({ error: "Invalid token" });
+    req.user = payload;
+    next();
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
   }
 }
 
