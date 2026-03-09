@@ -972,7 +972,7 @@ function App() {
     const allowed = getAllowedPages(currentUser)
 
     const isDriver = role === 'driver'
-    const isSponsor = role === 'sponsor' || role === 'admin'
+    const isSponsor = role === 'sponsor'
     const isAdmin = role === 'admin'
 
     return (
@@ -4999,7 +4999,7 @@ const AdminUsersPage = () => {
       {isLoggedIn && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
 
       {/* Sponsor/Admin shared Pages */}
-      {isLoggedIn && currentPage === 'applications' && <ApplicationsPage />}
+      {isLoggedIn && currentPage === 'applications' && currentUser?.role !== 'admin' && <ApplicationsPage />}
       {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
       {isLoggedIn && currentPage === 'catalog' && <SponsorCatalogPage />}
       {isLoggedIn && currentPage === 'messages' && <MessagesPage />}
