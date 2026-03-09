@@ -318,6 +318,211 @@ app.get('/users', requireAuth, async (req, res) => {
   }
 })
 
+// ── Applications (Admin) ─────────────────────────────────
+
+app.get('/applications', requireAuth, async (req, res) => {
+  const { status, sponsor_id, driver_id } = req.query
+  const conditions = []
+  const params = []
+  if (status)    { conditions.push('a.status = ?');    params.push(status) }
+  if (sponsor_id){ conditions.push('a.sponsor_id = ?'); params.push(Number(sponsor_id)) }
+  if (driver_id) { conditions.push('a.driver_id = ?');  params.push(Number(driver_id)) }
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
+
+  try {
+    const applications = await query(
+      `SELECT
+        a.id, a.driver_id, a.sponsor_id, a.ad_id, a.status,
+        a.applied_at, a.reviewed_at, a.reviewed_by, a.notes,
+        u_driver.email AS driver_email,
+        TRIM(CONCAT(COALESCE(dp.first_name,''), ' ', COALESCE(dp.last_name,''))) AS driver_name,
+        dp.phone AS driver_phone,
+        dp.sponsor_org AS driver_sponsor_org,
+        COALESCE(SUM(lp.delta), 0) AS driver_points,
+        u_sponsor.email AS sponsor_email,
+        sp.company_name AS sponsor_company,
+        ad.title AS ad_title
+      FROM applications a
+      JOIN users u_driver ON a.driver_id = u_driver.id
+      LEFT JOIN driver_profiles dp ON a.driver_id = dp.user_id
+      LEFT JOIN driver_points_ledger lp ON lp.driver_id = a.driver_id
+      JOIN users u_sponsor ON a.sponsor_id = u_sponsor.id
+      LEFT JOIN sponsor_profiles sp ON a.sponsor_id = sp.user_id
+      LEFT JOIN ads ad ON a.ad_id = ad.id
+      ${where}
+      GROUP BY a.id
+      ORDER BY a.applied_at DESC`,
+      params
+    )
+    return res.json({ applications: applications || [] })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.get('/applications/:applicationId', requireAuth, async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT
+        a.id, a.driver_id, a.sponsor_id, a.ad_id, a.status,
+        a.applied_at, a.reviewed_at, a.reviewed_by, a.notes,
+        u_driver.email AS driver_email,
+        TRIM(CONCAT(COALESCE(dp.first_name,''), ' ', COALESCE(dp.last_name,''))) AS driver_name,
+        u_sponsor.email AS sponsor_email,
+        sp.company_name AS sponsor_company,
+        ad.title AS ad_title
+      FROM applications a
+      JOIN users u_driver ON a.driver_id = u_driver.id
+      LEFT JOIN driver_profiles dp ON a.driver_id = dp.user_id
+      JOIN users u_sponsor ON a.sponsor_id = u_sponsor.id
+      LEFT JOIN sponsor_profiles sp ON a.sponsor_id = sp.user_id
+      LEFT JOIN ads ad ON a.ad_id = ad.id
+      WHERE a.id = ?`,
+      [req.params.applicationId]
+    )
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Application not found' })
+    return res.json({ application: rows[0] })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.put('/applications/:applicationId', requireAuth, async (req, res) => {
+  const schema = z.object({
+    status: z.enum(['accepted', 'approved', 'rejected', 'cancelled', 'pending']),
+    notes: z.string().max(1000).optional(),
+  })
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+
+  const dbStatus = parsed.data.status === 'approved' ? 'accepted' : parsed.data.status
+
+  try {
+    const existing = await query(
+      'SELECT id, driver_id, sponsor_id FROM applications WHERE id = ? LIMIT 1',
+      [req.params.applicationId]
+    )
+    if (!existing || existing.length === 0) return res.status(404).json({ error: 'Application not found' })
+
+    const { driver_id, sponsor_id } = existing[0]
+
+    await exec(
+      `UPDATE applications SET status = ?, notes = ?, reviewed_at = NOW(), reviewed_by = ? WHERE id = ?`,
+      [dbStatus, parsed.data.notes || null, req.user.id, req.params.applicationId]
+    )
+
+    if (dbStatus === 'accepted') {
+      const sponsorRows = await query('SELECT company_name FROM sponsor_profiles WHERE user_id = ? LIMIT 1', [sponsor_id])
+      const company = sponsorRows?.[0]?.company_name
+      if (company && String(company).trim()) {
+        await exec('INSERT INTO driver_profiles (user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id = user_id', [driver_id])
+        await exec('UPDATE driver_profiles SET sponsor_org = ? WHERE user_id = ?', [String(company).trim(), driver_id])
+      }
+    }
+
+    if (dbStatus === 'cancelled' || dbStatus === 'rejected') {
+      const sponsorRows = await query('SELECT company_name FROM sponsor_profiles WHERE user_id = ? LIMIT 1', [sponsor_id])
+      const company = sponsorRows?.[0]?.company_name
+      if (company && String(company).trim()) {
+        await exec('UPDATE driver_profiles SET sponsor_org = NULL WHERE user_id = ? AND sponsor_org = ?', [driver_id, String(company).trim()])
+      }
+    }
+
+    const updated = await query('SELECT * FROM applications WHERE id = ?', [req.params.applicationId])
+    return res.json({ ok: true, application: updated[0] })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// ── Driver Points (Admin) ────────────────────────────────
+
+app.get('/drivers/:driverId/points', requireAuth, async (req, res) => {
+  const driverId = Number(req.params.driverId)
+  if (!Number.isFinite(driverId)) return res.status(400).json({ error: 'Invalid driverId' })
+
+  try {
+    const driverRows = await query(
+      `SELECT u.id, u.email,
+         TRIM(CONCAT(COALESCE(dp.first_name,''), ' ', COALESCE(dp.last_name,''))) AS name,
+         dp.sponsor_org,
+         COALESCE(SUM(l.delta), 0) AS balance
+       FROM users u
+       LEFT JOIN driver_profiles dp ON u.id = dp.user_id
+       LEFT JOIN driver_points_ledger l ON l.driver_id = u.id
+       WHERE u.id = ? AND u.role = 'driver'
+       GROUP BY u.id`,
+      [driverId]
+    )
+    if (!driverRows || driverRows.length === 0) return res.status(404).json({ error: 'Driver not found' })
+
+    const ledger = await query(
+      `SELECT dpl.id, dpl.driver_id, dpl.sponsor_id, dpl.delta, dpl.reason, dpl.created_at,
+              sp.company_name AS sponsor_company
+       FROM driver_points_ledger dpl
+       LEFT JOIN sponsor_profiles sp ON dpl.sponsor_id = sp.user_id
+       WHERE dpl.driver_id = ?
+       ORDER BY dpl.created_at DESC, dpl.id DESC`,
+      [driverId]
+    )
+
+    return res.json({ driver: driverRows[0], balance: Number(driverRows[0].balance || 0), ledger: ledger || [] })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.post('/drivers/:driverId/points/add', requireAuth, async (req, res) => {
+  const schema = z.object({ points: z.coerce.number().int().positive(), reason: z.string().min(1).max(255) })
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+
+  const driverId = Number(req.params.driverId)
+  if (!Number.isFinite(driverId)) return res.status(400).json({ error: 'Invalid driverId' })
+
+  try {
+    const check = await query('SELECT id FROM users WHERE id = ? AND role = ? LIMIT 1', [driverId, 'driver'])
+    if (!check || check.length === 0) return res.status(404).json({ error: 'Driver not found' })
+
+    await exec('INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, NULL, ?, ?)',
+      [driverId, parsed.data.points, parsed.data.reason])
+
+    const bal = await query('SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?', [driverId])
+    return res.json({ ok: true, driverId, delta: parsed.data.points, reason: parsed.data.reason, balance: Number(bal[0]?.balance || 0) })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.post('/drivers/:driverId/points/deduct', requireAuth, async (req, res) => {
+  const schema = z.object({ points: z.coerce.number().int().positive(), reason: z.string().min(1).max(255) })
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+
+  const driverId = Number(req.params.driverId)
+  if (!Number.isFinite(driverId)) return res.status(400).json({ error: 'Invalid driverId' })
+
+  try {
+    const check = await query('SELECT id FROM users WHERE id = ? AND role = ? LIMIT 1', [driverId, 'driver'])
+    if (!check || check.length === 0) return res.status(404).json({ error: 'Driver not found' })
+
+    const delta = -Math.abs(parsed.data.points)
+    await exec('INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, NULL, ?, ?)',
+      [driverId, delta, parsed.data.reason])
+
+    const bal = await query('SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?', [driverId])
+    return res.json({ ok: true, driverId, delta, reason: parsed.data.reason, balance: Number(bal[0]?.balance || 0) })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
 app.get('/sprint-info', async (_req, res) => {
   try {
     const rows = await query('SELECT * FROM sprint_info WHERE id = 1 LIMIT 1', [])
