@@ -366,9 +366,6 @@ function App() {
     const adminPages = [
       'dashboard',
       'admin-users',
-      'drivers',
-      'applications',
-      'catalog',
       'profile',
       'account-details',
       'change-password',
