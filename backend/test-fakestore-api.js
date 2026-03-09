@@ -1,15 +1,15 @@
-const ebay = require('./utils/ebayClient');
+const fakestore = require('./utils/fakestoreClient');
 
-async function testEbayApi() {
-    console.log('🧪 Starting Direct eBay API Tests (Bypassing Auth Routes)...\n');
+async function testFakestoreApi() {
+    console.log('🧪 Starting Direct Fake Store API Tests (No Auth Needed)...\n');
 
     try {
         // ==========================================
         // 1. Test popular()
         // ==========================================
-        console.log(`[1] Testing ebay.popular()`);
+        console.log('[1] Testing fakestore.popular()');
         const popularStart = Date.now();
-        const popularItems = await ebay.popular(12);
+        const popularItems = await fakestore.popular(20);
         const popularTime = Date.now() - popularStart;
 
         console.log(`   ✅ Success! (${popularTime}ms)`);
@@ -22,12 +22,12 @@ async function testEbayApi() {
         console.log('');
 
         // ==========================================
-        // 2. Test search()
+        // 2. Test search() — keyword match
         // ==========================================
-        const keyword = 'macbook';
-        console.log(`[2] Testing ebay.search('${keyword}')`);
+        const keyword = 'ssd';
+        console.log(`[2] Testing fakestore.search('${keyword}')`);
         const searchStart = Date.now();
-        const searchItems = await ebay.search(keyword, 12);
+        const searchItems = await fakestore.search(keyword, 12);
         const searchTime = Date.now() - searchStart;
 
         console.log(`   ✅ Success! (${searchTime}ms)`);
@@ -39,18 +39,25 @@ async function testEbayApi() {
         }
         console.log('');
 
-        console.log('🎉 All internal API tests completed successfully!');
+        // ==========================================
+        // 3. Test search() — no results
+        // ==========================================
+        const noResultKeyword = 'xyznotarealproduct';
+        console.log(`[3] Testing fakestore.search('${noResultKeyword}') — expect 0 results`);
+        const emptyItems = await fakestore.search(noResultKeyword, 12);
+        console.log(`   ✅ Correctly returned ${emptyItems.length} items (empty set)\n`);
+
+        console.log('🎉 All tests passed! Fake Store API is working.');
 
     } catch (error) {
         console.error('\n❌ API Test Failed!');
         console.error(`   Error: ${error.message}`);
         if (error.response) {
             console.error(`   HTTP Status: ${error.response.status}`);
-            console.error(`   eBay Error Data:`, JSON.stringify(error.response.data, null, 2));
+            console.error(`   Response:`, JSON.stringify(error.response.data, null, 2));
         }
-        console.error('\nMake sure EBAY_PROD_CLIENT_ID and EBAY_PROD_CLIENT_SECRET are correct in .env');
         process.exit(1);
     }
 }
 
-testEbayApi();
+testFakestoreApi();

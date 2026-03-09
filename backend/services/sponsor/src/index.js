@@ -1238,7 +1238,7 @@ app.put('/messages/:messageId/read', requireAuth, async (req, res) => {
   }
 });
 
-const sponsorEbayRoutes = require('../../../routes/sponsor/ebay');
+const sponsorEbayRoutes = require('../../../routes/sponsor/fakestore');
 const sponsorCatalogRoutes = require('../../../routes/sponsor/catalog');
 
 app.use('/ebay', requireAuth, sponsorEbayRoutes);

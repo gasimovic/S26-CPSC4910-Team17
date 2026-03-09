@@ -3205,7 +3205,7 @@ function App() {
         const res = await api('/ebay/popular', { method: 'GET' })
         setSearchResults(res.items || [])
       } catch (err) {
-        console.warn('Could not load popular eBay items:', err.message)
+        console.warn('Could not load popular items:', err.message)
       } finally {
         setResultsLabel('popular')
       }
@@ -3225,8 +3225,8 @@ function App() {
         setSearchResults(res.items || [])
         setResultsLabel(searchQuery)
       } catch (err) {
-        console.error('eBay search failed', err)
-        alert('eBay search failed. Check the console for details.')
+        console.error('Product search failed', err)
+        alert('Search failed. Check the console for details.')
       } finally {
         setSearching(false)
       }
@@ -3280,11 +3280,11 @@ function App() {
         <Navigation />
         <main className="app-main">
           <h1 className="page-title">Catalog</h1>
-          <p className="page-subtitle">Search eBay items and add them to your sponsor rewards catalog.</p>
+          <p className="page-subtitle">Search the product catalog and add items to your sponsor rewards catalog.</p>
 
           <div className="catalog-layout">
             <section className="card catalog-panel">
-              <h2 className="section-title">Search eBay</h2>
+              <h2 className="section-title">Search Products</h2>
               <form onSubmit={handleSearch} className="catalog-search-form">
                 <input
                   type="text"
@@ -3301,7 +3301,7 @@ function App() {
               {/* Label swaps between Popular / search results */}
               {resultsLabel === 'popular' && (
                 <p className="page-subtitle" style={{ marginTop: 0, marginBottom: 8 }}>
-                  Popular on eBay — or search above for something specific.
+                  Popular products — or search above for something specific.
                 </p>
               )}
               {resultsLabel !== '' && resultsLabel !== 'popular' && (
@@ -3682,7 +3682,7 @@ function App() {
                 <h3 className="card-title">For Sponsors</h3>
                 <p className="card-body">
                   Post sponsorship ads, review and accept driver applications, manage point
-                  balances, and curate a reward catalog sourced directly from eBay listings.
+                  balances, and curate a reward catalog sourced from an online product catalog.
                 </p>
               </div>
 
@@ -3757,7 +3757,7 @@ function App() {
                 { layer: 'Database', detail: 'SQL (MySQL / PostgreSQL)' },
                 { layer: 'Infrastructure', detail: 'AWS EC2' },
                 { layer: 'Auth', detail: 'Session cookies · JWT tokens' },
-                { layer: 'Integrations', detail: 'eBay Browse API' },
+                { layer: 'Integrations', detail: 'Fake Store API' },
               ].map(({ layer, detail }) => (
                 <div key={layer} style={{
                   padding: '14px 18px', borderRadius: 8,
@@ -3800,7 +3800,7 @@ function App() {
         </main>
 
         {/* Pulse animation for loading badge */}
-                {showSprintModal && (
+        {showSprintModal && (
           <div className="modal-backdrop">
             <div className="modal-card" style={{ maxWidth: 520 }}>
               <h2 className="page-title" style={{ marginBottom: 4 }}>Edit Sprint Info</h2>

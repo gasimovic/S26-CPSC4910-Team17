@@ -18,7 +18,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-// POST /api/sponsor/catalog - Add an eBay item to the shop
+// POST /api/sponsor/catalog - Add a product to the shop
 router.post('/', async (req, res) => {
     try {
         const sponsorId = req.user.id;
