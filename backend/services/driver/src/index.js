@@ -288,8 +288,23 @@ app.post("/auth/reset-password", async (req, res) => {
  */
 app.get("/me", requireAuth, async (req, res) => {
   try {
-    const userRows = await query("SELECT id, email, role, created_at FROM users WHERE id = ?", [req.user.id]);
+    const userRows = await query(
+      "SELECT id, email, role, created_at FROM users WHERE id = ?",
+      [req.user.id]
+    );
     const user = userRows[0];
+
+    // Compute current points balance from the ledger so the frontend
+    // dashboard and nav can show a real-time "Your points" value.
+    const pointsRows = await query(
+      "SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?",
+      [req.user.id]
+    );
+    const pointsBalance = Number(pointsRows?.[0]?.balance || 0);
+
+    // Attach as a field on the user object; the frontend's login
+    // normalization reads user.points from /me.
+    user.points = pointsBalance;
 
     const profileRows = await query("SELECT * FROM driver_profiles WHERE user_id = ?", [req.user.id]);
     const profile = profileRows[0] || null;
