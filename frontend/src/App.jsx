@@ -2127,27 +2127,30 @@ function App() {
           <p className="page-subtitle">Here’s your overview</p>
 
           <div style={{ marginBottom: 24 }}>
-            <div className="pts-hero">
-              <p className="pts-hero-label">Your points</p>
-              <p className="pts-hero-value">{currentUser?.points ?? 0}</p>
-            </div>
-            {isDriver && (
-              <p className="form-footer" style={{ marginTop: 8 }}>
-                Total earned: <strong>{currentUser?.totalEarned ?? currentUser?.points ?? 0}</strong>
-              </p>
-            )}
-            {isDriver && (
-              <div style={{ marginTop: 12 }}>
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  onClick={toggleHistory}
-                  disabled={historyLoading}
-                >
-                  {historyOpen ? 'Hide point history' : 'View point history'}
-                </button>
+            <div style={{ display: 'inline-block' }}>
+              <div className="pts-hero">
+                <p className="pts-hero-label">Your points</p>
+                <p className="pts-hero-value">{currentUser?.points ?? 0}</p>
               </div>
-            )}
+              {isDriver && (
+                <p style={{ marginTop: 8, fontSize: 14, color: 'var(--text-muted)' }}>
+                  Total earned:{' '}
+                  <strong>{currentUser?.totalEarned ?? currentUser?.points ?? 0}</strong>
+                </p>
+              )}
+              {isDriver && (
+                <div style={{ marginTop: 12 }}>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    onClick={toggleHistory}
+                    disabled={historyLoading}
+                  >
+                    {historyOpen ? 'Hide point history' : 'View point history'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {isDriver && historyOpen && (
