@@ -1,44 +1,132 @@
-# eBay API & Catalog Integration Guide
+# FakeStore API & Catalog Integration Guide
 
-This guide explains how we set up the foundation for connecting our application to the eBay API and how our sponsors can build their catalogs.
+## Overview
 
-## Step 1: Authentication
-Before we can search eBay for items, we need permission from eBay's servers. eBay uses **OAuth 2.0**, which means we can't just pass a static password in our URLs. Instead, we have to send our Developer Keys to an authentication server, which gives us a temporary "Access Token" that lasts for 2 hours.
-
-1. **Secure the Keys**: We added the eBay Developer Keys (Targeting the Sandbox environment for testing) to the backend `.env` file. We do this so the keys are never accidentally pushed to GitHub.
-2. **The Token Manager (`backend/utils/ebayTokenManager.js`)**: This utility has one job: Provide a valid eBay access token whenever the app asks for it. It is smart enough to **cache** the token in memory so we don't ask eBay for a new token 100 times an hour.
+This guide explains how the application integrates with **[Fake Store API](https://fakestoreapi.com)** to power the sponsor catalog feature. Fake Store is a free, public REST API that provides 20 sample products across 4 categories — no authentication or API keys required.
 
 ---
 
-## Step 2: The eBay Proxy Route
-The frontend React application cannot (and should not) talk to eBay directly, as that would expose our secret keys to the browser. Instead, the frontend talks to our backend proxy.
+## Step 1: The FakeStore Client (`backend/utils/fakestoreClient.js`)
 
-1. **The Route (`backend/routes/sponsor/ebay.js`)**: We created an Express router that listens for `GET /api/sponsor/ebay/search?q=laptop`.
-2. **The Logic**: The route receives the request, asks the Token Manager for our cached OAuth token, and fires a secure backend request to `api.sandbox.ebay.com/buy/browse/v1`.
-3. **Data Mapping**: eBay returns a massive JSON payload with hundreds of fields we don't need. The proxy route cleans this up and returns a strictly formatted array directly to the frontend, containing only what we need for the UI UI (`title`, `price`, `image_url`, `ebay_item_id`).
+All HTTP calls to `fakestoreapi.com` and item normalization live in a single utility module. Route handlers never touch `axios` directly.
+
+### Key functions
+
+| Function | Description |
+|---|---|
+| `popular()` | Fetches all 6 electronics products from `/products/category/electronics` |
+| `search(keyword, limit)` | Fetches all 20 products, then client-side filters by `title`, `description`, or `category` |
+| `normalizeItem(raw)` | Maps the FakeStore product shape to the frontend's expected contract |
+
+### Product shape (raw FakeStore response)
+```json
+{
+  "id": 9,
+  "title": "WD 2TB Elements Portable External Hard Drive",
+  "price": 64.00,
+  "description": "USB 3.0 compatible...",
+  "category": "electronics",
+  "image": "https://fakestoreapi.com/img/61IBBVJvSDL._AC_SY879_t.png",
+  "rating": { "rate": 3.3, "count": 203 }
+}
+```
+
+### Normalized shape (what the frontend receives)
+```json
+{
+  "itemId": "9",
+  "title": "WD 2TB Elements Portable External Hard Drive",
+  "price": { "value": "64.00", "currency": "USD" },
+  "image": "https://fakestoreapi.com/img/...",
+  "itemWebUrl": "https://fakestoreapi.com/products/9",
+  "condition": "New",
+  "category": "electronics",
+  "description": "...",
+  "rating": { "rate": 3.3, "count": 203 }
+}
+```
+
+> **Note:** FakeStore has no server-side search. The `search()` function fetches all 20 products from `/products` and filters in-memory.
 
 ---
 
-## Step 3: The Catalog Database Routes
-Once a sponsor searches for a sandbox item, they need the ability to "add" it to their own shop. We created the API to stitch eBay items directly into our MySQL database.
+## Step 2: The FakeStore Proxy Route (`backend/routes/sponsor/fakestore.js`)
 
-1. **Sponsor Catalog Logic (`backend/routes/sponsor/catalog.js`)**:
-   - `GET /`: Pulls all items from the `catalog_items` table belonging to the currently authenticated sponsor.
-   - `POST /`: Takes the eBay item the sponsor clicked on, assigns it a rigid point cost, and saves it into the `catalog_items` database.
-   - `DELETE /:id`: Removes that item from the sponsor's shop.
+The frontend React app talks to the backend, never directly to FakeStore. The proxy is mounted at `/ebay` for URL compatibility.
 
-2. **Driver Catalog Logic (`backend/routes/driver/catalog.js`)**:
-   - `GET /`: When a driver logs in, this route first queries the database to figure out *which sponsor* they are affiliated with (via their `driver_profile` or an accepted `application`). It then fetches only the `catalog_items` belonging to that specific sponsor.
+| Endpoint | Description |
+|---|---|
+| `GET /api/sponsor/ebay/search?q=<keyword>` | Keyword search across all FakeStore products |
+| `GET /api/sponsor/ebay/popular` | Returns the 6 electronics products (cached 10 min) |
+
+Both return: `{ items: [...], mock: false }`
 
 ---
 
-## Step 4: Express Service Mounting
-Our backend is split into microservices (`@gdip/server`). To make these files accessible, we mounted them securely.
+## Step 3: The Catalog CRUD Route (`backend/routes/sponsor/catalog.js`)
 
-- In `backend/services/sponsor/src/index.js`, we injected our Token Manager proxy and Sponsor CRUD routes into the `/ebay` and `/catalog` prefixes.
-- In `backend/services/driver/src/index.js`, we injected the Driver catalog fetcher so that drivers have a secure endpoint to view their sponsor's shop without being able to add/delete items.
+Once a sponsor finds an item they want to offer as a reward, they add it to their shop. This permanently stores it in the MySQL `catalog_items` table.
 
-## Testing Strategy
-Because we were restricted from firing up the local Express and Vite development servers, we built localized Node.js integration scripts:
-1. `testComprehensive.js`: Simulated an entire session by requesting an eBay token, firing an eBay search request, mocking a Sponsor adding an item to the DB, and mocking a Driver fetching that item.
-2. All Database requests were validated using direct `@gdip/db` SQL execution bypassing localhost entirely.
+| Endpoint | Description |
+|---|---|
+| `GET /api/sponsor/catalog` | View the sponsor's saved reward items |
+| `POST /api/sponsor/catalog` | Add a FakeStore item with a custom point cost |
+| `DELETE /api/sponsor/catalog/:id` | Remove an item from the shop |
+
+### POST body
+```json
+{
+  "itemId": "9",
+  "title": "WD 2TB Elements Portable External Hard Drive",
+  "imageUrl": "https://fakestoreapi.com/img/...",
+  "price": 64.00,
+  "pointCost": 500
+}
+```
+
+### Database column: `external_item_id`
+Stores the FakeStore product ID (`item.id` as a string) for reference. Not used for live lookups — the title and image are cached in the row directly.
+
+---
+
+## Step 4: Service Configuration (`backend/services/sponsor/src/index.js`)
+
+The two route modules are injected into the Express app:
+
+```js
+const fakestoreRoutes   = require('../../../routes/sponsor/fakestore');
+const sponsorCatalogRoutes = require('../../../routes/sponsor/catalog');
+
+app.use('/ebay',    requireAuth, fakestoreRoutes);
+app.use('/catalog', requireAuth, sponsorCatalogRoutes);
+```
+
+---
+
+## Step 5: Testing (`backend/test-fakestore-api.js`)
+
+Run the test script to verify the FakeStore API is reachable and the client works correctly:
+
+```bash
+cd backend
+node test-fakestore-api.js
+```
+
+Expected output:
+```
+[1] Testing fakestore.popular()    ✅  6 items
+[2] Testing fakestore.search('ssd') ✅  2 items
+[3] Testing fakestore.search('xyznotarealproduct') ✅  0 items
+🎉 All tests passed!
+```
+
+---
+
+## Categories available in FakeStore
+
+| Category | Count |
+|---|---|
+| `men's clothing` | 4 |
+| `women's clothing` | 6 |
+| `jewelery` | 4 |
+| `electronics` | 6 |

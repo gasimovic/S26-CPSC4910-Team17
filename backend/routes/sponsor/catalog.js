@@ -24,7 +24,7 @@ router.post('/', async (req, res) => {
         const sponsorId = req.user.id;
 
         // Accept both camelCase (from frontend) and snake_case field names
-        const ebay_item_id = req.body.ebayItemId || req.body.ebay_item_id || null;
+        const external_item_id = req.body.itemId || req.body.ebayItemId || req.body.ebay_item_id || null;
         const title = req.body.title;
         const description = req.body.description || null;
         // Accept imageUrl (frontend sends camelCase) or image_url
@@ -45,9 +45,9 @@ router.post('/', async (req, res) => {
 
         const result = await exec(
             `INSERT INTO catalog_items 
-            (sponsor_id, ebay_item_id, title, description, image_url, price, point_cost) 
+            (sponsor_id, external_item_id, title, description, image_url, price, point_cost) 
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [sponsorId, ebay_item_id, title, description, image_url, price !== null ? price : 0, point_cost]
+            [sponsorId, external_item_id, title, description, image_url, price !== null ? price : 0, point_cost]
         );
 
         res.status(201).json({ ok: true, itemId: result.insertId, message: 'Item added to catalog' });

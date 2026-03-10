@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS applications (
 CREATE TABLE IF NOT EXISTS catalog_items (
   id INT AUTO_INCREMENT PRIMARY KEY,
   sponsor_id INT NOT NULL,
-  ebay_item_id VARCHAR(100) NULL,
+  external_item_id VARCHAR(100) NULL,
   title VARCHAR(255) NOT NULL,
   description TEXT NULL,
   image_url VARCHAR(500) NULL,

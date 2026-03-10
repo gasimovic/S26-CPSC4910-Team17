@@ -1571,854 +1571,658 @@ function App() {
     )
   }
 
- // ============================================================
-// UPDATED AdminUsersPage — drop this component into App.jsx,
-// replacing the existing AdminUsersPage function.
-//
-// New features:
-//   • "Applications" tab — all sponsor-driver apps across all orgs
-//   • Filter by status (all / pending / accepted / rejected / cancelled)
-//   • Accept, Reject, Cancel any application with an optional reason
-//   • Drivers tab — inline point adjust (+ or −) with required reason
-//   • Ledger drawer per driver
-// ============================================================
+  // ============================================================
+  // UPDATED AdminUsersPage — drop this component into App.jsx,
+  // replacing the existing AdminUsersPage function.
+  //
+  // New features:
+  //   • "Applications" tab — all sponsor-driver apps across all orgs
+  //   • Filter by status (all / pending / accepted / rejected / cancelled)
+  //   • Accept, Reject, Cancel any application with an optional reason
+  //   • Drivers tab — inline point adjust (+ or −) with required reason
+  //   • Ledger drawer per driver
+  // ============================================================
 
-const AdminUsersPage = () => {
-  const [activeTab, setActiveTab] = useState('applications')
-  const [sponsors, setSponsors] = useState([])
-  const [drivers, setDrivers] = useState([])
-  const [applications, setApplications] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [expandedUser, setExpandedUser] = useState(null)
+  const AdminUsersPage = () => {
+    const [activeTab, setActiveTab] = useState('applications')
+    const [sponsors, setSponsors] = useState([])
+    const [drivers, setDrivers] = useState([])
+    const [applications, setApplications] = useState([])
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState('')
+    const [success, setSuccess] = useState('')
+    const [searchQuery, setSearchQuery] = useState('')
+    const [expandedUser, setExpandedUser] = useState(null)
 
-  // Applications filters
-  const [appStatusFilter, setAppStatusFilter] = useState('all')
+    // Applications filters
+    const [appStatusFilter, setAppStatusFilter] = useState('all')
 
-  // Per-application: notes/reason being typed before submit
-  const [appNotesById, setAppNotesById] = useState({})
-  // Which application has its reason input open
-  const [appActionById, setAppActionById] = useState({}) // { [id]: 'accept' | 'reject' | 'cancel' | null }
+    // Per-application: notes/reason being typed before submit
+    const [appNotesById, setAppNotesById] = useState({})
+    // Which application has its reason input open
+    const [appActionById, setAppActionById] = useState({}) // { [id]: 'accept' | 'reject' | 'cancel' | null }
 
-  // Driver point adjustment state
-  const [deltaById, setDeltaById] = useState({})
-  const [reasonById, setReasonById] = useState({})
-  const [selectedLedgerDriver, setSelectedLedgerDriver] = useState(null)
-  const [ledger, setLedger] = useState([])
-  const [ledgerBalance, setLedgerBalance] = useState(null)
-  const [ledgerLoading, setLedgerLoading] = useState(false)
+    // Driver point adjustment state
+    const [deltaById, setDeltaById] = useState({})
+    const [reasonById, setReasonById] = useState({})
+    const [selectedLedgerDriver, setSelectedLedgerDriver] = useState(null)
+    const [ledger, setLedger] = useState([])
+    const [ledgerBalance, setLedgerBalance] = useState(null)
+    const [ledgerLoading, setLedgerLoading] = useState(false)
 
-  // Transactions tab
-  const [transactions, setTransactions] = useState([])
-  const [txLoading, setTxLoading] = useState(false)
-  const [txDriverFilter, setTxDriverFilter] = useState('')
-  const [txSponsorFilter, setTxSponsorFilter] = useState('')
-  const [txDateFrom, setTxDateFrom] = useState('')
-  const [txDateTo, setTxDateTo] = useState('')
+    // Transactions tab
+    const [transactions, setTransactions] = useState([])
+    const [txLoading, setTxLoading] = useState(false)
+    const [txDriverFilter, setTxDriverFilter] = useState('')
+    const [txSponsorFilter, setTxSponsorFilter] = useState('')
+    const [txDateFrom, setTxDateFrom] = useState('')
+    const [txDateTo, setTxDateTo] = useState('')
 
-  // ── Data loaders ──────────────────────────────────────────
+    // ── Data loaders ──────────────────────────────────────────
 
-  const loadAll = async () => {
-    setError('')
-    setSuccess('')
-    setLoading(true)
-    try {
-      const [sponsorData, driverData, appData] = await Promise.allSettled([
-        api('/users?role=sponsor', { method: 'GET' }),
-        api('/users?role=driver', { method: 'GET' }),
-        api('/applications', { method: 'GET' }),
+    const loadAll = async () => {
+      setError('')
+      setSuccess('')
+      setLoading(true)
+      try {
+        const [sponsorData, driverData, appData] = await Promise.allSettled([
+          api('/users?role=sponsor', { method: 'GET' }),
+          api('/users?role=driver', { method: 'GET' }),
+          api('/applications', { method: 'GET' }),
+        ])
+        if (sponsorData.status === 'fulfilled') {
+          setSponsors(Array.isArray(sponsorData.value?.users) ? sponsorData.value.users : [])
+        } else {
+          setError(prev => prev + (sponsorData.reason?.message || 'Failed to load sponsors') + ' ')
+        }
+        if (driverData.status === 'fulfilled') {
+          setDrivers(Array.isArray(driverData.value?.users) ? driverData.value.users : [])
+        } else {
+          setError(prev => prev + (driverData.reason?.message || 'Failed to load drivers'))
+        }
+        if (appData.status === 'fulfilled') {
+          setApplications(Array.isArray(appData.value?.applications) ? appData.value.applications : [])
+        } else {
+          setError(prev => prev + (appData.reason?.message || 'Failed to load applications'))
+        }
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    const reloadApplications = async () => {
+      try {
+        const data = await api('/applications', { method: 'GET' })
+        setApplications(Array.isArray(data?.applications) ? data.applications : [])
+      } catch (e) {
+        setError(e?.message || 'Failed to reload applications')
+      }
+    }
+
+    const openLedger = async (driver) => {
+      const driverId = driver?.id ?? driver?.user_id
+      if (!driverId) return
+      setSelectedLedgerDriver(driver)
+      setLedger([])
+      setLedgerBalance(null)
+      setLedgerLoading(true)
+      try {
+        const data = await api(`/drivers/${driverId}/points`, { method: 'GET' })
+        setLedger(Array.isArray(data?.ledger) ? data.ledger : [])
+        setLedgerBalance(data?.balance ?? null)
+      } catch (e) {
+        setError(e?.message || 'Failed to load ledger')
+      } finally {
+        setLedgerLoading(false)
+      }
+    }
+
+    const loadTransactions = async () => {
+      setTxLoading(true)
+      setError('')
+      try {
+        const params = new URLSearchParams()
+        // resolve driver name filter to id
+        if (txDriverFilter.trim()) {
+          const match = drivers.find(d =>
+            String(d.id) === txDriverFilter.trim() ||
+            (d.email || '').toLowerCase().includes(txDriverFilter.trim().toLowerCase()) ||
+            [d.first_name, d.last_name].filter(Boolean).join(' ').toLowerCase().includes(txDriverFilter.trim().toLowerCase())
+          )
+          if (match) params.set('driver_id', match.id)
+        }
+        if (txSponsorFilter.trim()) {
+          const match = sponsors.find(s =>
+            String(s.id) === txSponsorFilter.trim() ||
+            (s.email || '').toLowerCase().includes(txSponsorFilter.trim().toLowerCase()) ||
+            (s.company_name || '').toLowerCase().includes(txSponsorFilter.trim().toLowerCase())
+          )
+          if (match) params.set('sponsor_id', match.id)
+        }
+        if (txDateFrom) params.set('date_from', txDateFrom)
+        if (txDateTo) params.set('date_to', txDateTo)
+
+        const qs = params.toString()
+        const data = await api(`/transactions${qs ? '?' + qs : ''}`, { method: 'GET' })
+        setTransactions(Array.isArray(data?.transactions) ? data.transactions : [])
+      } catch (e) {
+        setError(e?.message || 'Failed to load transactions')
+      } finally {
+        setTxLoading(false)
+      }
+    }
+
+    const exportCSV = () => {
+      if (transactions.length === 0) return
+      const headers = ['ID', 'Date', 'Driver ID', 'Driver Name', 'Driver Email', 'Sponsor', 'Sponsor Email', 'Delta', 'Reason']
+      const rows = transactions.map(t => [
+        t.id,
+        t.created_at ? new Date(t.created_at).toLocaleString() : '',
+        t.driver_id,
+        (t.driver_name || '').trim(),
+        t.driver_email || '',
+        t.sponsor_company || (t.sponsor_id == null ? 'Admin' : `#${t.sponsor_id}`),
+        t.sponsor_email || '',
+        t.delta,
+        `"${(t.reason || '').replace(/"/g, '""')}"`
       ])
-      if (sponsorData.status === 'fulfilled') {
-        setSponsors(Array.isArray(sponsorData.value?.users) ? sponsorData.value.users : [])
-      } else {
-        setError(prev => prev + (sponsorData.reason?.message || 'Failed to load sponsors') + ' ')
-      }
-      if (driverData.status === 'fulfilled') {
-        setDrivers(Array.isArray(driverData.value?.users) ? driverData.value.users : [])
-      } else {
-        setError(prev => prev + (driverData.reason?.message || 'Failed to load drivers'))
-      }
-      if (appData.status === 'fulfilled') {
-        setApplications(Array.isArray(appData.value?.applications) ? appData.value.applications : [])
-      } else {
-        setError(prev => prev + (appData.reason?.message || 'Failed to load applications'))
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const reloadApplications = async () => {
-    try {
-      const data = await api('/applications', { method: 'GET' })
-      setApplications(Array.isArray(data?.applications) ? data.applications : [])
-    } catch (e) {
-      setError(e?.message || 'Failed to reload applications')
-    }
-  }
-
-  const openLedger = async (driver) => {
-    const driverId = driver?.id ?? driver?.user_id
-    if (!driverId) return
-    setSelectedLedgerDriver(driver)
-    setLedger([])
-    setLedgerBalance(null)
-    setLedgerLoading(true)
-    try {
-      const data = await api(`/drivers/${driverId}/points`, { method: 'GET' })
-      setLedger(Array.isArray(data?.ledger) ? data.ledger : [])
-      setLedgerBalance(data?.balance ?? null)
-    } catch (e) {
-      setError(e?.message || 'Failed to load ledger')
-    } finally {
-      setLedgerLoading(false)
-    }
-  }
-
-  const loadTransactions = async () => {
-    setTxLoading(true)
-    setError('')
-    try {
-      const params = new URLSearchParams()
-      // resolve driver name filter to id
-      if (txDriverFilter.trim()) {
-        const match = drivers.find(d =>
-          String(d.id) === txDriverFilter.trim() ||
-          (d.email || '').toLowerCase().includes(txDriverFilter.trim().toLowerCase()) ||
-          [d.first_name, d.last_name].filter(Boolean).join(' ').toLowerCase().includes(txDriverFilter.trim().toLowerCase())
-        )
-        if (match) params.set('driver_id', match.id)
-      }
-      if (txSponsorFilter.trim()) {
-        const match = sponsors.find(s =>
-          String(s.id) === txSponsorFilter.trim() ||
-          (s.email || '').toLowerCase().includes(txSponsorFilter.trim().toLowerCase()) ||
-          (s.company_name || '').toLowerCase().includes(txSponsorFilter.trim().toLowerCase())
-        )
-        if (match) params.set('sponsor_id', match.id)
-      }
-      if (txDateFrom) params.set('date_from', txDateFrom)
-      if (txDateTo)   params.set('date_to',   txDateTo)
-
-      const qs = params.toString()
-      const data = await api(`/transactions${qs ? '?' + qs : ''}`, { method: 'GET' })
-      setTransactions(Array.isArray(data?.transactions) ? data.transactions : [])
-    } catch (e) {
-      setError(e?.message || 'Failed to load transactions')
-    } finally {
-      setTxLoading(false)
-    }
-  }
-
-  const exportCSV = () => {
-    if (transactions.length === 0) return
-    const headers = ['ID', 'Date', 'Driver ID', 'Driver Name', 'Driver Email', 'Sponsor', 'Sponsor Email', 'Delta', 'Reason']
-    const rows = transactions.map(t => [
-      t.id,
-      t.created_at ? new Date(t.created_at).toLocaleString() : '',
-      t.driver_id,
-      (t.driver_name || '').trim(),
-      t.driver_email || '',
-      t.sponsor_company || (t.sponsor_id == null ? 'Admin' : `#${t.sponsor_id}`),
-      t.sponsor_email || '',
-      t.delta,
-      `"${(t.reason || '').replace(/"/g, '""')}"`
-    ])
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `point-transactions-${new Date().toISOString().slice(0,10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  useEffect(() => { loadAll() }, [])
-
-  // ── Application action ────────────────────────────────────
-
-  const handleAppAction = async (appId, newStatus) => {
-    setError('')
-    setSuccess('')
-    const notes = (appNotesById[appId] || '').trim()
-
-    try {
-      await api(`/applications/${appId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: newStatus, notes: notes || undefined }),
-      })
-      setSuccess(`Application #${appId} updated to "${newStatus}".`)
-      setAppNotesById(prev => { const n = { ...prev }; delete n[appId]; return n })
-      setAppActionById(prev => { const n = { ...prev }; delete n[appId]; return n })
-      await reloadApplications()
-    } catch (e) {
-      setError(e?.message || `Failed to ${newStatus} application`)
-    }
-  }
-
-  // ── Driver point adjustment ───────────────────────────────
-
-  const adjustPoints = async (driver) => {
-    setError('')
-    setSuccess('')
-    const driverId = driver?.id ?? driver?.user_id
-    if (!driverId) { setError('Missing driver id'); return }
-
-    const rawDelta = deltaById[driverId]
-    const delta = Number(rawDelta)
-    if (!Number.isFinite(delta) || delta === 0) {
-      setError('Enter a non-zero number (positive to add, negative to deduct).')
-      return
+      const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
+      const blob = new Blob([csv], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `point-transactions-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
     }
 
-    const reason = (reasonById[driverId] || '').trim()
-    if (!reason) { setError('A reason is required.'); return }
+    useEffect(() => { loadAll() }, [])
 
-    try {
-      const points = Math.abs(delta)
-      if (delta > 0) {
-        await api(`/drivers/${driverId}/points/add`, {
-          method: 'POST',
-          body: JSON.stringify({ points, reason }),
+    // ── Application action ────────────────────────────────────
+
+    const handleAppAction = async (appId, newStatus) => {
+      setError('')
+      setSuccess('')
+      const notes = (appNotesById[appId] || '').trim()
+
+      try {
+        await api(`/applications/${appId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ status: newStatus, notes: notes || undefined }),
         })
-      } else {
-        await api(`/drivers/${driverId}/points/deduct`, {
-          method: 'POST',
-          body: JSON.stringify({ points, reason }),
-        })
+        setSuccess(`Application #${appId} updated to "${newStatus}".`)
+        setAppNotesById(prev => { const n = { ...prev }; delete n[appId]; return n })
+        setAppActionById(prev => { const n = { ...prev }; delete n[appId]; return n })
+        await reloadApplications()
+      } catch (e) {
+        setError(e?.message || `Failed to ${newStatus} application`)
       }
-      setSuccess(`Updated points for driver ${driverId}.`)
-      setDeltaById(prev => ({ ...prev, [driverId]: '' }))
-      setReasonById(prev => ({ ...prev, [driverId]: '' }))
-      // Refresh driver list to show updated balance
-      const data = await api('/users?role=driver', { method: 'GET' })
-      setDrivers(Array.isArray(data?.users) ? data.users : [])
-      // Refresh ledger if open for this driver
-      if ((selectedLedgerDriver?.id ?? selectedLedgerDriver?.user_id) === driverId) {
-        await openLedger(driver)
+    }
+
+    // ── Driver point adjustment ───────────────────────────────
+
+    const adjustPoints = async (driver) => {
+      setError('')
+      setSuccess('')
+      const driverId = driver?.id ?? driver?.user_id
+      if (!driverId) { setError('Missing driver id'); return }
+
+      const rawDelta = deltaById[driverId]
+      const delta = Number(rawDelta)
+      if (!Number.isFinite(delta) || delta === 0) {
+        setError('Enter a non-zero number (positive to add, negative to deduct).')
+        return
       }
-    } catch (e) {
-      setError(e?.message || 'Failed to adjust points')
+
+      const reason = (reasonById[driverId] || '').trim()
+      if (!reason) { setError('A reason is required.'); return }
+
+      try {
+        const points = Math.abs(delta)
+        if (delta > 0) {
+          await api(`/drivers/${driverId}/points/add`, {
+            method: 'POST',
+            body: JSON.stringify({ points, reason }),
+          })
+        } else {
+          await api(`/drivers/${driverId}/points/deduct`, {
+            method: 'POST',
+            body: JSON.stringify({ points, reason }),
+          })
+        }
+        setSuccess(`Updated points for driver ${driverId}.`)
+        setDeltaById(prev => ({ ...prev, [driverId]: '' }))
+        setReasonById(prev => ({ ...prev, [driverId]: '' }))
+        // Refresh driver list to show updated balance
+        const data = await api('/users?role=driver', { method: 'GET' })
+        setDrivers(Array.isArray(data?.users) ? data.users : [])
+        // Refresh ledger if open for this driver
+        if ((selectedLedgerDriver?.id ?? selectedLedgerDriver?.user_id) === driverId) {
+          await openLedger(driver)
+        }
+      } catch (e) {
+        setError(e?.message || 'Failed to adjust points')
+      }
     }
-  }
 
-  const removeFromSponsor = async (driver) => {
-  const driverId = driver?.id ?? driver?.user_id
-  if (!driverId) { setError('Missing driver id'); return }
+    const removeFromSponsor = async (driver) => {
+      const driverId = driver?.id ?? driver?.user_id
+      if (!driverId) { setError('Missing driver id'); return }
 
-  const name = [driver.first_name, driver.last_name].filter(Boolean).join(' ') || driver.email || `Driver ${driverId}`
-  if (!window.confirm(`Remove ${name} from their sponsor org? This will cancel their accepted application.`)) return
+      const name = [driver.first_name, driver.last_name].filter(Boolean).join(' ') || driver.email || `Driver ${driverId}`
+      if (!window.confirm(`Remove ${name} from their sponsor org? This will cancel their accepted application.`)) return
 
-  setError('')
-  setSuccess('')
-  try {
-    await api(`/drivers/${driverId}/sponsor`, { method: 'DELETE' })
-    setSuccess(`Removed ${name} from their sponsor org.`)
-    const data = await api('/users?role=driver', { method: 'GET' })
-    setDrivers(Array.isArray(data?.users) ? data.users : [])
-    await reloadApplications()
-  } catch (e) {
-    setError(e?.message || 'Failed to remove from sponsor')
-  }
-}
-
-  // ── Filtered data ─────────────────────────────────────────
-
-  const filteredApplications = useMemo(() => {
-    let list = applications
-    if (appStatusFilter !== 'all') {
-      list = list.filter(a => a.status === appStatusFilter)
+      setError('')
+      setSuccess('')
+      try {
+        await api(`/drivers/${driverId}/sponsor`, { method: 'DELETE' })
+        setSuccess(`Removed ${name} from their sponsor org.`)
+        const data = await api('/users?role=driver', { method: 'GET' })
+        setDrivers(Array.isArray(data?.users) ? data.users : [])
+        await reloadApplications()
+      } catch (e) {
+        setError(e?.message || 'Failed to remove from sponsor')
+      }
     }
-    const q = (searchQuery || '').trim().toLowerCase()
-    if (!q) return list
-    return list.filter(a =>
-      String(a.id ?? '').includes(q) ||
-      String(a.driver_email ?? '').toLowerCase().includes(q) ||
-      String(a.driver_name ?? '').toLowerCase().includes(q) ||
-      String(a.sponsor_email ?? '').toLowerCase().includes(q) ||
-      String(a.sponsor_company ?? '').toLowerCase().includes(q) ||
-      String(a.ad_title ?? '').toLowerCase().includes(q)
-    )
-  }, [applications, appStatusFilter, searchQuery])
 
-  const filteredSponsors = useMemo(() => {
-    const q = (searchQuery || '').trim().toLowerCase()
-    if (!q) return sponsors
-    return sponsors.filter(s =>
-      String(s.id ?? '').includes(q) ||
-      String(s.email ?? '').toLowerCase().includes(q) ||
-      String(s.company_name ?? '').toLowerCase().includes(q)
-    )
-  }, [sponsors, searchQuery])
+    // ── Filtered data ─────────────────────────────────────────
 
-  const filteredDrivers = useMemo(() => {
-    const q = (searchQuery || '').trim().toLowerCase()
-    if (!q) return drivers
-    return drivers.filter(d =>
-      String(d.id ?? '').includes(q) ||
-      String(d.email ?? '').toLowerCase().includes(q) ||
-      String([d.first_name, d.last_name].filter(Boolean).join(' ')).toLowerCase().includes(q) ||
-      String(d.sponsor_org ?? '').toLowerCase().includes(q)
-    )
-  }, [drivers, searchQuery])
+    const filteredApplications = useMemo(() => {
+      let list = applications
+      if (appStatusFilter !== 'all') {
+        list = list.filter(a => a.status === appStatusFilter)
+      }
+      const q = (searchQuery || '').trim().toLowerCase()
+      if (!q) return list
+      return list.filter(a =>
+        String(a.id ?? '').includes(q) ||
+        String(a.driver_email ?? '').toLowerCase().includes(q) ||
+        String(a.driver_name ?? '').toLowerCase().includes(q) ||
+        String(a.sponsor_email ?? '').toLowerCase().includes(q) ||
+        String(a.sponsor_company ?? '').toLowerCase().includes(q) ||
+        String(a.ad_title ?? '').toLowerCase().includes(q)
+      )
+    }, [applications, appStatusFilter, searchQuery])
 
-  // ── UI helpers ───────────────────────────────────────────
+    const filteredSponsors = useMemo(() => {
+      const q = (searchQuery || '').trim().toLowerCase()
+      if (!q) return sponsors
+      return sponsors.filter(s =>
+        String(s.id ?? '').includes(q) ||
+        String(s.email ?? '').toLowerCase().includes(q) ||
+        String(s.company_name ?? '').toLowerCase().includes(q)
+      )
+    }, [sponsors, searchQuery])
 
-  const tabStyle = (tab) => ({
-    padding: '8px 20px',
-    borderRadius: '6px 6px 0 0',
-    border: '1px solid var(--border)',
-    borderBottom: activeTab === tab ? '2px solid white' : '1px solid var(--border)',
-    background: activeTab === tab ? 'white' : '#f3f4f6',
-    fontWeight: activeTab === tab ? 700 : 400,
-    cursor: 'pointer',
-    marginBottom: -1,
-  })
+    const filteredDrivers = useMemo(() => {
+      const q = (searchQuery || '').trim().toLowerCase()
+      if (!q) return drivers
+      return drivers.filter(d =>
+        String(d.id ?? '').includes(q) ||
+        String(d.email ?? '').toLowerCase().includes(q) ||
+        String([d.first_name, d.last_name].filter(Boolean).join(' ')).toLowerCase().includes(q) ||
+        String(d.sponsor_org ?? '').toLowerCase().includes(q)
+      )
+    }, [drivers, searchQuery])
 
-  const statusBadge = (status) => {
-    const map = {
-      accepted: { bg: '#d4edda', color: '#155724', label: 'Accepted' },
-      pending:  { bg: '#fff3cd', color: '#856404', label: 'Pending' },
-      rejected: { bg: '#f8d7da', color: '#721c24', label: 'Rejected' },
-      cancelled:{ bg: '#e2e3e5', color: '#383d41', label: 'Cancelled' },
-      removed:  { bg: '#e2e3e5', color: '#383d41', label: 'Removed' },
-    }
-    const s = map[status] || { bg: '#f3f4f6', color: '#6b7280', label: status }
-    return (
-      <span style={{
-        padding: '3px 10px',
-        borderRadius: 999,
-        fontSize: '0.8em',
-        fontWeight: 600,
-        backgroundColor: s.bg,
-        color: s.color,
-        whiteSpace: 'nowrap',
-      }}>
-        {s.label}
-      </span>
-    )
-  }
+    // ── UI helpers ───────────────────────────────────────────
 
-  const DetailGrid = ({ fields }) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-      {fields.map(({ label, value }) => (
-        <div key={label} style={{ padding: '10px 14px', borderRadius: 6, background: '#fff', border: '1px solid var(--border)' }}>
-          <p style={{ margin: '0 0 2px', fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af' }}>{label}</p>
-          <p style={{ margin: 0, fontSize: '0.875em', fontWeight: 500, color: '#374151', wordBreak: 'break-all' }}>{String(value ?? '—')}</p>
-        </div>
-      ))}
-    </div>
-  )
-
-  // Status counts for badge display
-  const statusCounts = useMemo(() => {
-    const counts = { all: applications.length, pending: 0, accepted: 0, rejected: 0, cancelled: 0 }
-    applications.forEach(a => {
-      if (a.status in counts) counts[a.status]++
+    const tabStyle = (tab) => ({
+      padding: '8px 20px',
+      borderRadius: '6px 6px 0 0',
+      border: '1px solid var(--border)',
+      borderBottom: activeTab === tab ? '2px solid white' : '1px solid var(--border)',
+      background: activeTab === tab ? 'white' : '#f3f4f6',
+      fontWeight: activeTab === tab ? 700 : 400,
+      cursor: 'pointer',
+      marginBottom: -1,
     })
-    return counts
-  }, [applications])
 
-  // ── Render ───────────────────────────────────────────────
+    const statusBadge = (status) => {
+      const map = {
+        accepted: { bg: '#d4edda', color: '#155724', label: 'Accepted' },
+        pending: { bg: '#fff3cd', color: '#856404', label: 'Pending' },
+        rejected: { bg: '#f8d7da', color: '#721c24', label: 'Rejected' },
+        cancelled: { bg: '#e2e3e5', color: '#383d41', label: 'Cancelled' },
+        removed: { bg: '#e2e3e5', color: '#383d41', label: 'Removed' },
+      }
+      const s = map[status] || { bg: '#f3f4f6', color: '#6b7280', label: status }
+      return (
+        <span style={{
+          padding: '3px 10px',
+          borderRadius: 999,
+          fontSize: '0.8em',
+          fontWeight: 600,
+          backgroundColor: s.bg,
+          color: s.color,
+          whiteSpace: 'nowrap',
+        }}>
+          {s.label}
+        </span>
+      )
+    }
 
-  return (
-    <div>
-      <Navigation />
-      <main className="app-main">
-        <h1 className="page-title">Admin — User & Application Management</h1>
-        <p className="page-subtitle">Full visibility across drivers, sponsors, and all applications</p>
+    const DetailGrid = ({ fields }) => (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+        {fields.map(({ label, value }) => (
+          <div key={label} style={{ padding: '10px 14px', borderRadius: 6, background: '#fff', border: '1px solid var(--border)' }}>
+            <p style={{ margin: '0 0 2px', fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af' }}>{label}</p>
+            <p style={{ margin: 0, fontSize: '0.875em', fontWeight: 500, color: '#374151', wordBreak: 'break-all' }}>{String(value ?? '—')}</p>
+          </div>
+        ))}
+      </div>
+    )
 
-        {/* ── Summary stats ── */}
-        <div className="stats-grid" style={{ marginBottom: 24 }}>
-          <div className="stat-card">
-            <p className="stat-label">Total Sponsors</p>
-            <p className="stat-value stat-value-blue">{sponsors.length}</p>
-          </div>
-          <div className="stat-card">
-            <p className="stat-label">Total Drivers</p>
-            <p className="stat-value stat-value-green">{drivers.length}</p>
-          </div>
-          <div className="stat-card">
-            <p className="stat-label">All Applications</p>
-            <p className="stat-value stat-value-amber">{applications.length}</p>
-          </div>
-          <div className="stat-card">
-            <p className="stat-label">Pending Review</p>
-            <p className="stat-value" style={{ color: '#d97706' }}>{statusCounts.pending}</p>
-          </div>
-        </div>
+    // Status counts for badge display
+    const statusCounts = useMemo(() => {
+      const counts = { all: applications.length, pending: 0, accepted: 0, rejected: 0, cancelled: 0 }
+      applications.forEach(a => {
+        if (a.status in counts) counts[a.status]++
+      })
+      return counts
+    }, [applications])
 
-        {/* ── Search + refresh ── */}
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              className="form-input"
-              style={{ flex: 1, minWidth: 220 }}
-              placeholder="Search by name, email, company, or ID…"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
-            <button className="btn btn-primary" type="button" onClick={loadAll} disabled={loading}>
-              {loading ? 'Refreshing…' : '↺ Refresh'}
+    // ── Render ───────────────────────────────────────────────
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Admin — User & Application Management</h1>
+          <p className="page-subtitle">Full visibility across drivers, sponsors, and all applications</p>
+
+          {/* ── Summary stats ── */}
+          <div className="stats-grid" style={{ marginBottom: 24 }}>
+            <div className="stat-card">
+              <p className="stat-label">Total Sponsors</p>
+              <p className="stat-value stat-value-blue">{sponsors.length}</p>
+            </div>
+            <div className="stat-card">
+              <p className="stat-label">Total Drivers</p>
+              <p className="stat-value stat-value-green">{drivers.length}</p>
+            </div>
+            <div className="stat-card">
+              <p className="stat-label">All Applications</p>
+              <p className="stat-value stat-value-amber">{applications.length}</p>
+            </div>
+            <div className="stat-card">
+              <p className="stat-label">Pending Review</p>
+              <p className="stat-value" style={{ color: '#d97706' }}>{statusCounts.pending}</p>
+            </div>
+          </div>
+
+          {/* ── Search + refresh ── */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                className="form-input"
+                style={{ flex: 1, minWidth: 220 }}
+                placeholder="Search by name, email, company, or ID…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+              <button className="btn btn-primary" type="button" onClick={loadAll} disabled={loading}>
+                {loading ? 'Refreshing…' : '↺ Refresh'}
+              </button>
+            </div>
+          </div>
+
+          {error && <p className="form-footer" style={{ color: 'crimson', marginBottom: 8 }}>{error}</p>}
+          {success && <p className="form-footer" style={{ color: '#16a34a', marginBottom: 8 }}>{success}</p>}
+
+          {/* ── Tabs ── */}
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button type="button" style={tabStyle('applications')} onClick={() => { setActiveTab('applications'); setExpandedUser(null) }}>
+              Applications ({filteredApplications.length})
+            </button>
+            <button type="button" style={tabStyle('sponsors')} onClick={() => { setActiveTab('sponsors'); setExpandedUser(null) }}>
+              Sponsor Orgs ({filteredSponsors.length})
+            </button>
+            <button type="button" style={tabStyle('drivers')} onClick={() => { setActiveTab('drivers'); setExpandedUser(null); setSelectedLedgerDriver(null) }}>
+              Drivers ({filteredDrivers.length})
+            </button>
+            <button type="button" style={tabStyle('transactions')} onClick={() => { setActiveTab('transactions'); setExpandedUser(null) }}>
+              Transactions
             </button>
           </div>
-        </div>
 
-        {error   && <p className="form-footer" style={{ color: 'crimson',  marginBottom: 8 }}>{error}</p>}
-        {success && <p className="form-footer" style={{ color: '#16a34a', marginBottom: 8 }}>{success}</p>}
-
-        {/* ── Tabs ── */}
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button type="button" style={tabStyle('applications')} onClick={() => { setActiveTab('applications'); setExpandedUser(null) }}>
-            Applications ({filteredApplications.length})
-          </button>
-          <button type="button" style={tabStyle('sponsors')} onClick={() => { setActiveTab('sponsors'); setExpandedUser(null) }}>
-            Sponsor Orgs ({filteredSponsors.length})
-          </button>
-          <button type="button" style={tabStyle('drivers')} onClick={() => { setActiveTab('drivers'); setExpandedUser(null); setSelectedLedgerDriver(null) }}>
-            Drivers ({filteredDrivers.length})
-          </button>
-          <button type="button" style={tabStyle('transactions')} onClick={() => { setActiveTab('transactions'); setExpandedUser(null) }}>
-            Transactions
-          </button>
-        </div>
-
-        {/* ══════════════════════════════════════════════════
+          {/* ══════════════════════════════════════════════════
             TAB: APPLICATIONS
         ══════════════════════════════════════════════════ */}
-        {activeTab === 'applications' && (
-          <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
+          {activeTab === 'applications' && (
+            <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
 
-            {/* Status filter pills */}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-              {['all', 'pending', 'accepted', 'rejected', 'cancelled'].map(s => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setAppStatusFilter(s)}
-                  style={{
-                    padding: '4px 14px',
-                    borderRadius: 999,
-                    border: '1px solid var(--border)',
-                    fontSize: '0.82em',
-                    fontWeight: appStatusFilter === s ? 700 : 400,
-                    cursor: 'pointer',
-                    background: appStatusFilter === s ? '#1e40af' : '#f9fafb',
-                    color: appStatusFilter === s ? '#fff' : '#374151',
-                  }}
-                >
-                  {s.charAt(0).toUpperCase() + s.slice(1)}{' '}
-                  <span style={{ opacity: 0.75 }}>({statusCounts[s] ?? 0})</span>
-                </button>
-              ))}
-            </div>
+              {/* Status filter pills */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                {['all', 'pending', 'accepted', 'rejected', 'cancelled'].map(s => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setAppStatusFilter(s)}
+                    style={{
+                      padding: '4px 14px',
+                      borderRadius: 999,
+                      border: '1px solid var(--border)',
+                      fontSize: '0.82em',
+                      fontWeight: appStatusFilter === s ? 700 : 400,
+                      cursor: 'pointer',
+                      background: appStatusFilter === s ? '#1e40af' : '#f9fafb',
+                      color: appStatusFilter === s ? '#fff' : '#374151',
+                    }}
+                  >
+                    {s.charAt(0).toUpperCase() + s.slice(1)}{' '}
+                    <span style={{ opacity: 0.75 }}>({statusCounts[s] ?? 0})</span>
+                  </button>
+                ))}
+              </div>
 
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Driver</th>
-                    <th>Sponsor / Org</th>
-                    <th>Ad</th>
-                    <th>Status</th>
-                    <th>Applied</th>
-                    <th>Notes</th>
-                    <th style={{ minWidth: 280 }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading && applications.length === 0 ? (
-                    <tr><td colSpan="8" className="table-empty">Loading…</td></tr>
-                  ) : filteredApplications.length === 0 ? (
-                    <tr><td colSpan="8" className="table-empty">No applications match the current filter</td></tr>
-                  ) : filteredApplications.map(app => {
-                    const pendingAction = appActionById[app.id] // 'accept' | 'reject' | 'cancel'
-                    const isEditable = app.status === 'pending' || app.status === 'accepted'
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Driver</th>
+                      <th>Sponsor / Org</th>
+                      <th>Ad</th>
+                      <th>Status</th>
+                      <th>Applied</th>
+                      <th>Notes</th>
+                      <th style={{ minWidth: 280 }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading && applications.length === 0 ? (
+                      <tr><td colSpan="8" className="table-empty">Loading…</td></tr>
+                    ) : filteredApplications.length === 0 ? (
+                      <tr><td colSpan="8" className="table-empty">No applications match the current filter</td></tr>
+                    ) : filteredApplications.map(app => {
+                      const pendingAction = appActionById[app.id] // 'accept' | 'reject' | 'cancel'
+                      const isEditable = app.status === 'pending' || app.status === 'accepted'
 
-                    return (
-                      <React.Fragment key={String(app.id)}>
-                        <tr>
-                          <td style={{ fontFamily: 'monospace', fontSize: '0.82em' }}>{app.id}</td>
-                          <td>
-                            <div style={{ lineHeight: 1.4 }}>
-                              <strong style={{ fontSize: '0.88em' }}>
-                                {(app.driver_name || '').trim() || '—'}
-                              </strong>
-                              <br />
-                              <span style={{ fontSize: '0.78em', color: '#6b7280' }}>{app.driver_email}</span>
-                            </div>
-                          </td>
-                          <td>
-                            <div style={{ lineHeight: 1.4 }}>
-                              <strong style={{ fontSize: '0.88em' }}>
-                                {app.sponsor_company || '—'}
-                              </strong>
-                              <br />
-                              <span style={{ fontSize: '0.78em', color: '#6b7280' }}>{app.sponsor_email}</span>
-                            </div>
-                          </td>
-                          <td style={{ fontSize: '0.85em', color: '#374151', maxWidth: 160 }}>
-                            {app.ad_title || <em style={{ color: '#9ca3af' }}>—</em>}
-                          </td>
-                          <td>{statusBadge(app.status)}</td>
-                          <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap', color: '#6b7280' }}>
-                            {app.applied_at ? new Date(app.applied_at).toLocaleDateString() : '—'}
-                          </td>
-                          <td style={{ fontSize: '0.82em', color: '#555', maxWidth: 160 }}>
-                            {app.notes || <em style={{ color: '#9ca3af' }}>—</em>}
-                          </td>
-                          <td>
-                            {isEditable ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                {/* Action buttons */}
-                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                  {app.status === 'pending' && (
+                      return (
+                        <React.Fragment key={String(app.id)}>
+                          <tr>
+                            <td style={{ fontFamily: 'monospace', fontSize: '0.82em' }}>{app.id}</td>
+                            <td>
+                              <div style={{ lineHeight: 1.4 }}>
+                                <strong style={{ fontSize: '0.88em' }}>
+                                  {(app.driver_name || '').trim() || '—'}
+                                </strong>
+                                <br />
+                                <span style={{ fontSize: '0.78em', color: '#6b7280' }}>{app.driver_email}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ lineHeight: 1.4 }}>
+                                <strong style={{ fontSize: '0.88em' }}>
+                                  {app.sponsor_company || '—'}
+                                </strong>
+                                <br />
+                                <span style={{ fontSize: '0.78em', color: '#6b7280' }}>{app.sponsor_email}</span>
+                              </div>
+                            </td>
+                            <td style={{ fontSize: '0.85em', color: '#374151', maxWidth: 160 }}>
+                              {app.ad_title || <em style={{ color: '#9ca3af' }}>—</em>}
+                            </td>
+                            <td>{statusBadge(app.status)}</td>
+                            <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap', color: '#6b7280' }}>
+                              {app.applied_at ? new Date(app.applied_at).toLocaleDateString() : '—'}
+                            </td>
+                            <td style={{ fontSize: '0.82em', color: '#555', maxWidth: 160 }}>
+                              {app.notes || <em style={{ color: '#9ca3af' }}>—</em>}
+                            </td>
+                            <td>
+                              {isEditable ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  {/* Action buttons */}
+                                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                    {app.status === 'pending' && (
+                                      <button
+                                        type="button"
+                                        className="btn btn-success"
+                                        style={{ fontSize: '0.8em', padding: '3px 10px' }}
+                                        onClick={() => setAppActionById(prev => ({
+                                          ...prev,
+                                          [app.id]: prev[app.id] === 'accept' ? null : 'accept'
+                                        }))}
+                                      >
+                                        ✓ Accept
+                                      </button>
+                                    )}
                                     <button
                                       type="button"
-                                      className="btn btn-success"
+                                      className="btn btn-danger"
                                       style={{ fontSize: '0.8em', padding: '3px 10px' }}
                                       onClick={() => setAppActionById(prev => ({
                                         ...prev,
-                                        [app.id]: prev[app.id] === 'accept' ? null : 'accept'
+                                        [app.id]: prev[app.id] === 'reject' ? null : 'reject'
                                       }))}
                                     >
-                                      ✓ Accept
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    className="btn btn-danger"
-                                    style={{ fontSize: '0.8em', padding: '3px 10px' }}
-                                    onClick={() => setAppActionById(prev => ({
-                                      ...prev,
-                                      [app.id]: prev[app.id] === 'reject' ? null : 'reject'
-                                    }))}
-                                  >
-                                    ✕ Reject
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn btn-secondary"
-                                    style={{ fontSize: '0.8em', padding: '3px 10px' }}
-                                    onClick={() => setAppActionById(prev => ({
-                                      ...prev,
-                                      [app.id]: prev[app.id] === 'cancel' ? null : 'cancel'
-                                    }))}
-                                  >
-                                    ⊘ Cancel
-                                  </button>
-                                </div>
-
-                                {/* Inline reason input — shown when an action is selected */}
-                                {pendingAction && (
-                                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                                    <input
-                                      className="form-input"
-                                      style={{ flex: 1, minWidth: 160, fontSize: '0.82em' }}
-                                      placeholder={`Reason for ${pendingAction} (optional)`}
-                                      value={appNotesById[app.id] || ''}
-                                      onChange={e => setAppNotesById(prev => ({ ...prev, [app.id]: e.target.value }))}
-                                    />
-                                    <button
-                                      type="button"
-                                      className="btn btn-primary"
-                                      style={{ fontSize: '0.8em', padding: '3px 12px', whiteSpace: 'nowrap' }}
-                                      onClick={() => {
-                                        const statusMap = { accept: 'accepted', reject: 'rejected', cancel: 'cancelled' }
-                                        handleAppAction(app.id, statusMap[pendingAction])
-                                      }}
-                                    >
-                                      Confirm
+                                      ✕ Reject
                                     </button>
                                     <button
                                       type="button"
-                                      className="btn btn-ghost"
+                                      className="btn btn-secondary"
                                       style={{ fontSize: '0.8em', padding: '3px 10px' }}
-                                      onClick={() => setAppActionById(prev => { const n = { ...prev }; delete n[app.id]; return n })}
+                                      onClick={() => setAppActionById(prev => ({
+                                        ...prev,
+                                        [app.id]: prev[app.id] === 'cancel' ? null : 'cancel'
+                                      }))}
                                     >
-                                      ✕
+                                      ⊘ Cancel
                                     </button>
                                   </div>
-                                )}
-                              </div>
-                            ) : (
-                              <span style={{ fontSize: '0.8em', color: '#9ca3af', fontStyle: 'italic' }}>
-                                No actions available
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      </React.Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
 
-        {/* ══════════════════════════════════════════════════
-            TAB: SPONSOR ORGS
-        ══════════════════════════════════════════════════ */}
-        {activeTab === 'sponsors' && (
-          <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Email</th>
-                    <th>Organization</th>
-                    <th>Joined</th>
-                    <th className="text-right">Drivers</th>
-                    <th style={{ width: 90 }}>Details</th>
-                    <th style={{ width: 110 }}>Remove Org</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading && sponsors.length === 0 ? (
-                    <tr><td colSpan="6" className="table-empty">Loading…</td></tr>
-                  ) : filteredSponsors.length === 0 ? (
-                    <tr><td colSpan="6" className="table-empty">No sponsors found</td></tr>
-                  ) : filteredSponsors.map(s => {
-                    const company = s.company_name || null
-                    const isExpanded = expandedUser === s.id
-                    return (
-                      <React.Fragment key={String(s.id)}>
-                        <tr>
-                          <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{s.id}</td>
-                          <td>{s.email}</td>
-                          <td>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: company ? '#22c55e' : '#d1d5db', flexShrink: 0 }} />
-                              {company || <em style={{ color: '#9ca3af' }}>Not set</em>}
-                            </span>
-                          </td>
-                          <td>{s.created_at ? new Date(s.created_at).toLocaleDateString() : '—'}</td>
-                          <td className="text-right">
-                            {typeof s.driver_count === 'number' ? <strong style={{ color: '#2563eb' }}>{s.driver_count}</strong> : '—'}
-                          </td>
-                          <td>
-                            <button className="btn btn-primary" style={{ fontSize: '0.8em', padding: '4px 10px' }}
-                              type="button" onClick={() => setExpandedUser(isExpanded ? null : s.id)}>
-                              {isExpanded ? 'Close' : 'View'}
-                            </button>
-                          </td>
-                        </tr>
-                        {isExpanded && (
-                          <tr style={{ background: '#f9fafb' }}>
-                            <td colSpan="6" style={{ padding: '16px 20px' }}>
-                              <DetailGrid fields={[
-                                { label: 'User ID', value: s.id },
-                                { label: 'Email', value: s.email },
-                                { label: 'Organization', value: company || 'Not set' },
-                                { label: 'First Name', value: s.first_name },
-                                { label: 'Last Name', value: s.last_name },
-                                { label: 'Phone', value: s.phone },
-                                { label: 'City', value: s.city },
-                                { label: 'State', value: s.state },
-                                { label: 'Active Drivers', value: typeof s.driver_count === 'number' ? s.driver_count : '—' },
-                                { label: 'Joined', value: s.created_at ? new Date(s.created_at).toLocaleString() : '—' },
-                              ]} />
+                                  {/* Inline reason input — shown when an action is selected */}
+                                  {pendingAction && (
+                                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                      <input
+                                        className="form-input"
+                                        style={{ flex: 1, minWidth: 160, fontSize: '0.82em' }}
+                                        placeholder={`Reason for ${pendingAction} (optional)`}
+                                        value={appNotesById[app.id] || ''}
+                                        onChange={e => setAppNotesById(prev => ({ ...prev, [app.id]: e.target.value }))}
+                                      />
+                                      <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        style={{ fontSize: '0.8em', padding: '3px 12px', whiteSpace: 'nowrap' }}
+                                        onClick={() => {
+                                          const statusMap = { accept: 'accepted', reject: 'rejected', cancel: 'cancelled' }
+                                          handleAppAction(app.id, statusMap[pendingAction])
+                                        }}
+                                      >
+                                        Confirm
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="btn btn-ghost"
+                                        style={{ fontSize: '0.8em', padding: '3px 10px' }}
+                                        onClick={() => setAppActionById(prev => { const n = { ...prev }; delete n[app.id]; return n })}
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: '0.8em', color: '#9ca3af', fontStyle: 'italic' }}>
+                                  No actions available
+                                </span>
+                              )}
                             </td>
                           </tr>
-                        )}
-                      </React.Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
+                        </React.Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* ══════════════════════════════════════════════════
-            TAB: DRIVERS (with point adjustment)
+          {/* ══════════════════════════════════════════════════
+            TAB: SPONSOR ORGS
         ══════════════════════════════════════════════════ */}
-        {activeTab === 'drivers' && (
-          <>
+          {activeTab === 'sponsors' && (
             <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
               <div className="table-wrap">
                 <table className="table">
                   <thead>
                     <tr>
                       <th>ID</th>
-                      <th>Name</th>
                       <th>Email</th>
-                      <th>Sponsor Org</th>
-                      <th className="text-right">Points</th>
-                      <th style={{ width: 200 }}>Adjust (±)</th>
-                      <th style={{ width: 240 }}>Reason (required)</th>
-                      <th style={{ width: 120 }}>Apply</th>
-                      <th style={{ width: 90 }}>Ledger</th>
+                      <th>Organization</th>
+                      <th>Joined</th>
+                      <th className="text-right">Drivers</th>
                       <th style={{ width: 90 }}>Details</th>
+                      <th style={{ width: 110 }}>Remove Org</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {loading && drivers.length === 0 ? (
-                      <tr><td colSpan="10" className="table-empty">Loading…</td></tr>
-                    ) : filteredDrivers.length === 0 ? (
-                      <tr><td colSpan="10" className="table-empty">No drivers found</td></tr>
-                    ) : filteredDrivers.map(d => {
-                      const name = [d.first_name, d.last_name].filter(Boolean).join(' ') || '—'
-                      const sponsorOrg = d.sponsor_org || null
-                      const points = Number(d.points_balance ?? d.points ?? 0)
-                      const isExpanded = expandedUser === d.id
-                      const id = d.id
-
+                    {loading && sponsors.length === 0 ? (
+                      <tr><td colSpan="6" className="table-empty">Loading…</td></tr>
+                    ) : filteredSponsors.length === 0 ? (
+                      <tr><td colSpan="6" className="table-empty">No sponsors found</td></tr>
+                    ) : filteredSponsors.map(s => {
+                      const company = s.company_name || null
+                      const isExpanded = expandedUser === s.id
                       return (
-                        <React.Fragment key={String(id)}>
+                        <React.Fragment key={String(s.id)}>
                           <tr>
-                            <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{id}</td>
-                            <td>{name}</td>
-                            <td>{d.email}</td>
+                            <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{s.id}</td>
+                            <td>{s.email}</td>
                             <td>
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ width: 8, height: 8, borderRadius: '50%', background: sponsorOrg ? '#22c55e' : '#d1d5db', flexShrink: 0 }} />
-                                {sponsorOrg || <em style={{ color: '#9ca3af' }}>Unaffiliated</em>}
+                                <span style={{ width: 8, height: 8, borderRadius: '50%', background: company ? '#22c55e' : '#d1d5db', flexShrink: 0 }} />
+                                {company || <em style={{ color: '#9ca3af' }}>Not set</em>}
                               </span>
                             </td>
-                            <td className="text-right" style={{ fontWeight: 600 }}>{points.toLocaleString()}</td>
-                            <td>
-                              <input
-                                className="form-input"
-                                type="number"
-                                placeholder="e.g. 50 or -20"
-                                value={deltaById[id] ?? ''}
-                                onChange={e => setDeltaById(prev => ({ ...prev, [id]: e.target.value }))}
-                              />
+                            <td>{s.created_at ? new Date(s.created_at).toLocaleDateString() : '—'}</td>
+                            <td className="text-right">
+                              {typeof s.driver_count === 'number' ? <strong style={{ color: '#2563eb' }}>{s.driver_count}</strong> : '—'}
                             </td>
                             <td>
-                              <input
-                                className="form-input"
-                                type="text"
-                                placeholder="Why are you changing points?"
-                                value={reasonById[id] ?? ''}
-                                onChange={e => setReasonById(prev => ({ ...prev, [id]: e.target.value }))}
-                              />
-                            </td>
-                            <td>
-                              <button
-                                className="btn btn-success"
-                                type="button"
-                                onClick={() => adjustPoints({ ...d, id })}
-                              >
-                                Apply
+                              <button className="btn btn-primary" style={{ fontSize: '0.8em', padding: '4px 10px' }}
+                                type="button" onClick={() => setExpandedUser(isExpanded ? null : s.id)}>
+                                {isExpanded ? 'Close' : 'View'}
                               </button>
-                            </td>
-                            <td>
-                              <button
-                                className="btn btn-primary"
-                                style={{ fontSize: '0.8em', padding: '4px 10px' }}
-                                type="button"
-                                onClick={() => {
-                                  if ((selectedLedgerDriver?.id) === id) {
-                                    setSelectedLedgerDriver(null)
-                                  } else {
-                                    openLedger(d)
-                                  }
-                                }}
-                              >
-                                {selectedLedgerDriver?.id === id ? 'Close' : 'View'}
-                              </button>
-                            </td>
-                            <td>
-                              <button
-                                className="btn btn-primary"
-                                style={{ fontSize: '0.8em', padding: '4px 10px' }}
-                                type="button"
-                                onClick={() => setExpandedUser(isExpanded ? null : id)}
-                              >
-                                {isExpanded ? 'Close' : 'Info'}
-                              </button>
-                            </td>
-                            <td>
-                              {d.sponsor_org ? (
-                                <button
-                                  className="btn btn-secondary"
-                                  style={{ fontSize: '0.8em', padding: '4px 10px', color: '#dc2626', borderColor: '#dc2626' }}
-                                  type="button"
-                                  onClick={() => removeFromSponsor({ ...d, id })}
-                                >
-                                  Remove Org
-                                </button>
-                              ) : (
-                                <span style={{ fontSize: '0.78em', color: '#9ca3af', fontStyle: 'italic' }}>—</span>
-                              )}
                             </td>
                           </tr>
-
-                          {/* Ledger inline row */}
-                          {selectedLedgerDriver?.id === id && (
-                            <tr style={{ background: '#f0fdf4' }}>
-                              <td colSpan="10" style={{ padding: '14px 20px' }}>
-                                <p style={{ margin: '0 0 10px', fontWeight: 700, fontSize: '0.9em' }}>
-                                  Points ledger — {name}
-                                  {ledgerBalance !== null && (
-                                    <span style={{ marginLeft: 12, fontWeight: 400, color: '#6b7280' }}>
-                                      Balance: <strong style={{ color: '#16a34a' }}>{ledgerBalance.toLocaleString()}</strong>
-                                    </span>
-                                  )}
-                                </p>
-                                {ledgerLoading ? (
-                                  <p style={{ color: '#9ca3af', fontSize: '0.85em' }}>Loading ledger…</p>
-                                ) : ledger.length === 0 ? (
-                                  <p style={{ color: '#9ca3af', fontSize: '0.85em', fontStyle: 'italic' }}>No entries yet</p>
-                                ) : (
-                                  <table className="table" style={{ background: '#fff' }}>
-                                    <thead>
-                                      <tr>
-                                        <th>Date</th>
-                                        <th>Sponsor</th>
-                                        <th className="text-right">Delta</th>
-                                        <th>Reason</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {ledger.map((row, idx) => (
-                                        <tr key={row.id ?? idx}>
-                                          <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap' }}>
-                                            {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
-                                          </td>
-                                          <td style={{ fontSize: '0.82em' }}>
-                                            {row.sponsor_company || (row.sponsor_id == null ? <em style={{ color: '#9ca3af' }}>Admin</em> : `#${row.sponsor_id}`)}
-                                          </td>
-                                          <td className="text-right" style={{
-                                            fontWeight: 700,
-                                            color: Number(row.delta) >= 0 ? '#16a34a' : '#dc2626'
-                                          }}>
-                                            {Number(row.delta) >= 0 ? '+' : ''}{row.delta}
-                                          </td>
-                                          <td style={{ fontSize: '0.82em' }}>{row.reason ?? '—'}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                )}
-                              </td>
-                            </tr>
-                          )}
-
-                          {/* Detail expand row */}
                           {isExpanded && (
                             <tr style={{ background: '#f9fafb' }}>
-                              <td colSpan="10" style={{ padding: '16px 20px' }}>
+                              <td colSpan="6" style={{ padding: '16px 20px' }}>
                                 <DetailGrid fields={[
-                                  { label: 'User ID', value: id },
-                                  { label: 'Email', value: d.email },
-                                  { label: 'Full Name', value: name },
-                                  { label: 'DOB', value: d.dob },
-                                  { label: 'Phone', value: d.phone },
-                                  { label: 'Address', value: d.address_line1 },
-                                  { label: 'City', value: d.city },
-                                  { label: 'State', value: d.state },
-                                  { label: 'Sponsor Org', value: sponsorOrg || 'Unaffiliated' },
-                                  { label: 'Points Balance', value: points.toLocaleString() },
-                                  { label: 'Joined', value: d.created_at ? new Date(d.created_at).toLocaleString() : '—' },
+                                  { label: 'User ID', value: s.id },
+                                  { label: 'Email', value: s.email },
+                                  { label: 'Organization', value: company || 'Not set' },
+                                  { label: 'First Name', value: s.first_name },
+                                  { label: 'Last Name', value: s.last_name },
+                                  { label: 'Phone', value: s.phone },
+                                  { label: 'City', value: s.city },
+                                  { label: 'State', value: s.state },
+                                  { label: 'Active Drivers', value: typeof s.driver_count === 'number' ? s.driver_count : '—' },
+                                  { label: 'Joined', value: s.created_at ? new Date(s.created_at).toLocaleString() : '—' },
                                 ]} />
                               </td>
                             </tr>
@@ -2429,146 +2233,342 @@ const AdminUsersPage = () => {
                   </tbody>
                 </table>
               </div>
-              <p className="form-footer" style={{ marginTop: 8 }}>
-                Tip: enter a positive number to add points or a negative number to deduct. A reason is always required.
-              </p>
             </div>
-          </>
-        )}
+          )}
 
-        {/* ══════════════════════════════════════════════════
+          {/* ══════════════════════════════════════════════════
+            TAB: DRIVERS (with point adjustment)
+        ══════════════════════════════════════════════════ */}
+          {activeTab === 'drivers' && (
+            <>
+              <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Sponsor Org</th>
+                        <th className="text-right">Points</th>
+                        <th style={{ width: 200 }}>Adjust (±)</th>
+                        <th style={{ width: 240 }}>Reason (required)</th>
+                        <th style={{ width: 120 }}>Apply</th>
+                        <th style={{ width: 90 }}>Ledger</th>
+                        <th style={{ width: 90 }}>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loading && drivers.length === 0 ? (
+                        <tr><td colSpan="10" className="table-empty">Loading…</td></tr>
+                      ) : filteredDrivers.length === 0 ? (
+                        <tr><td colSpan="10" className="table-empty">No drivers found</td></tr>
+                      ) : filteredDrivers.map(d => {
+                        const name = [d.first_name, d.last_name].filter(Boolean).join(' ') || '—'
+                        const sponsorOrg = d.sponsor_org || null
+                        const points = Number(d.points_balance ?? d.points ?? 0)
+                        const isExpanded = expandedUser === d.id
+                        const id = d.id
+
+                        return (
+                          <React.Fragment key={String(id)}>
+                            <tr>
+                              <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{id}</td>
+                              <td>{name}</td>
+                              <td>{d.email}</td>
+                              <td>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: sponsorOrg ? '#22c55e' : '#d1d5db', flexShrink: 0 }} />
+                                  {sponsorOrg || <em style={{ color: '#9ca3af' }}>Unaffiliated</em>}
+                                </span>
+                              </td>
+                              <td className="text-right" style={{ fontWeight: 600 }}>{points.toLocaleString()}</td>
+                              <td>
+                                <input
+                                  className="form-input"
+                                  type="number"
+                                  placeholder="e.g. 50 or -20"
+                                  value={deltaById[id] ?? ''}
+                                  onChange={e => setDeltaById(prev => ({ ...prev, [id]: e.target.value }))}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  className="form-input"
+                                  type="text"
+                                  placeholder="Why are you changing points?"
+                                  value={reasonById[id] ?? ''}
+                                  onChange={e => setReasonById(prev => ({ ...prev, [id]: e.target.value }))}
+                                />
+                              </td>
+                              <td>
+                                <button
+                                  className="btn btn-success"
+                                  type="button"
+                                  onClick={() => adjustPoints({ ...d, id })}
+                                >
+                                  Apply
+                                </button>
+                              </td>
+                              <td>
+                                <button
+                                  className="btn btn-primary"
+                                  style={{ fontSize: '0.8em', padding: '4px 10px' }}
+                                  type="button"
+                                  onClick={() => {
+                                    if ((selectedLedgerDriver?.id) === id) {
+                                      setSelectedLedgerDriver(null)
+                                    } else {
+                                      openLedger(d)
+                                    }
+                                  }}
+                                >
+                                  {selectedLedgerDriver?.id === id ? 'Close' : 'View'}
+                                </button>
+                              </td>
+                              <td>
+                                <button
+                                  className="btn btn-primary"
+                                  style={{ fontSize: '0.8em', padding: '4px 10px' }}
+                                  type="button"
+                                  onClick={() => setExpandedUser(isExpanded ? null : id)}
+                                >
+                                  {isExpanded ? 'Close' : 'Info'}
+                                </button>
+                              </td>
+                              <td>
+                                {d.sponsor_org ? (
+                                  <button
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: '0.8em', padding: '4px 10px', color: '#dc2626', borderColor: '#dc2626' }}
+                                    type="button"
+                                    onClick={() => removeFromSponsor({ ...d, id })}
+                                  >
+                                    Remove Org
+                                  </button>
+                                ) : (
+                                  <span style={{ fontSize: '0.78em', color: '#9ca3af', fontStyle: 'italic' }}>—</span>
+                                )}
+                              </td>
+                            </tr>
+
+                            {/* Ledger inline row */}
+                            {selectedLedgerDriver?.id === id && (
+                              <tr style={{ background: '#f0fdf4' }}>
+                                <td colSpan="10" style={{ padding: '14px 20px' }}>
+                                  <p style={{ margin: '0 0 10px', fontWeight: 700, fontSize: '0.9em' }}>
+                                    Points ledger — {name}
+                                    {ledgerBalance !== null && (
+                                      <span style={{ marginLeft: 12, fontWeight: 400, color: '#6b7280' }}>
+                                        Balance: <strong style={{ color: '#16a34a' }}>{ledgerBalance.toLocaleString()}</strong>
+                                      </span>
+                                    )}
+                                  </p>
+                                  {ledgerLoading ? (
+                                    <p style={{ color: '#9ca3af', fontSize: '0.85em' }}>Loading ledger…</p>
+                                  ) : ledger.length === 0 ? (
+                                    <p style={{ color: '#9ca3af', fontSize: '0.85em', fontStyle: 'italic' }}>No entries yet</p>
+                                  ) : (
+                                    <table className="table" style={{ background: '#fff' }}>
+                                      <thead>
+                                        <tr>
+                                          <th>Date</th>
+                                          <th>Sponsor</th>
+                                          <th className="text-right">Delta</th>
+                                          <th>Reason</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {ledger.map((row, idx) => (
+                                          <tr key={row.id ?? idx}>
+                                            <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap' }}>
+                                              {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
+                                            </td>
+                                            <td style={{ fontSize: '0.82em' }}>
+                                              {row.sponsor_company || (row.sponsor_id == null ? <em style={{ color: '#9ca3af' }}>Admin</em> : `#${row.sponsor_id}`)}
+                                            </td>
+                                            <td className="text-right" style={{
+                                              fontWeight: 700,
+                                              color: Number(row.delta) >= 0 ? '#16a34a' : '#dc2626'
+                                            }}>
+                                              {Number(row.delta) >= 0 ? '+' : ''}{row.delta}
+                                            </td>
+                                            <td style={{ fontSize: '0.82em' }}>{row.reason ?? '—'}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+
+                            {/* Detail expand row */}
+                            {isExpanded && (
+                              <tr style={{ background: '#f9fafb' }}>
+                                <td colSpan="10" style={{ padding: '16px 20px' }}>
+                                  <DetailGrid fields={[
+                                    { label: 'User ID', value: id },
+                                    { label: 'Email', value: d.email },
+                                    { label: 'Full Name', value: name },
+                                    { label: 'DOB', value: d.dob },
+                                    { label: 'Phone', value: d.phone },
+                                    { label: 'Address', value: d.address_line1 },
+                                    { label: 'City', value: d.city },
+                                    { label: 'State', value: d.state },
+                                    { label: 'Sponsor Org', value: sponsorOrg || 'Unaffiliated' },
+                                    { label: 'Points Balance', value: points.toLocaleString() },
+                                    { label: 'Joined', value: d.created_at ? new Date(d.created_at).toLocaleString() : '—' },
+                                  ]} />
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="form-footer" style={{ marginTop: 8 }}>
+                  Tip: enter a positive number to add points or a negative number to deduct. A reason is always required.
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* ══════════════════════════════════════════════════
             TAB: TRANSACTIONS
         ══════════════════════════════════════════════════ */}
-        {activeTab === 'transactions' && (
-          <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
+          {activeTab === 'transactions' && (
+            <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
 
-            {/* Filters */}
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>Filter by Driver</label>
-                <input
-                  className="form-input"
-                  style={{ minWidth: 180 }}
-                  placeholder="Name, email, or ID"
-                  value={txDriverFilter}
-                  onChange={e => setTxDriverFilter(e.target.value)}
-                />
+              {/* Filters */}
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>Filter by Driver</label>
+                  <input
+                    className="form-input"
+                    style={{ minWidth: 180 }}
+                    placeholder="Name, email, or ID"
+                    value={txDriverFilter}
+                    onChange={e => setTxDriverFilter(e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>Filter by Sponsor</label>
+                  <input
+                    className="form-input"
+                    style={{ minWidth: 180 }}
+                    placeholder="Org name, email, or ID"
+                    value={txSponsorFilter}
+                    onChange={e => setTxSponsorFilter(e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>From</label>
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={txDateFrom}
+                    onChange={e => setTxDateFrom(e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>To</label>
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={txDateTo}
+                    onChange={e => setTxDateTo(e.target.value)}
+                  />
+                </div>
+                <button className="btn btn-primary" type="button" onClick={loadTransactions} disabled={txLoading}>
+                  {txLoading ? 'Loading…' : '🔍 Apply Filters'}
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  type="button"
+                  onClick={() => { setTxDriverFilter(''); setTxSponsorFilter(''); setTxDateFrom(''); setTxDateTo(''); }}
+                >
+                  Clear
+                </button>
+                <button
+                  className="btn btn-success"
+                  type="button"
+                  onClick={exportCSV}
+                  disabled={transactions.length === 0}
+                  style={{ marginLeft: 'auto' }}
+                >
+                  ⬇ Export CSV
+                </button>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>Filter by Sponsor</label>
-                <input
-                  className="form-input"
-                  style={{ minWidth: 180 }}
-                  placeholder="Org name, email, or ID"
-                  value={txSponsorFilter}
-                  onChange={e => setTxSponsorFilter(e.target.value)}
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>From</label>
-                <input
-                  className="form-input"
-                  type="date"
-                  value={txDateFrom}
-                  onChange={e => setTxDateFrom(e.target.value)}
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>To</label>
-                <input
-                  className="form-input"
-                  type="date"
-                  value={txDateTo}
-                  onChange={e => setTxDateTo(e.target.value)}
-                />
-              </div>
-              <button className="btn btn-primary" type="button" onClick={loadTransactions} disabled={txLoading}>
-                {txLoading ? 'Loading…' : '🔍 Apply Filters'}
-              </button>
-              <button
-                className="btn btn-secondary"
-                type="button"
-                onClick={() => { setTxDriverFilter(''); setTxSponsorFilter(''); setTxDateFrom(''); setTxDateTo(''); }}
-              >
-                Clear
-              </button>
-              <button
-                className="btn btn-success"
-                type="button"
-                onClick={exportCSV}
-                disabled={transactions.length === 0}
-                style={{ marginLeft: 'auto' }}
-              >
-                ⬇ Export CSV
-              </button>
-            </div>
 
-            {transactions.length === 0 && !txLoading && (
-              <p style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: '0.875em', marginBottom: 12 }}>
-                Apply filters and click "Apply Filters" to load transactions, or load all with no filters.
-              </p>
-            )}
+              {transactions.length === 0 && !txLoading && (
+                <p style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: '0.875em', marginBottom: 12 }}>
+                  Apply filters and click "Apply Filters" to load transactions, or load all with no filters.
+                </p>
+              )}
 
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Driver</th>
-                    <th>Sponsor</th>
-                    <th className="text-right">Delta</th>
-                    <th>Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {txLoading ? (
-                    <tr><td colSpan="5" className="table-empty">Loading…</td></tr>
-                  ) : transactions.length === 0 ? (
-                    <tr><td colSpan="5" className="table-empty">No transactions found</td></tr>
-                  ) : transactions.map((t, idx) => (
-                    <tr key={t.id ?? idx}>
-                      <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap', color: '#6b7280' }}>
-                        {t.created_at ? new Date(t.created_at).toLocaleString() : '—'}
-                      </td>
-                      <td>
-                        <div style={{ lineHeight: 1.4 }}>
-                          <strong style={{ fontSize: '0.88em' }}>{(t.driver_name || '').trim() || '—'}</strong>
-                          <br />
-                          <span style={{ fontSize: '0.78em', color: '#6b7280' }}>{t.driver_email}</span>
-                        </div>
-                      </td>
-                      <td style={{ fontSize: '0.85em' }}>
-                        {t.sponsor_company
-                          ? <><strong>{t.sponsor_company}</strong><br /><span style={{ fontSize: '0.85em', color: '#6b7280' }}>{t.sponsor_email}</span></>
-                          : t.sponsor_id == null
-                            ? <em style={{ color: '#6b7280' }}>Admin</em>
-                            : `#${t.sponsor_id}`}
-                      </td>
-                      <td className="text-right" style={{
-                        fontWeight: 700,
-                        color: Number(t.delta) >= 0 ? '#16a34a' : '#dc2626'
-                      }}>
-                        {Number(t.delta) >= 0 ? '+' : ''}{t.delta}
-                      </td>
-                      <td style={{ fontSize: '0.85em', color: '#374151' }}>{t.reason || <em style={{ color: '#9ca3af' }}>—</em>}</td>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Driver</th>
+                      <th>Sponsor</th>
+                      <th className="text-right">Delta</th>
+                      <th>Reason</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {txLoading ? (
+                      <tr><td colSpan="5" className="table-empty">Loading…</td></tr>
+                    ) : transactions.length === 0 ? (
+                      <tr><td colSpan="5" className="table-empty">No transactions found</td></tr>
+                    ) : transactions.map((t, idx) => (
+                      <tr key={t.id ?? idx}>
+                        <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap', color: '#6b7280' }}>
+                          {t.created_at ? new Date(t.created_at).toLocaleString() : '—'}
+                        </td>
+                        <td>
+                          <div style={{ lineHeight: 1.4 }}>
+                            <strong style={{ fontSize: '0.88em' }}>{(t.driver_name || '').trim() || '—'}</strong>
+                            <br />
+                            <span style={{ fontSize: '0.78em', color: '#6b7280' }}>{t.driver_email}</span>
+                          </div>
+                        </td>
+                        <td style={{ fontSize: '0.85em' }}>
+                          {t.sponsor_company
+                            ? <><strong>{t.sponsor_company}</strong><br /><span style={{ fontSize: '0.85em', color: '#6b7280' }}>{t.sponsor_email}</span></>
+                            : t.sponsor_id == null
+                              ? <em style={{ color: '#6b7280' }}>Admin</em>
+                              : `#${t.sponsor_id}`}
+                        </td>
+                        <td className="text-right" style={{
+                          fontWeight: 700,
+                          color: Number(t.delta) >= 0 ? '#16a34a' : '#dc2626'
+                        }}>
+                          {Number(t.delta) >= 0 ? '+' : ''}{t.delta}
+                        </td>
+                        <td style={{ fontSize: '0.85em', color: '#374151' }}>{t.reason || <em style={{ color: '#9ca3af' }}>—</em>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {transactions.length > 0 && (
+                <p style={{ fontSize: '0.78em', color: '#9ca3af', marginTop: 8 }}>
+                  Showing {transactions.length} transaction{transactions.length !== 1 ? 's' : ''}
+                  {transactions.length === 2000 ? ' (limit 2000 — apply filters to narrow results)' : ''}
+                </p>
+              )}
             </div>
-            {transactions.length > 0 && (
-              <p style={{ fontSize: '0.78em', color: '#9ca3af', marginTop: 8 }}>
-                Showing {transactions.length} transaction{transactions.length !== 1 ? 's' : ''}
-                {transactions.length === 2000 ? ' (limit 2000 — apply filters to narrow results)' : ''}
-              </p>
-            )}
-          </div>
-        )}
+          )}
 
-      </main>
-    </div>
-  )
-}
+        </main>
+      </div>
+    )
+  }
 
   // ============ LOG TRIP PAGE ============
   const LogTripPage = () => {
@@ -3988,7 +3988,7 @@ const AdminUsersPage = () => {
         await api('/catalog', {
           method: 'POST',
           body: JSON.stringify({
-            ebayItemId: item.itemId,
+            itemId: item.itemId,
             title: item.title,
             imageUrl: item.image,
             price: parseFloat(item.price?.value || 0),

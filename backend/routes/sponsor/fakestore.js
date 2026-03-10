@@ -11,8 +11,8 @@ let _popularCacheExp = 0;
 const POPULAR_TTL_MS = 10 * 60 * 1000;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/sponsor/ebay/search?q=<keyword>
-// Searches Fake Store products by keyword (client-side filter).
+// GET /api/sponsor/catalog/search?q=<keyword>  (mounted at /ebay/search)
+// Searches Fake Store products by keyword (client-side filter across all 20 products).
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/search', async (req, res) => {
     const keyword = (req.query.q || '').trim();
@@ -29,8 +29,8 @@ router.get('/search', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/sponsor/ebay/popular
-// Returns all electronics from Fake Store — cached 10 minutes.
+// GET /api/sponsor/catalog/popular  (mounted at /ebay/popular)
+// Returns all electronics from Fake Store (6 products) — cached 10 minutes.
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/popular', async (req, res) => {
     if (_popularCache && Date.now() < _popularCacheExp) {
@@ -39,7 +39,7 @@ router.get('/popular', async (req, res) => {
     }
 
     try {
-        const items = await fakestore.popular(20);
+        const items = await fakestore.popular();
         console.log(`[FakeStore] popular → ${items.length} items`);
 
         const payload = { items, mock: false };

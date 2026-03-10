@@ -46,12 +46,12 @@ async function fetchProducts(path, limit) {
 }
 
 /**
- * Fetch popular items — all electronics from Fake Store, up to `limit`.
- * @param {number} [limit=20]
+ * Fetch popular items — all electronics from Fake Store (6 products total).
+ * FakeStore does not support a server-side limit on category endpoints.
  * @returns {Promise<object[]>}
  */
-async function popular(limit = 20) {
-    return fetchProducts('/products/category/electronics', limit);
+async function popular() {
+    return fetchProducts('/products/category/electronics');
 }
 
 /**

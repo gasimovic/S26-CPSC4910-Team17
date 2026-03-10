@@ -1239,10 +1239,10 @@ app.put('/messages/:messageId/read', requireAuth, async (req, res) => {
   }
 });
 
-const sponsorEbayRoutes = require('../../../routes/sponsor/fakestore');
+const fakestoreRoutes = require('../../../routes/sponsor/fakestore');
 const sponsorCatalogRoutes = require('../../../routes/sponsor/catalog');
 
-app.use('/ebay', requireAuth, sponsorEbayRoutes);
+app.use('/ebay', requireAuth, fakestoreRoutes);
 app.use('/catalog', requireAuth, sponsorCatalogRoutes);
 
 app.get('/sprint-info', async (_req, res) => {
