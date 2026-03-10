@@ -707,7 +707,7 @@ function App() {
         <header className="landing-hero">
           <div className="landing-hero-content">
             <div>
-              <p className="landing-eyebrow">Driver Rewards Program</p>
+              <p className="landing-eyebrow">SafeMiles Program</p>
               <h1 className="landing-title">Rewarding safe driving, one mile at a time.</h1>
               <p className="landing-subtitle">
                 Log trips, earn points, and unlock rewards from sponsors who care about safety and consistency on the road.
@@ -819,7 +819,7 @@ function App() {
       <div className="login-wrap">
         <div className="login-card">
           <h1 className="login-title">Choose account type</h1>
-          <p className="login-subtitle">Select how you want to use Driver Rewards.</p>
+          <p className="login-subtitle">Select how you want to use SafeMiles.</p>
 
           <div className="form-group">
             <button
@@ -886,7 +886,7 @@ function App() {
     return (
       <div className="login-wrap">
         <div className="login-card">
-          <h1 className="login-title">Driver Rewards</h1>
+          <h1 className="login-title">SafeMiles</h1>
           <p className="login-subtitle">Sign in (drivers, sponsors, and admins)</p>
 
           <form onSubmit={onSubmit}>
@@ -982,7 +982,7 @@ function App() {
 
     return (
       <nav className="nav">
-        <div className="nav-brand">Driver Rewards</div>
+        <div className="nav-brand">SafeMiles</div>
         <div className="nav-links">
           {allowed.includes('dashboard') && (
             <button type="button" onClick={() => setCurrentPage('dashboard')} className="nav-link">
@@ -4932,7 +4932,7 @@ const AdminUsersPage = () => {
 
           {/* ── Hero ── */}
           <div style={{ textAlign: 'center', marginBottom: 32 }}>
-            <h1 className="page-title" style={{ marginBottom: 8 }}>Driver Rewards</h1>
+            <h1 className="page-title" style={{ marginBottom: 8 }}>SafeMiles</h1>
             <p className="page-subtitle" style={{ maxWidth: 480, margin: '0 auto' }}>
               A full-stack incentive platform that rewards safe, consistent driving — built for
               drivers, sponsors, and admins.
@@ -5156,7 +5156,7 @@ const AdminUsersPage = () => {
             <h2 className="section-title">Build Info</h2>
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
               {[
-                { label: 'App', value: 'Driver Rewards v1.0' },
+                { label: 'App', value: 'SafeMiles v1.0' },
                 { label: 'Active role', value: inferRoleFromBase(apiBase) },
                 { label: 'Environment', value: import.meta.env.MODE || 'development' },
                 { label: 'Build', value: import.meta.env.VITE_BUILD_TAG || 'local' },
@@ -5651,7 +5651,7 @@ const AdminUsersPage = () => {
           <div className="modal-card">
             <h2 className="page-title" style={{ marginBottom: 4 }}>Log out?</h2>
             <p className="page-subtitle" style={{ marginBottom: 20 }}>
-              You’ll be signed out of Driver Rewards and returned to the login screen.
+              You’ll be signed out of SafeMiles and returned to the login screen.
             </p>
             <div className="modal-actions">
               <button
