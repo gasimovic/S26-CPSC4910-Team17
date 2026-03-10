@@ -4567,6 +4567,12 @@ const AdminUsersPage = () => {
     // Key: itemId, Value: point cost string
     const [draftCosts, setDraftCosts] = useState({})
 
+    const formatPrice = (value) => {
+      const n = Number(value)
+      if (!Number.isFinite(n)) return '-'
+      return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    }
+
     const fetchShopItems = async () => {
       try {
         const res = await api('/catalog', { method: 'GET' })
@@ -4729,7 +4735,7 @@ const AdminUsersPage = () => {
             <section className="card catalog-panel">
               <h2 className="section-title">Your catalog</h2>
               <p className="page-subtitle" style={{ marginTop: -8 }}>
-                Items currently available for drivers to redeem.
+                Items currently available for drivers to redeem with their points.
               </p>
 
               <div className="landing-grid catalog-grid">
@@ -4748,7 +4754,7 @@ const AdminUsersPage = () => {
                       <h3 className="card-title catalog-item-title">{item.title}</h3>
 
                       <div className="catalog-item-meta">
-                        <span className="catalog-item-retail">Retail: ${item.price}</span>
+                        <span className="catalog-item-retail">Retail: ${formatPrice(item.price)}</span>
                         <span className="catalog-pill">{item.point_cost} pts</span>
                       </div>
 
