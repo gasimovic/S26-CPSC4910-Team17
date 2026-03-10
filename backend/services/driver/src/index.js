@@ -317,6 +317,45 @@ app.get("/me", requireAuth, async (req, res) => {
 });
 
 /**
+ * GET /points/history
+ * Returns the driver's full points ledger plus current balance.
+ */
+app.get("/points/history", requireAuth, async (req, res) => {
+  try {
+    const driverId = req.user.id;
+
+    const ledger = await query(
+      `SELECT
+         l.id,
+         l.driver_id,
+         l.sponsor_id,
+         l.delta,
+         l.reason,
+         l.created_at,
+         u.email AS sponsor_email,
+         sp.company_name AS sponsor_company
+       FROM driver_points_ledger l
+       LEFT JOIN users u ON l.sponsor_id = u.id
+       LEFT JOIN sponsor_profiles sp ON l.sponsor_id = sp.user_id
+       WHERE l.driver_id = ?
+       ORDER BY l.created_at DESC, l.id DESC`,
+      [driverId]
+    );
+
+    const balanceRows = await query(
+      "SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?",
+      [driverId]
+    );
+    const balance = Number(balanceRows?.[0]?.balance || 0);
+
+    return res.json({ balance, ledger: ledger || [] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
  * PUT /me/profile
  */
 app.put("/me/profile", requireAuth, async (req, res) => {

@@ -2087,6 +2087,37 @@ function App() {
 
   // ============ DASHBOARD PAGE ============
   const DashboardPage = () => {
+    const role = ((currentUser?.role || inferRoleFromBase(apiBase) || 'driver') + '').toLowerCase().trim()
+    const isDriver = role === 'driver'
+    const [historyOpen, setHistoryOpen] = useState(false)
+    const [history, setHistory] = useState([])
+    const [historyLoading, setHistoryLoading] = useState(false)
+    const [historyError, setHistoryError] = useState('')
+
+    const toggleHistory = async () => {
+      if (!isDriver) return
+
+      // Collapse if already open
+      if (historyOpen) {
+        setHistoryOpen(false)
+        return
+      }
+
+      // Open immediately so the user sees feedback, then load data.
+      setHistoryOpen(true)
+      setHistoryError('')
+      setHistoryLoading(true)
+      try {
+        // Always hit the driver service directly to avoid proxy/base issues.
+        const data = await apiWithBase(DRIVER_API_BASE, '/points/history', { method: 'GET' })
+        setHistory(Array.isArray(data?.ledger) ? data.ledger : [])
+      } catch (e) {
+        setHistoryError(e?.message || 'Failed to load point history')
+      } finally {
+        setHistoryLoading(false)
+      }
+    }
+
     return (
       <div>
         <Navigation />
@@ -2099,17 +2130,62 @@ function App() {
               <p className="pts-hero-label">Your points</p>
               <p className="pts-hero-value">{currentUser?.points ?? 0}</p>
             </div>
-            <div style={{ marginTop: 12 }}>
-              <button
-                type="button"
-                className="btn btn-outline"
-                // Placeholder – wired up later
-                onClick={() => {}}
-              >
-                Point history
-              </button>
-            </div>
+            {isDriver && (
+              <div style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={toggleHistory}
+                  disabled={historyLoading}
+                >
+                  {historyOpen ? 'Hide point history' : 'View point history'}
+                </button>
+              </div>
+            )}
           </div>
+
+          {isDriver && historyOpen && (
+            <section style={{ marginBottom: 24 }}>
+              <h2 className="section-title">Point history</h2>
+              {historyError ? (
+                <p className="form-footer" style={{ color: 'crimson' }}>{historyError}</p>
+              ) : null}
+              {historyLoading ? (
+                <p>Loading point history…</p>
+              ) : history.length === 0 ? (
+                <p className="activity-empty">No point activity yet</p>
+              ) : (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th className="text-right">Change</th>
+                        <th>Reason</th>
+                        <th>Sponsor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.map((row) => {
+                        const sponsorName = row.sponsor_company || row.sponsor_email || '—'
+                        const delta = Number(row.delta ?? 0)
+                        return (
+                          <tr key={row.id}>
+                            <td>{row.created_at ? new Date(row.created_at).toLocaleString() : '-'}</td>
+                            <td className="text-right" style={{ fontWeight: 600, color: delta >= 0 ? '#16a34a' : '#dc2626' }}>
+                              {delta > 0 ? `+${delta}` : delta}
+                            </td>
+                            <td>{row.reason || '—'}</td>
+                            <td>{sponsorName}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
 
           <section>
             <h2 className="section-title">Recent activity</h2>
