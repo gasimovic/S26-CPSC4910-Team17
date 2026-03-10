@@ -2100,24 +2100,6 @@ function App() {
           </div>
 
           <section>
-            <h2 className="section-title">Quick stats</h2>
-            <div className="stats-grid">
-              <div className="stat-card">
-                <p className="stat-label">Miles this week</p>
-                <p className="stat-value stat-value-blue">{currentUser?.miles ?? 0}</p>
-              </div>
-              <div className="stat-card">
-                <p className="stat-label">Safe days streak</p>
-                <p className="stat-value stat-value-green">{currentUser?.streak ?? 0}</p>
-              </div>
-              <div className="stat-card">
-                <p className="stat-label">Current rank</p>
-                <p className="stat-value stat-value-amber">#{currentUser?.rank ?? 0}</p>
-              </div>
-            </div>
-          </section>
-
-          <section>
             <h2 className="section-title">Recent activity</h2>
             <div className="activity-card">
               <p className="activity-empty">No recent activity</p>
