@@ -98,11 +98,10 @@ function requireAuth(req, res, next) {
     if (payload.role !== 'admin' && payload.role !== 'sponsor') {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
-    req.user = payload;
-    next();
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Server error" });
+    req.user = { id: payload.sub, role: payload.role };
+    return next();
+  } catch {
+    return res.status(401).json({ error: "Invalid token" });
   }
 }
 
