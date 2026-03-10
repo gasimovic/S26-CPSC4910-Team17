@@ -846,6 +846,115 @@ app.get("/drivers/:driverId/points", requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// BULK POINTS OPERATIONS (#2854, #2855)
+// Must be defined BEFORE /drivers/:driverId routes so Express
+// doesn't match "bulk" as a :driverId parameter.
+// ============================================================
+
+/**
+ * POST /drivers/bulk/points/add
+ * Bulk add points to multiple drivers.
+ * Body: { driverIds: number[], points: number, reason: string }
+ */
+app.post('/drivers/bulk/points/add', requireAuth, async (req, res) => {
+  const schema = z.object({
+    driverIds: z.array(z.coerce.number().int().positive()).min(1),
+    points: z.coerce.number().int().positive(),
+    reason: z.string().min(1).max(255),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const { driverIds, points, reason } = parsed.data;
+
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) return res.status(400).json({ error: 'Sponsor company_name is not set.' });
+
+    const results = [];
+    for (const driverId of driverIds) {
+      const memberRows = await query(
+        `SELECT u.id FROM users u JOIN driver_profiles dp ON u.id = dp.user_id
+         WHERE u.role = 'driver' AND u.id = ?
+         AND (dp.sponsor_org = ? OR EXISTS (
+           SELECT 1 FROM applications a WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'
+         )) LIMIT 1`,
+        [driverId, sponsorCompany, req.user.id]
+      );
+
+      if (!memberRows || memberRows.length === 0) {
+        results.push({ driverId, ok: false, error: 'Not in your program' });
+        continue;
+      }
+
+      await exec(
+        'INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)',
+        [driverId, req.user.id, points, reason]
+      );
+      results.push({ driverId, ok: true, delta: points });
+    }
+
+    return res.json({ ok: true, results });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * POST /drivers/bulk/points/deduct
+ * Bulk deduct points from multiple drivers.
+ * Body: { driverIds: number[], points: number, reason: string }
+ */
+app.post('/drivers/bulk/points/deduct', requireAuth, async (req, res) => {
+  const schema = z.object({
+    driverIds: z.array(z.coerce.number().int().positive()).min(1),
+    points: z.coerce.number().int().positive(),
+    reason: z.string().min(1).max(255),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const { driverIds, points, reason } = parsed.data;
+
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) return res.status(400).json({ error: 'Sponsor company_name is not set.' });
+
+    const delta = -Math.abs(points);
+    const results = [];
+    for (const driverId of driverIds) {
+      const memberRows = await query(
+        `SELECT u.id FROM users u JOIN driver_profiles dp ON u.id = dp.user_id
+         WHERE u.role = 'driver' AND u.id = ?
+         AND (dp.sponsor_org = ? OR EXISTS (
+           SELECT 1 FROM applications a WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'
+         )) LIMIT 1`,
+        [driverId, sponsorCompany, req.user.id]
+      );
+
+      if (!memberRows || memberRows.length === 0) {
+        results.push({ driverId, ok: false, error: 'Not in your program' });
+        continue;
+      }
+
+      await exec(
+        'INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)',
+        [driverId, req.user.id, delta, reason]
+      );
+      results.push({ driverId, ok: true, delta });
+    }
+
+    return res.json({ ok: true, results });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
 /**
  * POST /drivers/:driverId/points/add
  * Body: { points: number, reason: string }
@@ -1254,114 +1363,6 @@ app.get('/sprint-info', async (_req, res) => {
     return res.status(500).json({ error: 'Server error' })
   }
 })
-
-// ============================================================
-// BULK POINTS OPERATIONS (#2854, #2855)
-// ============================================================
-
-/**
- * POST /drivers/bulk/points/add
- * Bulk add points to multiple drivers.
- * Body: { driverIds: number[], points: number, reason: string }
- */
-app.post('/drivers/bulk/points/add', requireAuth, async (req, res) => {
-  const schema = z.object({
-    driverIds: z.array(z.coerce.number().int().positive()).min(1),
-    points: z.coerce.number().int().positive(),
-    reason: z.string().min(1).max(255),
-  });
-
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
-
-  const { driverIds, points, reason } = parsed.data;
-
-  try {
-    const sponsorCompany = await getSponsorCompanyName(req.user.id);
-    if (!sponsorCompany) return res.status(400).json({ error: 'Sponsor company_name is not set.' });
-
-    const results = [];
-    for (const driverId of driverIds) {
-      // Check membership inline without sending 404
-      const memberRows = await query(
-        `SELECT u.id FROM users u JOIN driver_profiles dp ON u.id = dp.user_id
-         WHERE u.role = 'driver' AND u.id = ?
-         AND (dp.sponsor_org = ? OR EXISTS (
-           SELECT 1 FROM applications a WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'
-         )) LIMIT 1`,
-        [driverId, sponsorCompany, req.user.id]
-      );
-
-      if (!memberRows || memberRows.length === 0) {
-        results.push({ driverId, ok: false, error: 'Not in your program' });
-        continue;
-      }
-
-      await exec(
-        'INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)',
-        [driverId, req.user.id, points, reason]
-      );
-      results.push({ driverId, ok: true, delta: points });
-    }
-
-    return res.json({ ok: true, results });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Server error' });
-  }
-});
-
-/**
- * POST /drivers/bulk/points/deduct
- * Bulk deduct points from multiple drivers.
- * Body: { driverIds: number[], points: number, reason: string }
- */
-app.post('/drivers/bulk/points/deduct', requireAuth, async (req, res) => {
-  const schema = z.object({
-    driverIds: z.array(z.coerce.number().int().positive()).min(1),
-    points: z.coerce.number().int().positive(),
-    reason: z.string().min(1).max(255),
-  });
-
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
-
-  const { driverIds, points, reason } = parsed.data;
-
-  try {
-    const sponsorCompany = await getSponsorCompanyName(req.user.id);
-    if (!sponsorCompany) return res.status(400).json({ error: 'Sponsor company_name is not set.' });
-
-    const delta = -Math.abs(points);
-    const results = [];
-    for (const driverId of driverIds) {
-      const memberRows = await query(
-        `SELECT u.id FROM users u JOIN driver_profiles dp ON u.id = dp.user_id
-         WHERE u.role = 'driver' AND u.id = ?
-         AND (dp.sponsor_org = ? OR EXISTS (
-           SELECT 1 FROM applications a WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'
-         )) LIMIT 1`,
-        [driverId, sponsorCompany, req.user.id]
-      );
-
-      if (!memberRows || memberRows.length === 0) {
-        results.push({ driverId, ok: false, error: 'Not in your program' });
-        continue;
-      }
-
-      await exec(
-        'INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)',
-        [driverId, req.user.id, delta, reason]
-      );
-      results.push({ driverId, ok: true, delta });
-    }
-
-    return res.json({ ok: true, results });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Server error' });
-  }
-});
 
 // ============================================================
 // SCHEDULED / RECURRING POINT AWARDS (#2856, #2857, #2868, #2869, #2870)
