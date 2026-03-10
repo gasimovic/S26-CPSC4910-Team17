@@ -531,6 +531,10 @@ body {
   border-radius: var(--radius-lg);
   text-align: center;
   margin-bottom: 32px;
+  /* keep the original look, but avoid spanning full width */
+  display: inline-block;
+  min-width: 260px;
+  max-width: 420px;
 }
 
 .pts-hero-label {

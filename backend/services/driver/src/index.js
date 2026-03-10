@@ -288,13 +288,83 @@ app.post("/auth/reset-password", async (req, res) => {
  */
 app.get("/me", requireAuth, async (req, res) => {
   try {
-    const userRows = await query("SELECT id, email, role, created_at FROM users WHERE id = ?", [req.user.id]);
+    const userRows = await query(
+      "SELECT id, email, role, created_at FROM users WHERE id = ?",
+      [req.user.id]
+    );
     const user = userRows[0];
+
+    // Compute current points and lifetime earned points from the ledger
+    const [pointsRows, earnedRows] = await Promise.all([
+      query(
+        "SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?",
+        [req.user.id]
+      ),
+      query(
+        "SELECT COALESCE(SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END), 0) AS earned FROM driver_points_ledger WHERE driver_id = ?",
+        [req.user.id]
+      )
+    ]);
+
+    const pointsBalance = Number(pointsRows?.[0]?.balance || 0);
+    const lifetimeEarned = Number(earnedRows?.[0]?.earned || 0);
+
+    // Attach as fields on the user object; the frontend's login
+    // normalization reads user.points (current) and user.points_earned (lifetime) from /me.
+    user.points = pointsBalance;
+    user.points_earned = lifetimeEarned;
 
     const profileRows = await query("SELECT * FROM driver_profiles WHERE user_id = ?", [req.user.id]);
     const profile = profileRows[0] || null;
 
     return res.json({ user, profile });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * GET /points/history
+ * Returns the driver's full points ledger plus current balance.
+ */
+app.get("/points/history", requireAuth, async (req, res) => {
+  try {
+    const driverId = req.user.id;
+
+    const ledger = await query(
+      `SELECT
+         l.id,
+         l.driver_id,
+         l.sponsor_id,
+         l.delta,
+         l.reason,
+         l.created_at,
+         u.email AS sponsor_email,
+         sp.company_name AS sponsor_company
+       FROM driver_points_ledger l
+       LEFT JOIN users u ON l.sponsor_id = u.id
+       LEFT JOIN sponsor_profiles sp ON l.sponsor_id = sp.user_id
+       WHERE l.driver_id = ?
+       ORDER BY l.created_at DESC, l.id DESC`,
+      [driverId]
+    );
+
+    const [balanceRows, earnedRows] = await Promise.all([
+      query(
+        "SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?",
+        [driverId]
+      ),
+      query(
+        "SELECT COALESCE(SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END), 0) AS earned FROM driver_points_ledger WHERE driver_id = ?",
+        [driverId]
+      )
+    ]);
+
+    const balance = Number(balanceRows?.[0]?.balance || 0);
+    const lifetimeEarned = Number(earnedRows?.[0]?.earned || 0);
+
+    return res.json({ balance, lifetimeEarned, ledger: ledger || [] });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Server error" });
@@ -765,6 +835,44 @@ app.put('/messages/:messageId/read', requireAuth, async (req, res) => {
       [messageId, req.user.id]
     );
     return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============================================================
+// LANGUAGE PREFERENCE (#10471)
+// ============================================================
+
+/**
+ * GET /me/language
+ */
+app.get('/me/language', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT preferred_language FROM users WHERE id = ? LIMIT 1', [req.user.id]);
+    return res.json({ language: rows?.[0]?.preferred_language || 'en' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * PUT /me/language
+ * Body: { language: string }
+ */
+app.put('/me/language', requireAuth, async (req, res) => {
+  const schema = z.object({
+    language: z.string().min(2).max(10),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    await exec('UPDATE users SET preferred_language = ? WHERE id = ?', [parsed.data.language, req.user.id]);
+    return res.json({ ok: true, language: parsed.data.language });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Server error' });

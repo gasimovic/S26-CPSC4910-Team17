@@ -98,11 +98,10 @@ function requireAuth(req, res, next) {
     if (payload.role !== 'admin' && payload.role !== 'sponsor') {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
-    req.user = payload;
-    next();
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Server error" });
+    req.user = { id: payload.sub, role: payload.role };
+    return next();
+  } catch {
+    return res.status(401).json({ error: "Invalid token" });
   }
 }
 
@@ -847,6 +846,115 @@ app.get("/drivers/:driverId/points", requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// BULK POINTS OPERATIONS (#2854, #2855)
+// Must be defined BEFORE /drivers/:driverId routes so Express
+// doesn't match "bulk" as a :driverId parameter.
+// ============================================================
+
+/**
+ * POST /drivers/bulk/points/add
+ * Bulk add points to multiple drivers.
+ * Body: { driverIds: number[], points: number, reason: string }
+ */
+app.post('/drivers/bulk/points/add', requireAuth, async (req, res) => {
+  const schema = z.object({
+    driverIds: z.array(z.coerce.number().int().positive()).min(1),
+    points: z.coerce.number().int().positive(),
+    reason: z.string().min(1).max(255),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const { driverIds, points, reason } = parsed.data;
+
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) return res.status(400).json({ error: 'Sponsor company_name is not set.' });
+
+    const results = [];
+    for (const driverId of driverIds) {
+      const memberRows = await query(
+        `SELECT u.id FROM users u JOIN driver_profiles dp ON u.id = dp.user_id
+         WHERE u.role = 'driver' AND u.id = ?
+         AND (dp.sponsor_org = ? OR EXISTS (
+           SELECT 1 FROM applications a WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'
+         )) LIMIT 1`,
+        [driverId, sponsorCompany, req.user.id]
+      );
+
+      if (!memberRows || memberRows.length === 0) {
+        results.push({ driverId, ok: false, error: 'Not in your program' });
+        continue;
+      }
+
+      await exec(
+        'INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)',
+        [driverId, req.user.id, points, reason]
+      );
+      results.push({ driverId, ok: true, delta: points });
+    }
+
+    return res.json({ ok: true, results });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * POST /drivers/bulk/points/deduct
+ * Bulk deduct points from multiple drivers.
+ * Body: { driverIds: number[], points: number, reason: string }
+ */
+app.post('/drivers/bulk/points/deduct', requireAuth, async (req, res) => {
+  const schema = z.object({
+    driverIds: z.array(z.coerce.number().int().positive()).min(1),
+    points: z.coerce.number().int().positive(),
+    reason: z.string().min(1).max(255),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const { driverIds, points, reason } = parsed.data;
+
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) return res.status(400).json({ error: 'Sponsor company_name is not set.' });
+
+    const delta = -Math.abs(points);
+    const results = [];
+    for (const driverId of driverIds) {
+      const memberRows = await query(
+        `SELECT u.id FROM users u JOIN driver_profiles dp ON u.id = dp.user_id
+         WHERE u.role = 'driver' AND u.id = ?
+         AND (dp.sponsor_org = ? OR EXISTS (
+           SELECT 1 FROM applications a WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'
+         )) LIMIT 1`,
+        [driverId, sponsorCompany, req.user.id]
+      );
+
+      if (!memberRows || memberRows.length === 0) {
+        results.push({ driverId, ok: false, error: 'Not in your program' });
+        continue;
+      }
+
+      await exec(
+        'INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)',
+        [driverId, req.user.id, delta, reason]
+      );
+      results.push({ driverId, ok: true, delta });
+    }
+
+    return res.json({ ok: true, results });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
 /**
  * POST /drivers/:driverId/points/add
  * Body: { points: number, reason: string }
@@ -1255,6 +1363,312 @@ app.get('/sprint-info', async (_req, res) => {
     return res.status(500).json({ error: 'Server error' })
   }
 })
+
+// ============================================================
+// SCHEDULED / RECURRING POINT AWARDS (#2856, #2857, #2868, #2869, #2870)
+// ============================================================
+
+/**
+ * GET /scheduled-awards
+ * List all scheduled/recurring awards for this sponsor.
+ */
+app.get('/scheduled-awards', requireAuth, async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT sa.*,
+              CASE WHEN sa.driver_id IS NULL THEN 'All Drivers'
+                   ELSE TRIM(CONCAT(COALESCE(dp.first_name,''), ' ', COALESCE(dp.last_name,'')))
+              END AS driver_name,
+              u.email AS driver_email
+       FROM scheduled_point_awards sa
+       LEFT JOIN driver_profiles dp ON sa.driver_id = dp.user_id
+       LEFT JOIN users u ON sa.driver_id = u.id
+       WHERE sa.sponsor_id = ?
+       ORDER BY sa.scheduled_date ASC`,
+      [req.user.id]
+    );
+    return res.json({ awards: rows || [] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * POST /scheduled-awards
+ * Create a new scheduled or recurring point award.
+ * Body: { driverId?: number, points: number, reason: string,
+ *         frequency: 'once'|'daily'|'weekly'|'monthly',
+ *         scheduledDate: 'YYYY-MM-DD', isRecurring?: boolean }
+ */
+app.post('/scheduled-awards', requireAuth, async (req, res) => {
+  const schema = z.object({
+    driverId: z.coerce.number().int().positive().optional().nullable(),
+    points: z.coerce.number().int().positive(),
+    reason: z.string().min(1).max(255),
+    frequency: z.enum(['once', 'daily', 'weekly', 'monthly']).optional().default('once'),
+    scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    isRecurring: z.boolean().optional().default(false),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const { driverId, points, reason, frequency, scheduledDate, isRecurring } = parsed.data;
+
+  try {
+    const result = await exec(
+      `INSERT INTO scheduled_point_awards (sponsor_id, driver_id, points, reason, frequency, scheduled_date, is_recurring)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.id, driverId || null, points, reason, frequency, scheduledDate, isRecurring ? 1 : 0]
+    );
+
+    const rows = await query('SELECT * FROM scheduled_point_awards WHERE id = ?', [result.insertId]);
+    return res.status(201).json({ ok: true, award: rows[0] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * PUT /scheduled-awards/:awardId/pause
+ * Pause a scheduled/recurring award (#2857).
+ */
+app.put('/scheduled-awards/:awardId/pause', requireAuth, async (req, res) => {
+  const awardId = toInt(req.params.awardId);
+  if (!Number.isFinite(awardId)) return res.status(400).json({ error: 'Invalid awardId' });
+
+  try {
+    const rows = await query(
+      'SELECT id FROM scheduled_point_awards WHERE id = ? AND sponsor_id = ? LIMIT 1',
+      [awardId, req.user.id]
+    );
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Award not found' });
+
+    await exec('UPDATE scheduled_point_awards SET is_paused = 1 WHERE id = ?', [awardId]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * PUT /scheduled-awards/:awardId/resume
+ * Resume a paused award.
+ */
+app.put('/scheduled-awards/:awardId/resume', requireAuth, async (req, res) => {
+  const awardId = toInt(req.params.awardId);
+  if (!Number.isFinite(awardId)) return res.status(400).json({ error: 'Invalid awardId' });
+
+  try {
+    const rows = await query(
+      'SELECT id FROM scheduled_point_awards WHERE id = ? AND sponsor_id = ? LIMIT 1',
+      [awardId, req.user.id]
+    );
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Award not found' });
+
+    await exec('UPDATE scheduled_point_awards SET is_paused = 0 WHERE id = ?', [awardId]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * DELETE /scheduled-awards/:awardId
+ * Cancel/delete a scheduled award (#2869).
+ */
+app.delete('/scheduled-awards/:awardId', requireAuth, async (req, res) => {
+  const awardId = toInt(req.params.awardId);
+  if (!Number.isFinite(awardId)) return res.status(400).json({ error: 'Invalid awardId' });
+
+  try {
+    const rows = await query(
+      'SELECT id FROM scheduled_point_awards WHERE id = ? AND sponsor_id = ? LIMIT 1',
+      [awardId, req.user.id]
+    );
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Award not found' });
+
+    await exec('DELETE FROM scheduled_point_awards WHERE id = ?', [awardId]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============================================================
+// POINT EXPIRATION RULES (#2858)
+// ============================================================
+
+/**
+ * GET /point-expiration
+ * Get this sponsor's point expiration rule.
+ */
+app.get('/point-expiration', requireAuth, async (req, res) => {
+  try {
+    const rows = await query(
+      'SELECT * FROM point_expiration_rules WHERE sponsor_id = ? LIMIT 1',
+      [req.user.id]
+    );
+    return res.json({ rule: rows?.[0] || null });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * PUT /point-expiration
+ * Set or update point expiration rule.
+ * Body: { expiryDays: number, isActive: boolean }
+ */
+app.put('/point-expiration', requireAuth, async (req, res) => {
+  const schema = z.object({
+    expiryDays: z.coerce.number().int().positive(),
+    isActive: z.boolean().optional().default(true),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const { expiryDays, isActive } = parsed.data;
+
+  try {
+    await exec(
+      `INSERT INTO point_expiration_rules (sponsor_id, expiry_days, is_active)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE expiry_days = VALUES(expiry_days), is_active = VALUES(is_active)`,
+      [req.user.id, expiryDays, isActive ? 1 : 0]
+    );
+
+    const rows = await query('SELECT * FROM point_expiration_rules WHERE sponsor_id = ? LIMIT 1', [req.user.id]);
+    return res.json({ ok: true, rule: rows[0] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============================================================
+// SPONSOR POINT ANALYTICS (#2862, #2863, #2864)
+// ============================================================
+
+/**
+ * GET /analytics/points
+ * Returns unredeemed points, total awarded this month, total redeemed this month.
+ */
+app.get('/analytics/points', requireAuth, async (req, res) => {
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) return res.status(400).json({ error: 'Sponsor company_name is not set.' });
+
+    // Total unredeemed points across all drivers in program (#2862)
+    const unredeemedRows = await query(
+      `SELECT COALESCE(SUM(l.delta), 0) AS total_unredeemed
+       FROM driver_points_ledger l
+       JOIN users u ON l.driver_id = u.id
+       JOIN driver_profiles dp ON u.id = dp.user_id
+       WHERE l.sponsor_id = ?
+         AND (dp.sponsor_org = ? OR EXISTS (
+           SELECT 1 FROM applications a WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'
+         ))`,
+      [req.user.id, sponsorCompany, req.user.id]
+    );
+
+    // Total points awarded this month (#2863) — positive deltas only
+    const awardedRows = await query(
+      `SELECT COALESCE(SUM(l.delta), 0) AS total_awarded
+       FROM driver_points_ledger l
+       WHERE l.sponsor_id = ? AND l.delta > 0
+         AND MONTH(l.created_at) = MONTH(CURRENT_DATE())
+         AND YEAR(l.created_at) = YEAR(CURRENT_DATE())`,
+      [req.user.id]
+    );
+
+    // Total points redeemed this month (#2864) — negative deltas (abs value)
+    const redeemedRows = await query(
+      `SELECT COALESCE(ABS(SUM(l.delta)), 0) AS total_redeemed
+       FROM driver_points_ledger l
+       WHERE l.sponsor_id = ? AND l.delta < 0
+         AND MONTH(l.created_at) = MONTH(CURRENT_DATE())
+         AND YEAR(l.created_at) = YEAR(CURRENT_DATE())`,
+      [req.user.id]
+    );
+
+    // Per-driver unredeemed breakdown
+    const driverBreakdown = await query(
+      `SELECT l.driver_id,
+              TRIM(CONCAT(COALESCE(dp.first_name,''), ' ', COALESCE(dp.last_name,''))) AS driver_name,
+              u.email AS driver_email,
+              COALESCE(SUM(l.delta), 0) AS balance
+       FROM driver_points_ledger l
+       JOIN users u ON l.driver_id = u.id
+       JOIN driver_profiles dp ON u.id = dp.user_id
+       WHERE l.sponsor_id = ?
+         AND (dp.sponsor_org = ? OR EXISTS (
+           SELECT 1 FROM applications a WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'
+         ))
+       GROUP BY l.driver_id
+       HAVING balance > 0
+       ORDER BY balance DESC`,
+      [req.user.id, sponsorCompany, req.user.id]
+    );
+
+    return res.json({
+      totalUnredeemed: Number(unredeemedRows[0]?.total_unredeemed || 0),
+      totalAwardedThisMonth: Number(awardedRows[0]?.total_awarded || 0),
+      totalRedeemedThisMonth: Number(redeemedRows[0]?.total_redeemed || 0),
+      driverBreakdown: driverBreakdown || [],
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============================================================
+// LANGUAGE PREFERENCE (#10471)
+// ============================================================
+
+/**
+ * GET /me/language
+ * Get the user's preferred language.
+ */
+app.get('/me/language', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT preferred_language FROM users WHERE id = ? LIMIT 1', [req.user.id]);
+    return res.json({ language: rows?.[0]?.preferred_language || 'en' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * PUT /me/language
+ * Save the user's preferred language.
+ * Body: { language: string }
+ */
+app.put('/me/language', requireAuth, async (req, res) => {
+  const schema = z.object({
+    language: z.string().min(2).max(10),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    await exec('UPDATE users SET preferred_language = ? WHERE id = ?', [parsed.data.language, req.user.id]);
+    return res.json({ ok: true, language: parsed.data.language });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`[sponsor] listening on :${PORT}`);
