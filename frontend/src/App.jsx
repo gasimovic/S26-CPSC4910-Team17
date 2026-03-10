@@ -283,8 +283,8 @@ function App() {
       name,
       email: userObj.email || null,
       role: (userObj.role || inferRoleFromBase(apiBase)),
-      // Sprint 1 backend doesn't provide points yet
       points: Number(userObj.points ?? 0),
+      totalEarned: Number(userObj.points_earned ?? userObj.total_points_earned ?? 0),
       miles: Number(userObj.miles ?? 0),
       streak: Number(userObj.streak ?? 0),
       rank: Number(userObj.rank ?? 0),
@@ -540,6 +540,7 @@ function App() {
             email: userObj.email || null,
             role: (userObj.role || roleFromMe),
             points: Number(userObj.points ?? 0),
+            totalEarned: Number(userObj.points_earned ?? userObj.total_points_earned ?? 0),
             miles: Number(userObj.miles ?? 0),
             streak: Number(userObj.streak ?? 0),
             rank: Number(userObj.rank ?? 0),
@@ -2130,6 +2131,11 @@ function App() {
               <p className="pts-hero-label">Your points</p>
               <p className="pts-hero-value">{currentUser?.points ?? 0}</p>
             </div>
+            {isDriver && (
+              <p className="form-footer" style={{ marginTop: 8 }}>
+                Total earned: <strong>{currentUser?.totalEarned ?? currentUser?.points ?? 0}</strong>
+              </p>
+            )}
             {isDriver && (
               <div style={{ marginTop: 12 }}>
                 <button

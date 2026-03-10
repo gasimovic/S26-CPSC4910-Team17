@@ -294,17 +294,25 @@ app.get("/me", requireAuth, async (req, res) => {
     );
     const user = userRows[0];
 
-    // Compute current points balance from the ledger so the frontend
-    // dashboard and nav can show a real-time "Your points" value.
-    const pointsRows = await query(
-      "SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?",
-      [req.user.id]
-    );
-    const pointsBalance = Number(pointsRows?.[0]?.balance || 0);
+    // Compute current points and lifetime earned points from the ledger
+    const [pointsRows, earnedRows] = await Promise.all([
+      query(
+        "SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?",
+        [req.user.id]
+      ),
+      query(
+        "SELECT COALESCE(SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END), 0) AS earned FROM driver_points_ledger WHERE driver_id = ?",
+        [req.user.id]
+      )
+    ]);
 
-    // Attach as a field on the user object; the frontend's login
-    // normalization reads user.points from /me.
+    const pointsBalance = Number(pointsRows?.[0]?.balance || 0);
+    const lifetimeEarned = Number(earnedRows?.[0]?.earned || 0);
+
+    // Attach as fields on the user object; the frontend's login
+    // normalization reads user.points (current) and user.points_earned (lifetime) from /me.
     user.points = pointsBalance;
+    user.points_earned = lifetimeEarned;
 
     const profileRows = await query("SELECT * FROM driver_profiles WHERE user_id = ?", [req.user.id]);
     const profile = profileRows[0] || null;
@@ -342,13 +350,21 @@ app.get("/points/history", requireAuth, async (req, res) => {
       [driverId]
     );
 
-    const balanceRows = await query(
-      "SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?",
-      [driverId]
-    );
-    const balance = Number(balanceRows?.[0]?.balance || 0);
+    const [balanceRows, earnedRows] = await Promise.all([
+      query(
+        "SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?",
+        [driverId]
+      ),
+      query(
+        "SELECT COALESCE(SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END), 0) AS earned FROM driver_points_ledger WHERE driver_id = ?",
+        [driverId]
+      )
+    ]);
 
-    return res.json({ balance, ledger: ledger || [] });
+    const balance = Number(balanceRows?.[0]?.balance || 0);
+    const lifetimeEarned = Number(earnedRows?.[0]?.earned || 0);
+
+    return res.json({ balance, lifetimeEarned, ledger: ledger || [] });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Server error" });
