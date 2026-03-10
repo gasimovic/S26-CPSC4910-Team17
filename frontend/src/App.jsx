@@ -2801,13 +2801,13 @@ function App() {
             TAB: SPONSOR ORGS
         ══════════════════════════════════════════════════ */}
           {activeTab === 'sponsors' && (
-            <div className="card" style={{ borderRadius: '0 8px 8px 8px' }}>
+            <div className="card" style={{ borderRadius: '0 8px 8px 8px', overflowX: 'auto' }}>
               <div className="table-wrap">
                 <table className="table">
                   <thead>
                     <tr>
                       <th>ID</th>
-                      <th>Email</th>
+                      <th>Name</th>
                       <th>Organization</th>
                       <th>Joined</th>
                       <th className="text-right">Drivers</th>
@@ -2887,11 +2887,11 @@ function App() {
                         <th>Email</th>
                         <th>Sponsor Org</th>
                         <th className="text-right">Points</th>
-                        <th style={{ width: 200 }}>Adjust (±)</th>
-                        <th style={{ width: 240 }}>Reason (required)</th>
-                        <th style={{ width: 120 }}>Apply</th>
-                        <th style={{ width: 90 }}>Ledger</th>
-                        <th style={{ width: 90 }}>Details</th>
+                        <th style={{ width: 110 }}>Adjust (±)</th>
+                        <th style={{ width: 150 }}>Reason</th>
+                        <th style={{ width: 70 }}>Apply</th>
+                        <th style={{ width: 65 }}>Ledger</th>
+                        <th style={{ width: 65 }}>Details</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2919,28 +2919,31 @@ function App() {
                                 </span>
                               </td>
                               <td className="text-right" style={{ fontWeight: 600 }}>{points.toLocaleString()}</td>
-                              <td>
+                                <td>
                                 <input
                                   className="form-input"
                                   type="number"
-                                  placeholder="e.g. 50 or -20"
+                                  placeholder="±pts"
+                                  style={{ fontSize: '0.8em', padding: '4px 6px' }}
                                   value={deltaById[id] ?? ''}
                                   onChange={e => setDeltaById(prev => ({ ...prev, [id]: e.target.value }))}
                                 />
                               </td>
-                              <td>
+                                <td>
                                 <input
                                   className="form-input"
                                   type="text"
-                                  placeholder="Why are you changing points?"
+                                  placeholder="Reason"
+                                  style={{ fontSize: '0.8em', padding: '4px 6px' }}
                                   value={reasonById[id] ?? ''}
                                   onChange={e => setReasonById(prev => ({ ...prev, [id]: e.target.value }))}
                                 />
                               </td>
-                              <td>
+                                <td>
                                 <button
                                   className="btn btn-success"
                                   type="button"
+                                  style={{ fontSize: '0.8em', padding: '4px 8px' }}
                                   onClick={() => adjustPoints({ ...d, id })}
                                 >
                                   Apply
