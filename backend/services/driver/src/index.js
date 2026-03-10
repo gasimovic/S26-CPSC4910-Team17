@@ -771,6 +771,44 @@ app.put('/messages/:messageId/read', requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// LANGUAGE PREFERENCE (#10471)
+// ============================================================
+
+/**
+ * GET /me/language
+ */
+app.get('/me/language', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT preferred_language FROM users WHERE id = ? LIMIT 1', [req.user.id]);
+    return res.json({ language: rows?.[0]?.preferred_language || 'en' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * PUT /me/language
+ * Body: { language: string }
+ */
+app.put('/me/language', requireAuth, async (req, res) => {
+  const schema = z.object({
+    language: z.string().min(2).max(10),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    await exec('UPDATE users SET preferred_language = ? WHERE id = ?', [parsed.data.language, req.user.id]);
+    return res.json({ ok: true, language: parsed.data.language });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
 const driverCatalogRoutes = require('../../../routes/driver/catalog');
 app.use('/catalog', requireAuth, driverCatalogRoutes);
 

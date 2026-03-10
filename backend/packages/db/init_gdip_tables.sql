@@ -200,3 +200,64 @@ CREATE TABLE IF NOT EXISTS message_reads (
   CONSTRAINT fk_mr_message FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
   CONSTRAINT fk_mr_user    FOREIGN KEY (user_id)    REFERENCES users(id)    ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Points ledger (delta-based)
+CREATE TABLE IF NOT EXISTS driver_points_ledger (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  driver_id  INT NOT NULL,
+  sponsor_id INT NULL,
+  delta      INT NOT NULL,
+  reason     VARCHAR(255) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_dpl_driver  (driver_id),
+  INDEX idx_dpl_sponsor (sponsor_id),
+  CONSTRAINT fk_dpl_driver  FOREIGN KEY (driver_id)  REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_dpl_sponsor FOREIGN KEY (sponsor_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Password reset tokens
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  user_id    INT NOT NULL,
+  token_hash VARCHAR(64) NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  used_at    TIMESTAMP NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_prt_user (user_id),
+  CONSTRAINT fk_prt_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Scheduled/recurring point awards
+CREATE TABLE IF NOT EXISTS scheduled_point_awards (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  sponsor_id    INT NOT NULL,
+  driver_id     INT NULL,              -- NULL = all drivers in program
+  points        INT NOT NULL,
+  reason        VARCHAR(255) NOT NULL,
+  frequency     ENUM('once','daily','weekly','monthly') NOT NULL DEFAULT 'once',
+  scheduled_date DATE NOT NULL,        -- next/only run date
+  is_recurring  TINYINT(1) NOT NULL DEFAULT 0,
+  is_paused     TINYINT(1) NOT NULL DEFAULT 0,
+  last_run_at   TIMESTAMP NULL,
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_spa_sponsor (sponsor_id),
+  INDEX idx_spa_driver  (driver_id),
+  INDEX idx_spa_date    (scheduled_date),
+  CONSTRAINT fk_spa_sponsor FOREIGN KEY (sponsor_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_spa_driver  FOREIGN KEY (driver_id)  REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Point expiration rules per sponsor
+CREATE TABLE IF NOT EXISTS point_expiration_rules (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  sponsor_id    INT NOT NULL UNIQUE,   -- one rule per sponsor
+  expiry_days   INT NOT NULL,          -- points expire after N days
+  is_active     TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_per_sponsor FOREIGN KEY (sponsor_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Language preference per user
+ALTER TABLE users ADD COLUMN preferred_language VARCHAR(10) NULL DEFAULT 'en';

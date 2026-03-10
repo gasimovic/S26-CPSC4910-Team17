@@ -57,6 +57,8 @@ function App() {
         return '/admin-users'
       case 'about':
         return '/about'
+      case 'point-management':
+        return '/point-management'
       default:
         return '/'
     }
@@ -86,6 +88,7 @@ function App() {
     if (path === '/sponsor-affiliation') return 'sponsor-affiliation'
     if (path === '/admin-users') return 'admin-users'
     if (path === '/about') return 'about'
+    if (path === '/point-management') return 'point-management'
 
     // Back-compat: if the path is unknown, fall back to any legacy ?page= value.
     const pageFromQuery = (searchParams.get('page') || '').toLowerCase()
@@ -375,6 +378,7 @@ function App() {
     const sponsorPages = [
       'dashboard',
       'drivers',
+      'point-management',
       'applications',
       'catalog',
       'messages',
@@ -1006,6 +1010,13 @@ function App() {
             </button>
           )}
 
+          {/* Sponsor-only: Point Management button */}
+          {isSponsor && allowed.includes('point-management') && (
+            <button type="button" onClick={() => setCurrentPage('point-management')} className="nav-link">
+              Points
+            </button>
+          )}
+
           {/* Sponsor-only: Catalog button */}
           {isSponsor && allowed.includes('catalog') && (
             <button type="button" onClick={() => setCurrentPage('catalog')} className="nav-link">
@@ -1072,6 +1083,552 @@ function App() {
           </button>
         </div>
       </nav>
+    )
+  }
+
+  // ============ POINT MANAGEMENT PAGE (sponsor) ============
+  // Covers: bulk add/deduct (#2854, #2855), scheduled/recurring awards (#2856, #2868),
+  // pause (#2857), cancel (#2869), calendar view (#2870), point expiration (#2858),
+  // analytics (#2862, #2863, #2864)
+  const PointManagementPage = () => {
+    const [activeTab, setActiveTab] = useState('analytics')
+    const [drivers, setDrivers] = useState([])
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState('')
+    const [success, setSuccess] = useState('')
+
+    // Bulk points state
+    const [bulkSelectedIds, setBulkSelectedIds] = useState(new Set())
+    const [bulkPoints, setBulkPoints] = useState('')
+    const [bulkReason, setBulkReason] = useState('')
+    const [bulkAction, setBulkAction] = useState('add') // 'add' | 'deduct'
+
+    // Scheduled awards state
+    const [awards, setAwards] = useState([])
+    const [newAward, setNewAward] = useState({ driverId: '', points: '', reason: '', frequency: 'once', scheduledDate: '', isRecurring: false })
+
+    // Expiration rule state
+    const [expirationRule, setExpirationRule] = useState(null)
+    const [expiryDays, setExpiryDays] = useState('')
+    const [expiryActive, setExpiryActive] = useState(true)
+
+    // Analytics state
+    const [analytics, setAnalytics] = useState(null)
+
+    // Calendar view state
+    const [calendarMonth, setCalendarMonth] = useState(() => {
+      const now = new Date()
+      return { year: now.getFullYear(), month: now.getMonth() }
+    })
+
+    const loadDrivers = async () => {
+      try {
+        const data = await api('/drivers', { method: 'GET' })
+        setDrivers(Array.isArray(data?.drivers) ? data.drivers : [])
+      } catch (e) {
+        setError(e?.message || 'Failed to load drivers')
+      }
+    }
+
+    const loadAwards = async () => {
+      try {
+        const data = await api('/scheduled-awards', { method: 'GET' })
+        setAwards(Array.isArray(data?.awards) ? data.awards : [])
+      } catch (e) {
+        setError(e?.message || 'Failed to load scheduled awards')
+      }
+    }
+
+    const loadExpiration = async () => {
+      try {
+        const data = await api('/point-expiration', { method: 'GET' })
+        setExpirationRule(data?.rule || null)
+        if (data?.rule) {
+          setExpiryDays(String(data.rule.expiry_days))
+          setExpiryActive(Boolean(data.rule.is_active))
+        }
+      } catch (e) {
+        setError(e?.message || 'Failed to load expiration rule')
+      }
+    }
+
+    const loadAnalytics = async () => {
+      try {
+        const data = await api('/analytics/points', { method: 'GET' })
+        setAnalytics(data || null)
+      } catch (e) {
+        setError(e?.message || 'Failed to load analytics')
+      }
+    }
+
+    useEffect(() => {
+      setLoading(true)
+      Promise.all([loadDrivers(), loadAwards(), loadExpiration(), loadAnalytics()])
+        .finally(() => setLoading(false))
+    }, [])
+
+    // ── Bulk Points ──
+    const toggleBulkSelect = (id) => {
+      setBulkSelectedIds((prev) => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id); else next.add(id)
+        return next
+      })
+    }
+
+    const selectAllDrivers = () => {
+      if (bulkSelectedIds.size === drivers.length) {
+        setBulkSelectedIds(new Set())
+      } else {
+        setBulkSelectedIds(new Set(drivers.map(d => d.id)))
+      }
+    }
+
+    const submitBulkPoints = async () => {
+      setError(''); setSuccess('')
+      const pts = Number(bulkPoints)
+      if (!Number.isFinite(pts) || pts <= 0) { setError('Enter a positive point amount.'); return }
+      if (!bulkReason.trim()) { setError('Reason is required.'); return }
+      if (bulkSelectedIds.size === 0) { setError('Select at least one driver.'); return }
+
+      try {
+        const endpoint = bulkAction === 'add' ? '/drivers/bulk/points/add' : '/drivers/bulk/points/deduct'
+        const data = await api(endpoint, {
+          method: 'POST',
+          body: JSON.stringify({ driverIds: Array.from(bulkSelectedIds), points: pts, reason: bulkReason.trim() })
+        })
+        const okCount = (data?.results || []).filter(r => r.ok).length
+        const failCount = (data?.results || []).filter(r => !r.ok).length
+        setSuccess(`Bulk ${bulkAction}: ${okCount} succeeded${failCount > 0 ? `, ${failCount} failed` : ''}.`)
+        setBulkPoints(''); setBulkReason(''); setBulkSelectedIds(new Set())
+        await Promise.all([loadDrivers(), loadAnalytics()])
+      } catch (e) {
+        setError(e?.message || 'Bulk operation failed')
+      }
+    }
+
+    // ── Scheduled Awards ──
+    const createAward = async () => {
+      setError(''); setSuccess('')
+      const pts = Number(newAward.points)
+      if (!Number.isFinite(pts) || pts <= 0) { setError('Enter a positive point amount.'); return }
+      if (!newAward.reason.trim()) { setError('Reason is required.'); return }
+      if (!newAward.scheduledDate) { setError('Date is required.'); return }
+
+      try {
+        await api('/scheduled-awards', {
+          method: 'POST',
+          body: JSON.stringify({
+            driverId: newAward.driverId ? Number(newAward.driverId) : null,
+            points: pts,
+            reason: newAward.reason.trim(),
+            frequency: newAward.frequency,
+            scheduledDate: newAward.scheduledDate,
+            isRecurring: newAward.isRecurring,
+          })
+        })
+        setSuccess('Scheduled award created.')
+        setNewAward({ driverId: '', points: '', reason: '', frequency: 'once', scheduledDate: '', isRecurring: false })
+        await loadAwards()
+      } catch (e) {
+        setError(e?.message || 'Failed to create scheduled award')
+      }
+    }
+
+    const pauseAward = async (id) => {
+      setError(''); setSuccess('')
+      try {
+        await api(`/scheduled-awards/${id}/pause`, { method: 'PUT' })
+        setSuccess('Award paused.')
+        await loadAwards()
+      } catch (e) { setError(e?.message || 'Failed to pause award') }
+    }
+
+    const resumeAward = async (id) => {
+      setError(''); setSuccess('')
+      try {
+        await api(`/scheduled-awards/${id}/resume`, { method: 'PUT' })
+        setSuccess('Award resumed.')
+        await loadAwards()
+      } catch (e) { setError(e?.message || 'Failed to resume award') }
+    }
+
+    const cancelAward = async (id) => {
+      setError(''); setSuccess('')
+      if (!window.confirm('Delete this scheduled award?')) return
+      try {
+        await api(`/scheduled-awards/${id}`, { method: 'DELETE' })
+        setSuccess('Scheduled award deleted.')
+        await loadAwards()
+      } catch (e) { setError(e?.message || 'Failed to delete award') }
+    }
+
+    // ── Expiration ──
+    const saveExpiration = async () => {
+      setError(''); setSuccess('')
+      const days = Number(expiryDays)
+      if (!Number.isFinite(days) || days <= 0) { setError('Enter a positive number of days.'); return }
+      try {
+        await api('/point-expiration', {
+          method: 'PUT',
+          body: JSON.stringify({ expiryDays: days, isActive: expiryActive })
+        })
+        setSuccess('Expiration rule saved.')
+        await loadExpiration()
+      } catch (e) { setError(e?.message || 'Failed to save expiration rule') }
+    }
+
+    // ── Calendar helpers ──
+    const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate()
+    const getFirstDayOfWeek = (year, month) => new Date(year, month, 1).getDay()
+
+    const calendarAwards = useMemo(() => {
+      const map = {}
+      for (const a of awards) {
+        const d = a.scheduled_date ? a.scheduled_date.substring(0, 10) : null
+        if (d) {
+          if (!map[d]) map[d] = []
+          map[d].push(a)
+        }
+      }
+      return map
+    }, [awards])
+
+    const prevMonth = () => setCalendarMonth(p => {
+      let m = p.month - 1, y = p.year
+      if (m < 0) { m = 11; y-- }
+      return { year: y, month: m }
+    })
+    const nextMonth = () => setCalendarMonth(p => {
+      let m = p.month + 1, y = p.year
+      if (m > 11) { m = 0; y++ }
+      return { year: y, month: m }
+    })
+
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+    const tabs = [
+      { key: 'analytics', label: 'Analytics' },
+      { key: 'bulk', label: 'Bulk Points' },
+      { key: 'scheduled', label: 'Scheduled Awards' },
+      { key: 'calendar', label: 'Calendar' },
+      { key: 'expiration', label: 'Expiration Rules' },
+    ]
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Point Management</h1>
+          <p className="page-subtitle">Bulk operations, scheduling, analytics, and expiration rules</p>
+
+          {/* Tab bar */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
+            {tabs.map(t => (
+              <button
+                key={t.key}
+                type="button"
+                className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => { setActiveTab(t.key); setError(''); setSuccess('') }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {error && <p className="form-footer" style={{ color: 'crimson' }}>{error}</p>}
+          {success && <p className="form-footer" style={{ color: 'green' }}>{success}</p>}
+
+          {/* ── Analytics Tab ── */}
+          {activeTab === 'analytics' && (
+            <div>
+              {loading || !analytics ? (
+                <p>Loading analytics...</p>
+              ) : (
+                <>
+                  <div className="stats-grid">
+                    <div className="stat-card">
+                      <p className="stat-label">Total Unredeemed Points</p>
+                      <p className="stat-value stat-value-blue">{Number(analytics.totalUnredeemed || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="stat-card">
+                      <p className="stat-label">Awarded This Month</p>
+                      <p className="stat-value stat-value-green">{Number(analytics.totalAwardedThisMonth || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="stat-card">
+                      <p className="stat-label">Redeemed This Month</p>
+                      <p className="stat-value stat-value-amber">{Number(analytics.totalRedeemedThisMonth || 0).toLocaleString()}</p>
+                    </div>
+                  </div>
+
+                  {analytics.driverBreakdown && analytics.driverBreakdown.length > 0 && (
+                    <div className="card" style={{ marginTop: 16 }}>
+                      <h2 className="section-title" style={{ marginTop: 0 }}>Unredeemed Points by Driver</h2>
+                      <div className="table-wrap">
+                        <table className="table">
+                          <thead>
+                            <tr><th>Driver</th><th>Email</th><th className="text-right">Balance</th></tr>
+                          </thead>
+                          <tbody>
+                            {analytics.driverBreakdown.map((d, i) => (
+                              <tr key={i}>
+                                <td>{(d.driver_name || '').trim() || '-'}</td>
+                                <td>{d.driver_email || '-'}</td>
+                                <td className="text-right">{Number(d.balance || 0).toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  <button className="btn btn-primary" type="button" onClick={loadAnalytics} style={{ marginTop: 12 }}>
+                    Refresh Analytics
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── Bulk Points Tab ── */}
+          {activeTab === 'bulk' && (
+            <div>
+              <div className="card" style={{ marginBottom: 16 }}>
+                <h2 className="section-title" style={{ marginTop: 0 }}>Bulk Point Operation</h2>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+                  <select className="form-input" style={{ width: 140 }} value={bulkAction} onChange={e => setBulkAction(e.target.value)}>
+                    <option value="add">Add Points</option>
+                    <option value="deduct">Deduct Points</option>
+                  </select>
+                  <input className="form-input" style={{ width: 120 }} type="number" min="1" placeholder="Points" value={bulkPoints} onChange={e => setBulkPoints(e.target.value)} />
+                  <input className="form-input" style={{ flex: 1, minWidth: 200 }} type="text" placeholder="Reason (required)" value={bulkReason} onChange={e => setBulkReason(e.target.value)} />
+                  <button className="btn btn-success" type="button" onClick={submitBulkPoints}>
+                    Apply to {bulkSelectedIds.size} driver{bulkSelectedIds.size !== 1 ? 's' : ''}
+                  </button>
+                </div>
+              </div>
+
+              <div className="card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <h2 className="section-title" style={{ marginTop: 0 }}>Select Drivers</h2>
+                  <button className="btn btn-secondary" type="button" onClick={selectAllDrivers}>
+                    {bulkSelectedIds.size === drivers.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                </div>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: 40 }}></th>
+                        <th>Driver</th>
+                        <th>Email</th>
+                        <th className="text-right">Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {drivers.length === 0 ? (
+                        <tr><td colSpan="4" className="table-empty">No drivers found</td></tr>
+                      ) : drivers.map(d => {
+                        const id = d.id ?? d.user_id
+                        const name = [d.first_name, d.last_name].filter(Boolean).join(' ') || d.email
+                        const pts = Number(d.pointsBalance ?? d.points_balance ?? 0)
+                        return (
+                          <tr key={id} style={{ cursor: 'pointer' }} onClick={() => toggleBulkSelect(id)}>
+                            <td><input type="checkbox" checked={bulkSelectedIds.has(id)} readOnly /></td>
+                            <td>{name}</td>
+                            <td>{d.email || '-'}</td>
+                            <td className="text-right">{pts}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Scheduled Awards Tab ── */}
+          {activeTab === 'scheduled' && (
+            <div>
+              <div className="card" style={{ marginBottom: 16 }}>
+                <h2 className="section-title" style={{ marginTop: 0 }}>Create Scheduled Award</h2>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginBottom: 12 }}>
+                  <select className="form-input" value={newAward.driverId} onChange={e => setNewAward(p => ({ ...p, driverId: e.target.value }))}>
+                    <option value="">All Drivers</option>
+                    {drivers.map(d => (
+                      <option key={d.id} value={d.id}>
+                        {[d.first_name, d.last_name].filter(Boolean).join(' ') || d.email}
+                      </option>
+                    ))}
+                  </select>
+                  <input className="form-input" type="number" min="1" placeholder="Points" value={newAward.points} onChange={e => setNewAward(p => ({ ...p, points: e.target.value }))} />
+                  <input className="form-input" type="text" placeholder="Reason" value={newAward.reason} onChange={e => setNewAward(p => ({ ...p, reason: e.target.value }))} />
+                  <input className="form-input" type="date" value={newAward.scheduledDate} onChange={e => setNewAward(p => ({ ...p, scheduledDate: e.target.value }))} />
+                  <select className="form-input" value={newAward.frequency} onChange={e => setNewAward(p => ({ ...p, frequency: e.target.value }))}>
+                    <option value="once">One-time</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.875em' }}>
+                    <input type="checkbox" checked={newAward.isRecurring} onChange={e => setNewAward(p => ({ ...p, isRecurring: e.target.checked }))} />
+                    Recurring
+                  </label>
+                </div>
+                <button className="btn btn-success" type="button" onClick={createAward}>Create Award</button>
+              </div>
+
+              <div className="card">
+                <h2 className="section-title" style={{ marginTop: 0 }}>Existing Scheduled Awards</h2>
+                {awards.length === 0 ? (
+                  <p className="activity-empty">No scheduled awards yet</p>
+                ) : (
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Driver</th>
+                          <th className="text-right">Points</th>
+                          <th>Reason</th>
+                          <th>Date</th>
+                          <th>Frequency</th>
+                          <th>Status</th>
+                          <th style={{ width: 200 }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {awards.map(a => (
+                          <tr key={a.id}>
+                            <td>{a.driver_name && a.driver_name.trim() ? a.driver_name.trim() : (a.driver_email || 'All Drivers')}</td>
+                            <td className="text-right">{a.points}</td>
+                            <td>{a.reason}</td>
+                            <td>{a.scheduled_date ? a.scheduled_date.substring(0, 10) : '-'}</td>
+                            <td>{a.frequency}{a.is_recurring ? ' (recurring)' : ''}</td>
+                            <td>
+                              <span style={{
+                                padding: '2px 8px', borderRadius: 4, fontSize: '0.8em', fontWeight: 600,
+                                background: a.is_paused ? '#fef3c7' : '#d1fae5',
+                                color: a.is_paused ? '#92400e' : '#065f46',
+                              }}>
+                                {a.is_paused ? 'Paused' : 'Active'}
+                              </span>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                {a.is_paused ? (
+                                  <button className="btn btn-success" type="button" onClick={() => resumeAward(a.id)} style={{ fontSize: '0.8em', padding: '4px 8px' }}>Resume</button>
+                                ) : (
+                                  <button className="btn btn-secondary" type="button" onClick={() => pauseAward(a.id)} style={{ fontSize: '0.8em', padding: '4px 8px' }}>Pause</button>
+                                )}
+                                <button className="btn btn-danger" type="button" onClick={() => cancelAward(a.id)} style={{ fontSize: '0.8em', padding: '4px 8px' }}>Delete</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Calendar Tab ── */}
+          {activeTab === 'calendar' && (
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <button className="btn btn-secondary" type="button" onClick={prevMonth}>&larr;</button>
+                <h2 className="section-title" style={{ margin: 0 }}>
+                  {monthNames[calendarMonth.month]} {calendarMonth.year}
+                </h2>
+                <button className="btn btn-secondary" type="button" onClick={nextMonth}>&rarr;</button>
+              </div>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(7, 1fr)',
+                gap: 2,
+                textAlign: 'center',
+              }}>
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                  <div key={d} style={{ fontWeight: 700, fontSize: '0.75em', padding: 4, color: '#6b7280' }}>{d}</div>
+                ))}
+                {Array.from({ length: getFirstDayOfWeek(calendarMonth.year, calendarMonth.month) }).map((_, i) => (
+                  <div key={`empty-${i}`} />
+                ))}
+                {Array.from({ length: getDaysInMonth(calendarMonth.year, calendarMonth.month) }).map((_, i) => {
+                  const day = i + 1
+                  const dateStr = `${calendarMonth.year}-${String(calendarMonth.month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+                  const dayAwards = calendarAwards[dateStr] || []
+                  const today = new Date()
+                  const isToday = today.getFullYear() === calendarMonth.year && today.getMonth() === calendarMonth.month && today.getDate() === day
+
+                  return (
+                    <div key={day} style={{
+                      padding: 6,
+                      minHeight: 60,
+                      border: '1px solid var(--border)',
+                      borderRadius: 4,
+                      background: isToday ? '#eff6ff' : dayAwards.length > 0 ? '#f0fdf4' : '#fff',
+                      fontSize: '0.8em',
+                    }}>
+                      <div style={{ fontWeight: isToday ? 700 : 500, marginBottom: 2 }}>{day}</div>
+                      {dayAwards.map(a => (
+                        <div key={a.id} style={{
+                          fontSize: '0.7em',
+                          background: a.is_paused ? '#fef3c7' : '#d1fae5',
+                          borderRadius: 3,
+                          padding: '1px 4px',
+                          marginBottom: 1,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}>
+                          +{a.points} {a.reason?.substring(0, 15)}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Expiration Rules Tab ── */}
+          {activeTab === 'expiration' && (
+            <div className="card">
+              <h2 className="section-title" style={{ marginTop: 0 }}>Point Expiration Rule</h2>
+              <p className="page-subtitle" style={{ marginBottom: 12 }}>
+                Set how many days after earning points they will expire. This prevents indefinite accumulation.
+              </p>
+              {expirationRule && (
+                <p style={{ marginBottom: 12, fontSize: '0.875em', color: '#6b7280' }}>
+                  Current rule: Points expire after <strong>{expirationRule.expiry_days}</strong> days
+                  — Status: <strong>{expirationRule.is_active ? 'Active' : 'Inactive'}</strong>
+                </p>
+              )}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  className="form-input"
+                  style={{ width: 140 }}
+                  type="number"
+                  min="1"
+                  placeholder="Days until expiry"
+                  value={expiryDays}
+                  onChange={e => setExpiryDays(e.target.value)}
+                />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.875em' }}>
+                  <input type="checkbox" checked={expiryActive} onChange={e => setExpiryActive(e.target.checked)} />
+                  Active
+                </label>
+                <button className="btn btn-success" type="button" onClick={saveExpiration}>Save Rule</button>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
     )
   }
 
@@ -4997,6 +5554,9 @@ const AdminUsersPage = () => {
       {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
       {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}
       {isLoggedIn && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
+
+      {/* Sponsor Pages */}
+      {isLoggedIn && currentPage === 'point-management' && <PointManagementPage />}
 
       {/* Sponsor/Admin shared Pages */}
       {isLoggedIn && currentPage === 'applications' && currentUser?.role !== 'admin' && <ApplicationsPage />}
