@@ -2094,9 +2094,21 @@ function App() {
           <h1 className="page-title">Welcome back, {currentUser?.name || 'User'}</h1>
           <p className="page-subtitle">Here’s your overview</p>
 
-          <div className="pts-hero">
-            <p className="pts-hero-label">Your points</p>
-            <p className="pts-hero-value">{currentUser?.points ?? 0}</p>
+          <div style={{ marginBottom: 24 }}>
+            <div className="pts-hero">
+              <p className="pts-hero-label">Your points</p>
+              <p className="pts-hero-value">{currentUser?.points ?? 0}</p>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                // Placeholder – wired up later
+                onClick={() => {}}
+              >
+                Point history
+              </button>
+            </div>
           </div>
 
           <section>
