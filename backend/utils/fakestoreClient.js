@@ -42,7 +42,8 @@ async function fetchProducts(path, limit) {
         params,
         timeout: TIMEOUT_MS,
     });
-    return (response.data || []).map(normalizeItem);
+    const rows = Array.isArray(response.data) ? response.data : [];
+    return rows.map(normalizeItem);
 }
 
 /**

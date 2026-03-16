@@ -4587,7 +4587,7 @@ function App() {
 
     const fetchPopularItems = async () => {
       try {
-        const res = await api('/ebay/popular', { method: 'GET' })
+        const res = await api('/fakestore/popular', { method: 'GET' })
         setSearchResults(res.items || [])
       } catch (err) {
         console.warn('Could not load popular items:', err.message)
@@ -4603,12 +4603,13 @@ function App() {
 
     const handleSearch = async (e) => {
       e.preventDefault()
-      if (!searchQuery) return
+      const trimmedQuery = searchQuery.trim()
+      if (!trimmedQuery) return
       setSearching(true)
       try {
-        const res = await api(`/ebay/search?q=${encodeURIComponent(searchQuery)}`, { method: 'GET' })
+        const res = await api(`/fakestore/search?q=${encodeURIComponent(trimmedQuery)}`, { method: 'GET' })
         setSearchResults(res.items || [])
-        setResultsLabel(searchQuery)
+        setResultsLabel(trimmedQuery)
       } catch (err) {
         console.error('Product search failed', err)
         alert('Search failed. Check the console for details.')
@@ -5374,7 +5375,6 @@ function App() {
     }
 
     useEffect(() => { loadConversations() }, [])
-
     const myId = currentUser?.id
 
     const formatTime = (ts) => {

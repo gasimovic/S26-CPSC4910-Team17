@@ -24,7 +24,7 @@ router.post('/', async (req, res) => {
         const sponsorId = req.user.id;
 
         // Accept both camelCase (from frontend) and snake_case field names
-        const external_item_id = req.body.itemId || req.body.ebayItemId || req.body.ebay_item_id || null;
+        const external_item_id = req.body.itemId || req.body.external_item_id || null;
         const title = req.body.title;
         const description = req.body.description || null;
         // Accept imageUrl (frontend sends camelCase) or image_url

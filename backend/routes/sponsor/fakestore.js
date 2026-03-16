@@ -11,7 +11,7 @@ let _popularCacheExp = 0;
 const POPULAR_TTL_MS = 10 * 60 * 1000;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/sponsor/catalog/search?q=<keyword>  (mounted at /ebay/search)
+// GET /api/sponsor/fakestore/search?q=<keyword>  (mounted at /fakestore/search)
 // Searches Fake Store products by keyword (client-side filter across all 20 products).
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/search', async (req, res) => {
@@ -29,7 +29,7 @@ router.get('/search', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/sponsor/catalog/popular  (mounted at /ebay/popular)
+// GET /api/sponsor/fakestore/popular  (mounted at /fakestore/popular)
 // Returns all electronics from Fake Store (6 products) — cached 10 minutes.
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/popular', async (req, res) => {

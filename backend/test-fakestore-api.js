@@ -1,7 +1,7 @@
 const fakestore = require('./utils/fakestoreClient');
 
 async function testFakestoreApi() {
-    console.log('🧪 Starting Direct Fake Store API Tests (No Auth Needed)...\n');
+    console.log('🧪 Starting direct Fake Store client tests...\n');
 
     try {
         // ==========================================
