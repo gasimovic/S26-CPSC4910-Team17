@@ -9,20 +9,36 @@ const axios = require('axios');
 const FAKESTORE_BASE = 'https://fakestoreapi.com';
 const TIMEOUT_MS = 8000;
 
+function normalizePrice(rawPrice) {
+    const price = Number(rawPrice);
+    if (!Number.isFinite(price)) return null;
+    return Number(price.toFixed(2));
+}
+
 /**
  * Map a raw Fake Store product to the flat shape the frontend expects.
  * Frontend reads: item.itemId · item.title · item.image · item.price.value · item.itemWebUrl
  */
 function normalizeItem(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const id = raw.id;
+    const title = typeof raw.title === 'string' ? raw.title.trim() : '';
+    const priceValue = normalizePrice(raw.price);
+
+    if (id === undefined || id === null || !title || priceValue === null) {
+        return null;
+    }
+
     return {
-        itemId: String(raw.id),
-        title: raw.title,
+        itemId: String(id),
+        title,
         price: {
-            value: Number(raw.price).toFixed(2),
+            value: priceValue,
             currency: 'USD',
         },
         image: raw.image ?? null,
-        itemWebUrl: `https://fakestoreapi.com/products/${raw.id}`,
+        itemWebUrl: `https://fakestoreapi.com/products/${id}`,
         condition: 'New',
         category: raw.category ?? null,
         description: raw.description ?? null,
@@ -38,12 +54,21 @@ function normalizeItem(raw) {
  */
 async function fetchProducts(path, limit) {
     const params = limit ? { limit } : {};
-    const response = await axios.get(`${FAKESTORE_BASE}${path}`, {
-        params,
-        timeout: TIMEOUT_MS,
-    });
-    const rows = Array.isArray(response.data) ? response.data : [];
-    return rows.map(normalizeItem);
+    try {
+        const response = await axios.get(`${FAKESTORE_BASE}${path}`, {
+            params,
+            timeout: TIMEOUT_MS,
+        });
+        const rows = Array.isArray(response.data) ? response.data : [];
+        return rows.map(normalizeItem).filter(Boolean);
+    } catch (err) {
+        const wrapped = new Error(`FakeStore request failed for ${path}: ${err.message}`);
+        wrapped.status = err.response?.status ?? null;
+        wrapped.code = err.code ?? null;
+        wrapped.path = path;
+        wrapped.isTimeout = err.code === 'ECONNABORTED';
+        throw wrapped;
+    }
 }
 
 /**
@@ -64,10 +89,12 @@ async function popular() {
  * @returns {Promise<object[]>}
  */
 async function search(keyword, limit = 12) {
+    const kw = String(keyword || '').trim().toLowerCase();
+    if (!kw) return [];
+
     const allItems = await fetchProducts('/products');
-    const kw = keyword.toLowerCase();
     const matches = allItems.filter(item =>
-        item.title.toLowerCase().includes(kw) ||
+        (item.title || '').toLowerCase().includes(kw) ||
         (item.description || '').toLowerCase().includes(kw) ||
         (item.category || '').toLowerCase().includes(kw)
     );

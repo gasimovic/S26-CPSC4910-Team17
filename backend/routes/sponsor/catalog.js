@@ -43,6 +43,17 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'pointCost must be a positive integer' });
         }
 
+        if (external_item_id) {
+            const existing = await query(
+                `SELECT id FROM catalog_items WHERE sponsor_id = ? AND external_item_id = ? LIMIT 1`,
+                [sponsorId, external_item_id]
+            );
+
+            if (existing.length > 0) {
+                return res.status(409).json({ error: 'Item is already in your catalog' });
+            }
+        }
+
         const result = await exec(
             `INSERT INTO catalog_items 
             (sponsor_id, external_item_id, title, description, image_url, price, point_cost) 

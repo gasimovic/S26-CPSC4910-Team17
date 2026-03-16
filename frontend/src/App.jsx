@@ -3265,6 +3265,41 @@ function App() {
 
   // ============ REWARDS PAGE ============
   const RewardsPage = () => {
+    const [rewardItems, setRewardItems] = useState([])
+    const [rewardsLoading, setRewardsLoading] = useState(true)
+    const [rewardsError, setRewardsError] = useState('')
+
+    useEffect(() => {
+      let cancelled = false
+
+      const fetchRewards = async () => {
+        setRewardsLoading(true)
+        setRewardsError('')
+
+        try {
+          const res = await api('/catalog', { method: 'GET' })
+          if (!cancelled) {
+            setRewardItems(res.items || [])
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setRewardItems([])
+            setRewardsError(err.message || 'Could not load rewards.')
+          }
+        } finally {
+          if (!cancelled) {
+            setRewardsLoading(false)
+          }
+        }
+      }
+
+      fetchRewards()
+
+      return () => {
+        cancelled = true
+      }
+    }, [])
+
     return (
       <div>
         <Navigation />
@@ -3272,11 +3307,36 @@ function App() {
           <h1 className="page-title">Rewards</h1>
           <p className="page-subtitle">Your balance: <strong>{currentUser?.points ?? 0} points</strong></p>
           <div className="rewards-grid">
-            <div className="reward-card">
-              <h3 className="reward-title">$25 Gas Card</h3>
-              <p className="reward-pts">500 pts</p>
-              <button type="button" className="btn btn-success">Redeem</button>
-            </div>
+            {rewardsLoading ? (
+              <p className="activity-empty">Loading rewards…</p>
+            ) : rewardsError ? (
+              <p style={{ color: 'crimson' }}>Could not load rewards: {rewardsError}</p>
+            ) : rewardItems.length === 0 ? (
+              <p className="activity-empty">No rewards are available in your sponsor catalog yet.</p>
+            ) : (
+              rewardItems.map(item => {
+                const pointCost = Number(item.point_cost || 0)
+                const canRedeem = Number(currentUser?.points || 0) >= pointCost && pointCost > 0
+
+                return (
+                  <div key={item.id} className="reward-card">
+                    <h3 className="reward-title">{item.title}</h3>
+                    <p className="reward-pts">{pointCost} pts</p>
+                    <p style={{ marginBottom: 12, color: '#6b7280' }}>
+                      {item.description || `Retail value: $${Number(item.price || 0).toFixed(2)}`}
+                    </p>
+                    <button
+                      type="button"
+                      className="btn btn-success"
+                      disabled
+                      title={canRedeem ? 'Reward redemption endpoint is not implemented yet.' : 'You need more points to redeem this item.'}
+                    >
+                      {canRedeem ? 'Redeem Coming Soon' : 'Not Enough Points'}
+                    </button>
+                  </div>
+                )
+              })
+            )}
           </div>
         </main>
       </div>
@@ -3291,21 +3351,8 @@ function App() {
         <main className="app-main">
           <h1 className="page-title">Leaderboard</h1>
           <p className="page-subtitle">Top drivers by points</p>
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Rank</th>
-                  <th>Driver</th>
-                  <th className="text-right">Points</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td colSpan="3" className="table-empty">Loading…</td>
-                </tr>
-              </tbody>
-            </table>
+          <div className="card">
+            <p className="activity-empty">Leaderboard data is not available yet because there is no leaderboard API endpoint in the backend.</p>
           </div>
         </main>
       </div>
@@ -3320,13 +3367,8 @@ function App() {
         <main className="app-main">
           <h1 className="page-title">Achievements</h1>
           <p className="page-subtitle">Badges and milestones</p>
-          <div className="badges-grid">
-            <div className="badge-card">
-              <div className="badge-icon">🏆</div>
-              <h3 className="badge-title">Road Warrior</h3>
-              <p className="badge-desc">30 days accident-free</p>
-              <p className="badge-status">Unlocked</p>
-            </div>
+          <div className="card">
+            <p className="activity-empty">Achievements are not available yet because there is no achievements API endpoint in the backend.</p>
           </div>
         </main>
       </div>
@@ -4562,7 +4604,10 @@ function App() {
     const [searchQuery, setSearchQuery] = useState('')
     const [searchResults, setSearchResults] = useState([])
     const [shopItems, setShopItems] = useState([])
+    const [shopLoading, setShopLoading] = useState(true)
+    const [shopError, setShopError] = useState('')
     const [searching, setSearching] = useState(false)
+    const [catalogError, setCatalogError] = useState('')
     // '' = loading, 'popular' = showing defaults, otherwise = the search term used
     const [resultsLabel, setResultsLabel] = useState('')
 
@@ -4577,22 +4622,31 @@ function App() {
     }
 
     const fetchShopItems = async () => {
+      setShopLoading(true)
+      setShopError('')
       try {
         const res = await api('/catalog', { method: 'GET' })
         setShopItems(res.items || [])
       } catch (err) {
         console.error(err)
+        setShopItems([])
+        setShopError(err.message || 'Could not load your catalog.')
+      } finally {
+        setShopLoading(false)
       }
     }
 
     const fetchPopularItems = async () => {
+      setCatalogError('')
       try {
         const res = await api('/fakestore/popular', { method: 'GET' })
         setSearchResults(res.items || [])
+        setResultsLabel('popular')
       } catch (err) {
         console.warn('Could not load popular items:', err.message)
-      } finally {
-        setResultsLabel('popular')
+        setSearchResults([])
+        setCatalogError(err.message || 'Could not load popular items.')
+        setResultsLabel('popular-error')
       }
     }
 
@@ -4606,13 +4660,16 @@ function App() {
       const trimmedQuery = searchQuery.trim()
       if (!trimmedQuery) return
       setSearching(true)
+      setCatalogError('')
       try {
         const res = await api(`/fakestore/search?q=${encodeURIComponent(trimmedQuery)}`, { method: 'GET' })
         setSearchResults(res.items || [])
         setResultsLabel(trimmedQuery)
       } catch (err) {
         console.error('Product search failed', err)
-        alert('Search failed. Check the console for details.')
+        setSearchResults([])
+        setResultsLabel(trimmedQuery)
+        setCatalogError(err.message || 'Search failed.')
       } finally {
         setSearching(false)
       }
@@ -4625,6 +4682,11 @@ function App() {
     const handleAddToShop = async (item) => {
       const pointCost = parseInt(draftCosts[item.itemId], 10)
 
+      if (shopItems.some(shopItem => String(shopItem.external_item_id) === String(item.itemId))) {
+        alert('This item is already in your catalog.')
+        return
+      }
+
       if (!pointCost || pointCost <= 0) {
         alert("Please enter a valid point cost before adding to the shop.")
         return
@@ -4636,6 +4698,7 @@ function App() {
           body: JSON.stringify({
             itemId: item.itemId,
             title: item.title,
+            description: item.description,
             imageUrl: item.image,
             price: parseFloat(item.price?.value || 0),
             pointCost: pointCost // Sending the manual cost to the backend
@@ -4696,10 +4759,16 @@ function App() {
                 </p>
               )}
 
+              {catalogError && (
+                <p style={{ color: 'crimson', marginTop: 0, marginBottom: 12 }}>
+                  Could not load catalog products: {catalogError}
+                </p>
+              )}
+
               <div className="landing-grid catalog-grid">
-                {resultsLabel === '' ? (
+                {resultsLabel === '' && !catalogError ? (
                   <p className="activity-empty">Loading popular items…</p>
-                ) : searchResults.length === 0 ? (
+                ) : !catalogError && searchResults.length === 0 ? (
                   <p className="activity-empty">No results found. Try a different search term.</p>
                 ) : (
                   searchResults.map(item => (
@@ -4742,8 +4811,16 @@ function App() {
                 Items currently available for drivers to redeem with their points.
               </p>
 
+              {shopError && (
+                <p style={{ color: 'crimson', marginTop: 0, marginBottom: 12 }}>
+                  Could not load your catalog: {shopError}
+                </p>
+              )}
+
               <div className="landing-grid catalog-grid">
-                {shopItems.length === 0 ? (
+                {shopLoading ? (
+                  <p className="activity-empty">Loading your catalog…</p>
+                ) : shopItems.length === 0 ? (
                   <p className="activity-empty">Your catalog is currently empty.</p>
                 ) : (
                   shopItems.map(item => (
@@ -5649,7 +5726,7 @@ function App() {
       {/* Sponsor/Admin shared Pages */}
       {isLoggedIn && currentPage === 'applications' && currentUser?.role !== 'admin' && <ApplicationsPage />}
       {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
-      {isLoggedIn && currentPage === 'catalog' && <SponsorCatalogPage />}
+      {isLoggedIn && currentPage === 'catalog' && currentUser?.role === 'sponsor' && <SponsorCatalogPage />}
       {isLoggedIn && currentPage === 'messages' && <MessagesPage />}
 
       {/* Admin ONLY Pages */}

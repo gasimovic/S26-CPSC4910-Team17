@@ -16,14 +16,21 @@ const POPULAR_TTL_MS = 10 * 60 * 1000;
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/search', async (req, res) => {
     const keyword = (req.query.q || '').trim();
-    if (!keyword) return res.status(400).json({ error: 'Search keyword is required' });
+    if (!keyword) {
+        return res.status(400).json({ error: 'Search keyword is required', items: [] });
+    }
 
     try {
         const items = await fakestore.search(keyword, 12);
         console.log(`[FakeStore] search "${keyword}" → ${items.length} items`);
         return res.json({ items, mock: false });
     } catch (err) {
-        console.error('[FakeStore] search failed:', err.message);
+        console.error('[FakeStore] search failed:', {
+            message: err.message,
+            status: err.status ?? null,
+            code: err.code ?? null,
+            path: err.path ?? null,
+        });
         return res.status(502).json({ error: 'Failed to reach Fake Store API', items: [] });
     }
 });
@@ -47,7 +54,12 @@ router.get('/popular', async (req, res) => {
         _popularCacheExp = Date.now() + POPULAR_TTL_MS;
         return res.json(payload);
     } catch (err) {
-        console.error('[FakeStore] popular failed:', err.message);
+        console.error('[FakeStore] popular failed:', {
+            message: err.message,
+            status: err.status ?? null,
+            code: err.code ?? null,
+            path: err.path ?? null,
+        });
         return res.status(502).json({ error: 'Failed to reach Fake Store API', items: [] });
     }
 });

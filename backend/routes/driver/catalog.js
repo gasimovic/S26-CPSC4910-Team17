@@ -24,7 +24,7 @@ router.get('/', async (req, res) => {
         `, [driverId, driverId]);
 
         if (sponsorQuery.length === 0) {
-            return res.json([]); // No sponsor = empty shop
+            return res.json({ items: [] });
         }
 
         const sponsorId = sponsorQuery[0].sponsor_id;
@@ -35,7 +35,7 @@ router.get('/', async (req, res) => {
             [sponsorId]
         );
 
-        res.json(items);
+        res.json({ items: items || [] });
     } catch (err) {
         console.error("GET /catalog driver error:", err);
         res.status(500).json({ error: 'Failed to load driver catalog' });

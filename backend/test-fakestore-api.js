@@ -9,7 +9,7 @@ async function testFakestoreApi() {
         // ==========================================
         console.log('[1] Testing fakestore.popular()');
         const popularStart = Date.now();
-        const popularItems = await fakestore.popular(20);
+        const popularItems = await fakestore.popular();
         const popularTime = Date.now() - popularStart;
 
         console.log(`   ✅ Success! (${popularTime}ms)`);
