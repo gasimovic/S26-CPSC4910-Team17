@@ -1,9 +1,9 @@
 const axios = require('axios');
 
-const BASE = 'https://fakestoreapi.com';
+const BASE = 'https://dummyjson.com';
 const TIMEOUT_MS = 8000;
 
-// Map a raw FakeStore product to the shape the frontend expects.
+// Map a raw DummyJSON product to the shape the frontend expects.
 // Frontend reads: itemId, title, description, image, price.value, category.
 function normalize(raw) {
     if (!raw || typeof raw !== 'object') return null;
@@ -18,7 +18,7 @@ function normalize(raw) {
         itemId: String(id),
         title,
         description: raw.description ?? null,
-        image: raw.image ?? null,
+        image: raw.thumbnail ?? null,
         price: { value: Number(price.toFixed(2)), currency: 'USD' },
         category: raw.category ?? null,
     };
@@ -30,13 +30,15 @@ async function get(path) {
 }
 
 async function getProducts() {
-    const data = await get('/products');
-    return (Array.isArray(data) ? data : []).map(normalize).filter(Boolean);
+    const data = await get('/products?limit=100');
+    const list = data?.products ?? (Array.isArray(data) ? data : []);
+    return list.map(normalize).filter(Boolean);
 }
 
 async function getProductsByCategory(category) {
     const data = await get(`/products/category/${encodeURIComponent(category)}`);
-    return (Array.isArray(data) ? data : []).map(normalize).filter(Boolean);
+    const list = data?.products ?? (Array.isArray(data) ? data : []);
+    return list.map(normalize).filter(Boolean);
 }
 
 async function getProduct(id) {
@@ -44,18 +46,15 @@ async function getProduct(id) {
     return normalize(data);
 }
 
-// FakeStore has no search endpoint — fetch all and filter client-side.
+// DummyJSON has a native search endpoint — no client-side filtering needed.
 async function searchProducts(keyword, limit) {
-    const kw = String(keyword || '').trim().toLowerCase();
+    const kw = String(keyword || '').trim();
     if (!kw) return [];
 
-    const all = await getProducts();
-    const matches = all.filter(item =>
-        (item.title || '').toLowerCase().includes(kw) ||
-        (item.description || '').toLowerCase().includes(kw) ||
-        (item.category || '').toLowerCase().includes(kw)
-    );
-    return limit ? matches.slice(0, limit) : matches;
+    const limitParam = limit ? `&limit=${limit}` : '';
+    const data = await get(`/products/search?q=${encodeURIComponent(kw)}${limitParam}`);
+    const list = data?.products ?? (Array.isArray(data) ? data : []);
+    return list.map(normalize).filter(Boolean);
 }
 
 module.exports = { getProducts, getProductsByCategory, getProduct, searchProducts };
