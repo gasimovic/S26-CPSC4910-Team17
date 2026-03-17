@@ -5,11 +5,11 @@ async function testFakestoreApi() {
 
     try {
         // ==========================================
-        // 1. Test popular()
+        // 1. Test getProductsByCategory('electronics')
         // ==========================================
-        console.log('[1] Testing fakestore.popular()');
+        console.log("[1] Testing fakestore.getProductsByCategory('electronics')");
         const popularStart = Date.now();
-        const popularItems = await fakestore.popular();
+        const popularItems = await fakestore.getProductsByCategory('electronics');
         const popularTime = Date.now() - popularStart;
 
         console.log(`   ✅ Success! (${popularTime}ms)`);
@@ -17,7 +17,7 @@ async function testFakestoreApi() {
 
         if (popularItems.length > 0) {
             const first = popularItems[0];
-            console.log(`   ⭐ First item: "${first.title}" - $${first.price?.value}`);
+            console.log(`   ⭐ First item: "${first.title}" - $${first.price.value}`);
         }
         console.log('');
 
@@ -25,9 +25,9 @@ async function testFakestoreApi() {
         // 2. Test search() — keyword match
         // ==========================================
         const keyword = 'ssd';
-        console.log(`[2] Testing fakestore.search('${keyword}')`);
+        console.log(`[2] Testing fakestore.searchProducts('${keyword}')`);
         const searchStart = Date.now();
-        const searchItems = await fakestore.search(keyword, 12);
+        const searchItems = await fakestore.searchProducts(keyword, 12);
         const searchTime = Date.now() - searchStart;
 
         console.log(`   ✅ Success! (${searchTime}ms)`);
@@ -35,7 +35,7 @@ async function testFakestoreApi() {
 
         if (searchItems.length > 0) {
             const first = searchItems[0];
-            console.log(`   ⭐ First item: "${first.title}" - $${first.price?.value}`);
+            console.log(`   ⭐ First item: "${first.title}" - $${first.price.value}`);
         }
         console.log('');
 
@@ -43,8 +43,8 @@ async function testFakestoreApi() {
         // 3. Test search() — no results
         // ==========================================
         const noResultKeyword = 'xyznotarealproduct';
-        console.log(`[3] Testing fakestore.search('${noResultKeyword}') — expect 0 results`);
-        const emptyItems = await fakestore.search(noResultKeyword, 12);
+        console.log(`[3] Testing fakestore.searchProducts('${noResultKeyword}') — expect 0 results`);
+        const emptyItems = await fakestore.searchProducts(noResultKeyword, 12);
         console.log(`   ✅ Correctly returned ${emptyItems.length} items (empty set)\n`);
 
         console.log('🎉 All tests passed! Fake Store API is working.');
