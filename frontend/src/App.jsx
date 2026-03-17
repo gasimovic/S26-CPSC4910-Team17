@@ -4608,7 +4608,7 @@ function App() {
     const [shopError, setShopError] = useState('')
     const [searching, setSearching] = useState(false)
     const [catalogError, setCatalogError] = useState('')
-    // '' = loading, 'popular' = showing defaults, otherwise = the search term used
+    // '' = no search yet, otherwise = the search term used
     const [resultsLabel, setResultsLabel] = useState('')
 
     // We need a state to temporarily store the cost the user types in for each item
@@ -4636,23 +4636,8 @@ function App() {
       }
     }
 
-    const fetchPopularItems = async () => {
-      setCatalogError('')
-      try {
-        const res = await api('/fakestore/popular', { method: 'GET' })
-        setSearchResults(res.items || [])
-        setResultsLabel('popular')
-      } catch (err) {
-        console.warn('Could not load popular items:', err.message)
-        setSearchResults([])
-        setCatalogError(err.message || 'Could not load popular items.')
-        setResultsLabel('popular-error')
-      }
-    }
-
     useEffect(() => {
       fetchShopItems()
-      fetchPopularItems()
     }, [])
 
     const handleSearch = async (e) => {
@@ -4747,13 +4732,7 @@ function App() {
                 </button>
               </form>
 
-              {/* Label swaps between Popular / search results */}
-              {resultsLabel === 'popular' && (
-                <p className="page-subtitle" style={{ marginTop: 0, marginBottom: 8 }}>
-                  Popular products — or search above for something specific.
-                </p>
-              )}
-              {resultsLabel !== '' && resultsLabel !== 'popular' && (
+              {resultsLabel !== '' && (
                 <p className="page-subtitle" style={{ marginTop: 0, marginBottom: 8 }}>
                   Results for <strong>"{resultsLabel}"</strong>
                 </p>
@@ -4767,7 +4746,7 @@ function App() {
 
               <div className="landing-grid catalog-grid">
                 {resultsLabel === '' && !catalogError ? (
-                  <p className="activity-empty">Loading popular items…</p>
+                  <p className="activity-empty">Search above to find products to add.</p>
                 ) : !catalogError && searchResults.length === 0 ? (
                   <p className="activity-empty">No results found. Try a different search term.</p>
                 ) : (
