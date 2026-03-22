@@ -2826,56 +2826,153 @@ const AdminUsersPage = () => {
             <div className="table-wrap">
               <table className="table">
                 <thead>
-                  <tr><th>ID</th><th>Name</th><th>Email</th><th>Sponsor Org</th><th>Status</th><th>Last Login</th><th className="text-right">Points</th><th style={{ width:100 }}>Adjust (±)</th><th style={{ width:150 }}>Reason</th><th style={{ width:65 }}>Apply</th><th style={{ width:65 }}>Ledger</th><th style={{ width:60 }}>Info</th><th style={{ width:60 }}>Edit</th><th style={{ width:100 }}>Rm Org</th><th style={{ width:100 }}>Account</th></tr>
+                  <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Sponsor Org</th>
+                    <th>Status</th>
+                    <th>Last Login</th>
+                    <th className="text-right">Points</th>
+                    <th style={{ width:65 }}>Ledger</th>
+                    <th style={{ width:60 }}>Details</th>
+                    <th style={{ width:100 }}>Account</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {loading && drivers.length===0 ? <tr><td colSpan="15" className="table-empty">Loading…</td></tr>
-                    : filteredDrivers.length===0 ? <tr><td colSpan="15" className="table-empty">No drivers found</td></tr>
+                  {loading && drivers.length===0 ? <tr><td colSpan="10" className="table-empty">Loading…</td></tr>
+                    : filteredDrivers.length===0 ? <tr><td colSpan="10" className="table-empty">No drivers found</td></tr>
                     : filteredDrivers.map(d => {
-                      const id=d.id; const name=[d.first_name,d.last_name].filter(Boolean).join(' ')||'—'
-                      const sponsorOrg=d.sponsor_org||null; const points=Number(d.points_balance??d.points??0)
-                      const isExpanded=expandedDriverId===id; const isActive=d.is_active!==0; const isLedgerOpen=selectedLedgerDriverId===id
+                      const id=d.id
+                      const name=[d.first_name,d.last_name].filter(Boolean).join(' ')||'—'
+                      const sponsorOrg=d.sponsor_org||null
+                      const points=Number(d.points_balance??d.points??0)
+                      const isExpanded=expandedDriverId===id
+                      const isActive=d.is_active!==0
+                      const isLedgerOpen=selectedLedgerDriverId===id
                       return (
                         <React.Fragment key={String(id)}>
                           <tr style={{ opacity: isActive?1:0.55 }}>
                             <td style={{ fontFamily:'monospace', fontSize:'0.82em' }}>{id}</td>
-                            <td>{name}</td><td>{d.email}</td>
-                            <td><span style={{ display:'inline-flex', alignItems:'center', gap:5 }}><span style={{ width:7, height:7, borderRadius:'50%', background: sponsorOrg?'#22c55e':'#d1d5db', flexShrink:0 }} />{sponsorOrg||<em style={{ color:'#9ca3af' }}>None</em>}</span></td>
+                            <td style={{ fontWeight:500 }}>{name}</td>
+                            <td style={{ fontSize:'0.88em', color:'#6b7280' }}>{d.email}</td>
+                            <td>
+                              <span style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+                                <span style={{ width:7, height:7, borderRadius:'50%', background: sponsorOrg?'#22c55e':'#d1d5db', flexShrink:0 }} />
+                                <span style={{ fontSize:'0.85em' }}>{sponsorOrg||<em style={{ color:'#9ca3af' }}>None</em>}</span>
+                              </span>
+                            </td>
                             <td><ActiveBadge isActive={isActive} reason={d.deactivate_reason} /></td>
                             <td style={{ fontSize:'0.8em', color:'#6b7280', whiteSpace:'nowrap' }}>{fmtDateShort(d.last_login_at)}</td>
                             <td className="text-right" style={{ fontWeight:600 }}>{points.toLocaleString()}</td>
-                            <td><input className="form-input" type="number" placeholder="±pts" style={{ fontSize:'0.8em', padding:'4px 6px' }} value={deltaById[id]??''} onChange={e => setDeltaById(p => ({ ...p,[id]:e.target.value }))} /></td>
-                            <td><input className="form-input" type="text" placeholder="Reason" style={{ fontSize:'0.8em', padding:'4px 6px' }} value={reasonById[id]??''} onChange={e => setReasonById(p => ({ ...p,[id]:e.target.value }))} /></td>
-                            <td><button className="btn btn-success" type="button" style={{ fontSize:'0.78em', padding:'4px 8px' }} onClick={() => adjustPoints({ ...d,id })}>Apply</button></td>
-                            <td><button className="btn btn-primary" type="button" style={{ fontSize:'0.78em', padding:'4px 8px' }} onClick={() => { if(isLedgerOpen){setSelectedLedgerDriverId(null);return} openLedger(d) }}>{isLedgerOpen?'Close':'View'}</button></td>
-                            <td><button className="btn btn-primary" type="button" style={{ fontSize:'0.78em', padding:'4px 8px' }} onClick={() => setExpandedDriverId(isExpanded?null:id)}>{isExpanded?'Close':'Info'}</button></td>
-                            <td><button className="btn btn-primary" type="button" style={{ fontSize:'0.78em', padding:'4px 8px' }} onClick={() => openEditUser(d)}>Edit</button></td>
-                            <td>{sponsorOrg ? <button className="btn btn-secondary" type="button" style={{ fontSize:'0.75em', padding:'3px 8px', color:'#dc2626', borderColor:'#dc2626' }} onClick={() => removeDriverFromSponsor({ ...d,id })}>Rm</button> : <span style={{ fontSize:'0.78em', color:'#d1d5db' }}>—</span>}</td>
-                            <td>{isActive
-                              ? <button type="button" className="btn btn-secondary" style={{ fontSize:'0.75em', padding:'3px 8px' }} onClick={() => openDeactivate(d)}>Deactivate</button>
-                              : <button type="button" className="btn btn-success" style={{ fontSize:'0.75em', padding:'3px 8px' }} onClick={() => handleReactivate(d)}>Reactivate</button>}
+                            <td>
+                              <button className="btn btn-primary" type="button" style={{ fontSize:'0.78em', padding:'4px 8px' }}
+                                onClick={() => { if(isLedgerOpen){setSelectedLedgerDriverId(null);return} openLedger(d) }}>
+                                {isLedgerOpen?'Close':'View'}
+                              </button>
+                            </td>
+                            <td>
+                              <button className="btn btn-primary" type="button" style={{ fontSize:'0.78em', padding:'4px 8px' }}
+                                onClick={() => setExpandedDriverId(isExpanded?null:id)}>
+                                {isExpanded?'Close':'Open'}
+                              </button>
+                            </td>
+                            <td>
+                              {isActive
+                                ? <button type="button" className="btn btn-secondary" style={{ fontSize:'0.75em', padding:'3px 8px' }} onClick={() => openDeactivate(d)}>Deactivate</button>
+                                : <button type="button" className="btn btn-success" style={{ fontSize:'0.75em', padding:'3px 8px' }} onClick={() => handleReactivate(d)}>Reactivate</button>}
                             </td>
                           </tr>
+
+                          {/* Ledger inline */}
                           {isLedgerOpen && (
                             <tr style={{ background:'#f0fdf4' }}>
-                              <td colSpan="15" style={{ padding:'14px 20px' }}>
-                                <p style={{ margin:'0 0 8px', fontWeight:700, fontSize:'0.9em' }}>Points ledger — {name}{ledgerBalance!==null && <span style={{ marginLeft:12, fontWeight:400, color:'#6b7280' }}>Balance: <strong style={{ color:'#16a34a' }}>{Number(ledgerBalance).toLocaleString()}</strong></span>}</p>
+                              <td colSpan="10" style={{ padding:'14px 20px' }}>
+                                <p style={{ margin:'0 0 8px', fontWeight:700, fontSize:'0.9em' }}>
+                                  Points ledger — {name}
+                                  {ledgerBalance!==null && <span style={{ marginLeft:12, fontWeight:400, color:'#6b7280' }}>Balance: <strong style={{ color:'#16a34a' }}>{Number(ledgerBalance).toLocaleString()}</strong></span>}
+                                </p>
                                 {ledgerLoading ? <p style={{ color:'#9ca3af', fontSize:'0.85em' }}>Loading…</p>
                                   : ledger.length===0 ? <p style={{ color:'#9ca3af', fontSize:'0.85em', fontStyle:'italic' }}>No entries yet</p>
-                                  : <table className="table" style={{ background:'#fff' }}><thead><tr><th>Date</th><th>Sponsor</th><th className="text-right">Delta</th><th>Reason</th></tr></thead><tbody>{ledger.map((row,i) => <tr key={row.id??i}><td style={{ fontSize:'0.82em', whiteSpace:'nowrap' }}>{fmtDate(row.created_at)}</td><td style={{ fontSize:'0.82em' }}>{row.sponsor_company||(row.sponsor_id==null?<em style={{ color:'#9ca3af' }}>Admin</em>:`#${row.sponsor_id}`)}</td><td className="text-right" style={{ fontWeight:700, color: Number(row.delta)>=0?'#16a34a':'#dc2626' }}>{Number(row.delta)>=0?'+':''}{row.delta}</td><td style={{ fontSize:'0.82em' }}>{row.reason??'—'}</td></tr>)}</tbody></table>}
+                                  : (
+                                    <table className="table" style={{ background:'#fff' }}>
+                                      <thead><tr><th>Date</th><th>Sponsor</th><th className="text-right">Delta</th><th>Reason</th></tr></thead>
+                                      <tbody>
+                                        {ledger.map((row,i) => (
+                                          <tr key={row.id??i}>
+                                            <td style={{ fontSize:'0.82em', whiteSpace:'nowrap' }}>{fmtDate(row.created_at)}</td>
+                                            <td style={{ fontSize:'0.82em' }}>{row.sponsor_company||(row.sponsor_id==null?<em style={{ color:'#9ca3af' }}>Admin</em>:`#${row.sponsor_id}`)}</td>
+                                            <td className="text-right" style={{ fontWeight:700, color: Number(row.delta)>=0?'#16a34a':'#dc2626' }}>{Number(row.delta)>=0?'+':''}{row.delta}</td>
+                                            <td style={{ fontSize:'0.82em' }}>{row.reason??'—'}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
                               </td>
                             </tr>
                           )}
+
+                          {/* Expanded detail + actions */}
                           {isExpanded && (
                             <tr style={{ background:'#f9fafb' }}>
-                              <td colSpan="15" style={{ padding:'14px 20px' }}>
-                                <DetailGrid fields={[
-                                  {label:'User ID',value:id},{label:'Email',value:d.email},{label:'Full Name',value:name},
-                                  {label:'DOB',value:d.dob},{label:'Phone',value:d.phone},{label:'Address',value:d.address_line1},
-                                  {label:'City',value:d.city},{label:'State',value:d.state},{label:'Sponsor Org',value:sponsorOrg||'None'},
-                                  {label:'Points',value:points.toLocaleString()},{label:'Joined',value:fmtDate(d.created_at)},
-                                  {label:'Last Login',value:fmtDate(d.last_login_at)},{label:'Deactivate Reason',value:d.deactivate_reason||'—'},
-                                ]} />
+                              <td colSpan="10" style={{ padding:'16px 20px' }}>
+                                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20 }}>
+
+                                  {/* Left: profile fields */}
+                                  <div>
+                                    <p style={{ margin:'0 0 10px', fontWeight:700, fontSize:'0.85em', color:'#374151' }}>Profile</p>
+                                    <DetailGrid fields={[
+                                      {label:'User ID',value:id},{label:'Email',value:d.email},
+                                      {label:'Full Name',value:name},{label:'DOB',value:d.dob},
+                                      {label:'Phone',value:d.phone},{label:'City / State',value:[d.city,d.state].filter(Boolean).join(', ')||'—'},
+                                      {label:'Sponsor Org',value:sponsorOrg||'None'},
+                                      {label:'Last Login',value:fmtDate(d.last_login_at)},
+                                      {label:'Joined',value:fmtDate(d.created_at)},
+                                      ...(d.deactivate_reason ? [{label:'Deactivate Reason',value:d.deactivate_reason}] : []),
+                                    ]} />
+                                  </div>
+
+                                  {/* Right: actions */}
+                                  <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+
+                                    {/* Edit */}
+                                    <div>
+                                      <p style={{ margin:'0 0 8px', fontWeight:700, fontSize:'0.85em', color:'#374151' }}>Edit User</p>
+                                      <button className="btn btn-primary" type="button" onClick={() => openEditUser(d)}>Edit name / email / role</button>
+                                    </div>
+
+                                    {/* Adjust points */}
+                                    <div>
+                                      <p style={{ margin:'0 0 8px', fontWeight:700, fontSize:'0.85em', color:'#374151' }}>Adjust Points</p>
+                                      <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'flex-end' }}>
+                                        <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                                          <label style={{ fontSize:'0.72em', fontWeight:700, color:'#6b7280', textTransform:'uppercase' }}>Amount (±)</label>
+                                          <input className="form-input" type="number" placeholder="e.g. 50 or -20" style={{ width:130 }}
+                                            value={deltaById[id]??''} onChange={e => setDeltaById(p => ({ ...p,[id]:e.target.value }))} />
+                                        </div>
+                                        <div style={{ display:'flex', flexDirection:'column', gap:4, flex:1, minWidth:180 }}>
+                                          <label style={{ fontSize:'0.72em', fontWeight:700, color:'#6b7280', textTransform:'uppercase' }}>Reason (required)</label>
+                                          <input className="form-input" type="text" placeholder="Why are you changing points?"
+                                            value={reasonById[id]??''} onChange={e => setReasonById(p => ({ ...p,[id]:e.target.value }))} />
+                                        </div>
+                                        <button className="btn btn-success" type="button" onClick={() => adjustPoints({ ...d,id })}>Apply</button>
+                                      </div>
+                                    </div>
+
+                                    {/* Remove from sponsor */}
+                                    {sponsorOrg && (
+                                      <div>
+                                        <p style={{ margin:'0 0 8px', fontWeight:700, fontSize:'0.85em', color:'#374151' }}>Sponsor Org</p>
+                                        <button className="btn btn-secondary" type="button"
+                                          style={{ color:'#dc2626', borderColor:'#dc2626', fontSize:'0.85em' }}
+                                          onClick={() => removeDriverFromSponsor({ ...d,id })}>
+                                          Remove from "{sponsorOrg}"
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
                               </td>
                             </tr>
                           )}
@@ -2885,7 +2982,6 @@ const AdminUsersPage = () => {
                 </tbody>
               </table>
             </div>
-            <p className="form-footer" style={{ marginTop:8 }}>Positive = add points, negative = deduct. Reason always required.</p>
           </div>
         )}
 
