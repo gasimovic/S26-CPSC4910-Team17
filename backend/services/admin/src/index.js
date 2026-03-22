@@ -757,6 +757,240 @@ app.post('/users/temp-admin', requireAuth, async (req, res) => {
   }
 });
  
+
+app.put('/users/:id', requireAuth, async (req, res) => {
+  const userId = Number(req.params.id)
+  if (!Number.isFinite(userId)) return res.status(400).json({ error: 'Invalid user id' })
+  if (userId === req.user.id) return res.status(400).json({ error: 'Cannot change your own role via this endpoint' })
+ 
+  const schema = z.object({
+    email:      z.string().email().optional(),
+    first_name: z.string().max(100).optional(),
+    last_name:  z.string().max(100).optional(),
+    role:       z.enum(['driver', 'sponsor', 'admin']).optional(),
+  })
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+ 
+  try {
+    const userRows = await query('SELECT id, role FROM users WHERE id = ? LIMIT 1', [userId])
+    if (!userRows?.length) return res.status(404).json({ error: 'User not found' })
+ 
+    const updates = []
+    const params = []
+ 
+    if (parsed.data.email) { updates.push('email = ?'); params.push(parsed.data.email.toLowerCase()) }
+    if (parsed.data.role)  { updates.push('role = ?');  params.push(parsed.data.role) }
+ 
+    if (updates.length) {
+      params.push(userId)
+      await exec(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params)
+    }
+ 
+    // Update profile name in whichever profile table matches current role
+    const currentRole = userRows[0].role
+    if (parsed.data.first_name !== undefined || parsed.data.last_name !== undefined) {
+      const profileTable =
+        currentRole === 'admin'   ? 'admin_profiles' :
+        currentRole === 'sponsor' ? 'sponsor_profiles' : 'driver_profiles'
+ 
+      await exec(
+        `INSERT INTO ${profileTable} (user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id = user_id`,
+        [userId]
+      )
+ 
+      const nameUpdates = []
+      const nameParams = []
+      if (parsed.data.first_name !== undefined) { nameUpdates.push('first_name = ?'); nameParams.push(parsed.data.first_name) }
+      if (parsed.data.last_name  !== undefined) { nameUpdates.push('last_name = ?');  nameParams.push(parsed.data.last_name) }
+      if (nameUpdates.length) {
+        nameParams.push(userId)
+        await exec(`UPDATE ${profileTable} SET ${nameUpdates.join(', ')} WHERE user_id = ?`, nameParams)
+      }
+    }
+ 
+    return res.json({ ok: true })
+  } catch (err) {
+    if (err?.code === 'ER_DUP_ENTRY' || String(err?.message || '').includes('Duplicate'))
+      return res.status(409).json({ error: 'Email already in use' })
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+ 
+// ─── PUT /users/:id/deactivate — with optional reason ────────────────────────
+//  REPLACE the existing /users/:id/deactivate route with this version
+ 
+app.put('/users/:id/deactivate', requireAuth, async (req, res) => {
+  const userId = Number(req.params.id)
+  if (!Number.isFinite(userId)) return res.status(400).json({ error: 'Invalid user id' })
+  if (userId === req.user.id) return res.status(400).json({ error: 'Cannot deactivate your own account' })
+ 
+  const schema = z.object({ reason: z.string().max(500).optional() })
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' })
+ 
+  try {
+    const check = await query('SELECT id FROM users WHERE id = ? LIMIT 1', [userId])
+    if (!check?.length) return res.status(404).json({ error: 'User not found' })
+ 
+    // Store reason if column exists, ignore if not
+    try {
+      await exec(
+        'UPDATE users SET is_active = 0, deactivate_reason = ? WHERE id = ?',
+        [parsed.data.reason || null, userId]
+      )
+    } catch {
+      // deactivate_reason column may not exist yet — fall back
+      await exec('UPDATE users SET is_active = 0 WHERE id = ?', [userId])
+    }
+ 
+    return res.json({ ok: true })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+ 
+// ─── Sponsor Tools routes (admin acting as sponsor) ───────────────────────────
+ 
+// GET /sponsors/:sponsorId/ads
+app.get('/sponsors/:sponsorId/ads', requireAuth, async (req, res) => {
+  const sponsorId = Number(req.params.sponsorId)
+  if (!Number.isFinite(sponsorId)) return res.status(400).json({ error: 'Invalid sponsorId' })
+  try {
+    const ads = await query(
+      'SELECT id, title, description, requirements, benefits, created_at FROM ads WHERE sponsor_id = ? ORDER BY created_at DESC',
+      [sponsorId]
+    )
+    return res.json({ ads: ads || [] })
+  } catch (err) {
+    console.error(err); return res.status(500).json({ error: 'Server error' })
+  }
+})
+ 
+// POST /sponsors/:sponsorId/ads
+app.post('/sponsors/:sponsorId/ads', requireAuth, async (req, res) => {
+  const sponsorId = Number(req.params.sponsorId)
+  if (!Number.isFinite(sponsorId)) return res.status(400).json({ error: 'Invalid sponsorId' })
+ 
+  const schema = z.object({
+    title:        z.string().min(1).max(255),
+    description:  z.string().min(1),
+    requirements: z.string().optional().default(''),
+    benefits:     z.string().optional().default(''),
+  })
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+ 
+  try {
+    const result = await exec(
+      'INSERT INTO ads (sponsor_id, title, description, requirements, benefits) VALUES (?, ?, ?, ?, ?)',
+      [sponsorId, parsed.data.title, parsed.data.description, parsed.data.requirements, parsed.data.benefits]
+    )
+    const rows = await query('SELECT * FROM ads WHERE id = ?', [result.insertId])
+    return res.status(201).json({ ok: true, ad: rows[0] })
+  } catch (err) {
+    console.error(err); return res.status(500).json({ error: 'Server error' })
+  }
+})
+ 
+// DELETE /sponsors/:sponsorId/ads/:adId
+app.delete('/sponsors/:sponsorId/ads/:adId', requireAuth, async (req, res) => {
+  const sponsorId = Number(req.params.sponsorId)
+  const adId      = Number(req.params.adId)
+  if (!Number.isFinite(sponsorId) || !Number.isFinite(adId)) return res.status(400).json({ error: 'Invalid id' })
+  try {
+    const rows = await query('SELECT id FROM ads WHERE id = ? AND sponsor_id = ? LIMIT 1', [adId, sponsorId])
+    if (!rows?.length) return res.status(404).json({ error: 'Ad not found' })
+    await exec('DELETE FROM ads WHERE id = ?', [adId])
+    return res.json({ ok: true })
+  } catch (err) {
+    console.error(err); return res.status(500).json({ error: 'Server error' })
+  }
+})
+ 
+// GET /sponsors/:sponsorId/catalog
+app.get('/sponsors/:sponsorId/catalog', requireAuth, async (req, res) => {
+  const sponsorId = Number(req.params.sponsorId)
+  if (!Number.isFinite(sponsorId)) return res.status(400).json({ error: 'Invalid sponsorId' })
+  try {
+    // Catalog items are stored per sponsor — adjust table/column names to match your schema
+    const items = await query(
+      'SELECT id, title, description, image_url, price, point_cost, external_item_id, created_at FROM catalog_items WHERE sponsor_id = ? ORDER BY created_at DESC',
+      [sponsorId]
+    )
+    return res.json({ items: items || [] })
+  } catch (err) {
+    console.error(err); return res.status(500).json({ error: 'Server error' })
+  }
+})
+ 
+// DELETE /sponsors/:sponsorId/catalog/:itemId
+app.delete('/sponsors/:sponsorId/catalog/:itemId', requireAuth, async (req, res) => {
+  const sponsorId = Number(req.params.sponsorId)
+  const itemId    = Number(req.params.itemId)
+  if (!Number.isFinite(sponsorId) || !Number.isFinite(itemId)) return res.status(400).json({ error: 'Invalid id' })
+  try {
+    const rows = await query('SELECT id FROM catalog_items WHERE id = ? AND sponsor_id = ? LIMIT 1', [itemId, sponsorId])
+    if (!rows?.length) return res.status(404).json({ error: 'Item not found' })
+    await exec('DELETE FROM catalog_items WHERE id = ?', [itemId])
+    return res.json({ ok: true })
+  } catch (err) {
+    console.error(err); return res.status(500).json({ error: 'Server error' })
+  }
+})
+ 
+// GET /sponsors/:sponsorId/analytics
+app.get('/sponsors/:sponsorId/analytics', requireAuth, async (req, res) => {
+  const sponsorId = Number(req.params.sponsorId)
+  if (!Number.isFinite(sponsorId)) return res.status(400).json({ error: 'Invalid sponsorId' })
+ 
+  try {
+    const sponsorRows = await query('SELECT company_name FROM sponsor_profiles WHERE user_id = ? LIMIT 1', [sponsorId])
+    const company = sponsorRows?.[0]?.company_name
+ 
+    const [unredeemedRows, awardedRows, redeemedRows, driverBreakdown] = await Promise.all([
+      query(
+        `SELECT COALESCE(SUM(l.delta), 0) AS total_unredeemed
+         FROM driver_points_ledger l JOIN users u ON l.driver_id = u.id JOIN driver_profiles dp ON u.id = dp.user_id
+         WHERE l.sponsor_id = ?
+           AND (dp.sponsor_org = ? OR EXISTS (SELECT 1 FROM applications a WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'))`,
+        [sponsorId, company || '', sponsorId]
+      ),
+      query(
+        `SELECT COALESCE(SUM(delta), 0) AS total_awarded FROM driver_points_ledger
+         WHERE sponsor_id = ? AND delta > 0 AND MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())`,
+        [sponsorId]
+      ),
+      query(
+        `SELECT COALESCE(ABS(SUM(delta)), 0) AS total_redeemed FROM driver_points_ledger
+         WHERE sponsor_id = ? AND delta < 0 AND MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())`,
+        [sponsorId]
+      ),
+      query(
+        `SELECT l.driver_id,
+                TRIM(CONCAT(COALESCE(dp.first_name,''), ' ', COALESCE(dp.last_name,''))) AS driver_name,
+                u.email AS driver_email, COALESCE(SUM(l.delta), 0) AS balance
+         FROM driver_points_ledger l JOIN users u ON l.driver_id = u.id JOIN driver_profiles dp ON u.id = dp.user_id
+         WHERE l.sponsor_id = ?
+           AND (dp.sponsor_org = ? OR EXISTS (SELECT 1 FROM applications a WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'))
+         GROUP BY l.driver_id HAVING balance > 0 ORDER BY balance DESC`,
+        [sponsorId, company || '', sponsorId]
+      ),
+    ])
+ 
+    return res.json({
+      totalUnredeemed:       Number(unredeemedRows[0]?.total_unredeemed || 0),
+      totalAwardedThisMonth: Number(awardedRows[0]?.total_awarded || 0),
+      totalRedeemedThisMonth:Number(redeemedRows[0]?.total_redeemed || 0),
+      driverBreakdown:       driverBreakdown || [],
+    })
+  } catch (err) {
+    console.error(err); return res.status(500).json({ error: 'Server error' })
+  }
+})
+
 // ─────────────────────────────────────────────────────────────────────────────
  
 app.listen(PORT, () => {

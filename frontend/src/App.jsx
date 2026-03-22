@@ -2209,11 +2209,11 @@ function App() {
 
 
 // AdminUsersPage — Admin users page
-//
-// Bug-fixes vs previous version:
-//   • Drivers table had 10 <th> but 11 <td> — "Remove Org" header added
-//   • Sponsors table had "Remove Org" header but no body cell — removed stale header
-//   • Deactivated accounts now shown with a muted badge instead of silently missing
+// 
+//   • Edit User modal — name, email, role for any user
+//   • Deactivate with reason — reason stored + shown in UI
+//   • Sponsor Tools tab — admin can manage any sponsor's ads,
+//     catalog items, and view their point analytics
 // ============================================================
 
 const AdminUsersPage = () => {
@@ -2236,13 +2236,21 @@ const AdminUsersPage = () => {
 
   // ── Sponsors ─────────────────────────────────────────────
   const [expandedSponsorId, setExpandedSponsorId] = useState(null)
-  const [sponsorDriversMap, setSponsorDriversMap] = useState({})   // sponsorId → []
+  const [sponsorDriversMap, setSponsorDriversMap] = useState({})
   const [sponsorDriversLoading, setSponsorDriversLoading] = useState({})
   const [showCreateSponsor, setShowCreateSponsor] = useState(false)
-  const [createSponsorForm, setCreateSponsorForm] = useState({
-    email: '', password: '', company_name: '', first_name: '', last_name: '',
-  })
+  const [createSponsorForm, setCreateSponsorForm] = useState({ email: '', password: '', company_name: '', first_name: '', last_name: '' })
   const [createSponsorLoading, setCreateSponsorLoading] = useState(false)
+
+  // ── Edit User ─────────────────────────────────────────────
+  const [editUser, setEditUser] = useState(null)
+  const [editForm, setEditForm] = useState({ first_name: '', last_name: '', email: '', role: '' })
+  const [editLoading, setEditLoading] = useState(false)
+
+  // ── Deactivate with reason ────────────────────────────────
+  const [deactivateTarget, setDeactivateTarget] = useState(null)
+  const [deactivateReason, setDeactivateReason] = useState('')
+  const [deactivateLoading, setDeactivateLoading] = useState(false)
 
   // ── Drivers ──────────────────────────────────────────────
   const [deltaById, setDeltaById] = useState({})
@@ -2253,7 +2261,7 @@ const AdminUsersPage = () => {
   const [ledgerLoading, setLedgerLoading] = useState(false)
   const [expandedDriverId, setExpandedDriverId] = useState(null)
 
-  // Bulk CSV import
+  // ── Bulk CSV import ───────────────────────────────────────
   const [showBulkImport, setShowBulkImport] = useState(false)
   const [bulkCsvText, setBulkCsvText] = useState('')
   const [bulkPreview, setBulkPreview] = useState([])
@@ -2269,12 +2277,24 @@ const AdminUsersPage = () => {
   const [txDateFrom, setTxDateFrom] = useState('')
   const [txDateTo, setTxDateTo] = useState('')
 
-  // ── User Tools (Temp Admin) ───────────────────────────────
-  const [tempAdminForm, setTempAdminForm] = useState({
-    email: '', password: '', display_name: '', expires_at: '',
-  })
+  // ── User Tools ────────────────────────────────────────────
+  const [tempAdminForm, setTempAdminForm] = useState({ email: '', password: '', display_name: '', expires_at: '' })
   const [tempAdminLoading, setTempAdminLoading] = useState(false)
   const [tempAdminResult, setTempAdminResult] = useState(null)
+
+  // ── Sponsor Tools ─────────────────────────────────────────
+  const [selectedSponsorId, setSelectedSponsorId] = useState('')
+  const [sponsorToolsTab, setSponsorToolsTab] = useState('ads')
+  const [sponsorAds, setSponsorAds] = useState([])
+  const [sponsorAdsLoading, setSponsorAdsLoading] = useState(false)
+  const [sponsorCatalog, setSponsorCatalog] = useState([])
+  const [sponsorCatalogLoading, setSponsorCatalogLoading] = useState(false)
+  const [sponsorAnalytics, setSponsorAnalytics] = useState(null)
+  const [sponsorAnalyticsLoading, setSponsorAnalyticsLoading] = useState(false)
+  const [sponsorToolsError, setSponsorToolsError] = useState('')
+  const [sponsorToolsSuccess, setSponsorToolsSuccess] = useState('')
+  const [newAdForm, setNewAdForm] = useState({ title: '', description: '', requirements: '', benefits: '' })
+  const [newAdLoading, setNewAdLoading] = useState(false)
 
   // ── Loaders ───────────────────────────────────────────────
 
@@ -2283,69 +2303,44 @@ const AdminUsersPage = () => {
     try {
       const [sponsorData, driverData, appData] = await Promise.allSettled([
         api('/users?role=sponsor', { method: 'GET' }),
-        api('/users?role=driver',  { method: 'GET' }),
-        api('/applications',       { method: 'GET' }),
+        api('/users?role=driver', { method: 'GET' }),
+        api('/applications', { method: 'GET' }),
       ])
       if (sponsorData.status === 'fulfilled')
         setSponsors(Array.isArray(sponsorData.value?.users) ? sponsorData.value.users : [])
-      else setError(e => e + (sponsorData.reason?.message || 'Failed to load sponsors') + ' ')
-
       if (driverData.status === 'fulfilled')
         setDrivers(Array.isArray(driverData.value?.users) ? driverData.value.users : [])
-      else setError(e => e + (driverData.reason?.message || 'Failed to load drivers'))
-
       if (appData.status === 'fulfilled')
         setApplications(Array.isArray(appData.value?.applications) ? appData.value.applications : [])
-      else setError(e => e + (appData.reason?.message || 'Failed to load applications'))
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }
 
   const reloadApplications = async () => {
-    try {
-      const data = await api('/applications', { method: 'GET' })
-      setApplications(Array.isArray(data?.applications) ? data.applications : [])
-    } catch (e) { setError(e?.message || 'Failed to reload applications') }
+    try { const d = await api('/applications', { method: 'GET' }); setApplications(Array.isArray(d?.applications) ? d.applications : []) }
+    catch (e) { setError(e?.message || 'Failed to reload applications') }
   }
-
   const reloadDrivers = async () => {
-    try {
-      const data = await api('/users?role=driver', { method: 'GET' })
-      setDrivers(Array.isArray(data?.users) ? data.users : [])
-    } catch (e) { setError(e?.message || 'Failed to reload drivers') }
+    try { const d = await api('/users?role=driver', { method: 'GET' }); setDrivers(Array.isArray(d?.users) ? d.users : []) }
+    catch (e) { setError(e?.message || 'Failed to reload drivers') }
   }
-
   const reloadSponsors = async () => {
-    try {
-      const data = await api('/users?role=sponsor', { method: 'GET' })
-      setSponsors(Array.isArray(data?.users) ? data.users : [])
-    } catch (e) { setError(e?.message || 'Failed to reload sponsors') }
+    try { const d = await api('/users?role=sponsor', { method: 'GET' }); setSponsors(Array.isArray(d?.users) ? d.users : []) }
+    catch (e) { setError(e?.message || 'Failed to reload sponsors') }
   }
 
-  // #41 – load drivers for a specific sponsor
   const loadSponsorDrivers = async (sponsorId) => {
     setSponsorDriversLoading(p => ({ ...p, [sponsorId]: true }))
-    try {
-      const data = await api(`/sponsors/${sponsorId}/drivers`, { method: 'GET' })
-      setSponsorDriversMap(p => ({ ...p, [sponsorId]: data?.drivers || [] }))
-    } catch (e) {
-      setError(e?.message || 'Failed to load sponsor drivers')
-    } finally {
-      setSponsorDriversLoading(p => ({ ...p, [sponsorId]: false }))
-    }
+    try { const d = await api(`/sponsors/${sponsorId}/drivers`, { method: 'GET' }); setSponsorDriversMap(p => ({ ...p, [sponsorId]: d?.drivers || [] })) }
+    catch (e) { setError(e?.message || 'Failed to load sponsor drivers') }
+    finally { setSponsorDriversLoading(p => ({ ...p, [sponsorId]: false })) }
   }
 
   const openLedger = async (driver) => {
     const driverId = driver?.id ?? driver?.user_id
     if (!driverId) return
-    setSelectedLedgerDriverId(driverId)
-    setLedger([]); setLedgerBalance(null); setLedgerLoading(true)
-    try {
-      const data = await api(`/drivers/${driverId}/points`, { method: 'GET' })
-      setLedger(Array.isArray(data?.ledger) ? data.ledger : [])
-      setLedgerBalance(data?.balance ?? null)
-    } catch (e) { setError(e?.message || 'Failed to load ledger') }
+    setSelectedLedgerDriverId(driverId); setLedger([]); setLedgerBalance(null); setLedgerLoading(true)
+    try { const d = await api(`/drivers/${driverId}/points`, { method: 'GET' }); setLedger(Array.isArray(d?.ledger) ? d.ledger : []); setLedgerBalance(d?.balance ?? null) }
+    catch (e) { setError(e?.message || 'Failed to load ledger') }
     finally { setLedgerLoading(false) }
   }
 
@@ -2353,145 +2348,194 @@ const AdminUsersPage = () => {
     setTxLoading(true); setError('')
     try {
       const params = new URLSearchParams()
-      if (txDriverFilter.trim()) {
-        const m = drivers.find(d =>
-          String(d.id) === txDriverFilter.trim() ||
-          (d.email || '').toLowerCase().includes(txDriverFilter.trim().toLowerCase()) ||
-          [d.first_name, d.last_name].filter(Boolean).join(' ').toLowerCase().includes(txDriverFilter.trim().toLowerCase())
-        )
-        if (m) params.set('driver_id', m.id)
-      }
-      if (txSponsorFilter.trim()) {
-        const m = sponsors.find(s =>
-          String(s.id) === txSponsorFilter.trim() ||
-          (s.email || '').toLowerCase().includes(txSponsorFilter.trim().toLowerCase()) ||
-          (s.company_name || '').toLowerCase().includes(txSponsorFilter.trim().toLowerCase())
-        )
-        if (m) params.set('sponsor_id', m.id)
-      }
+      if (txDriverFilter.trim()) { const m = drivers.find(d => String(d.id) === txDriverFilter.trim() || (d.email || '').toLowerCase().includes(txDriverFilter.trim().toLowerCase())); if (m) params.set('driver_id', m.id) }
+      if (txSponsorFilter.trim()) { const m = sponsors.find(s => String(s.id) === txSponsorFilter.trim() || (s.email || '').toLowerCase().includes(txSponsorFilter.trim().toLowerCase()) || (s.company_name || '').toLowerCase().includes(txSponsorFilter.trim().toLowerCase())); if (m) params.set('sponsor_id', m.id) }
       if (txDateFrom) params.set('date_from', txDateFrom)
-      if (txDateTo)   params.set('date_to', txDateTo)
-      const qs = params.toString()
-      const data = await api(`/transactions${qs ? '?' + qs : ''}`, { method: 'GET' })
-      setTransactions(Array.isArray(data?.transactions) ? data.transactions : [])
+      if (txDateTo) params.set('date_to', txDateTo)
+      const d = await api(`/transactions${params.toString() ? '?' + params.toString() : ''}`, { method: 'GET' })
+      setTransactions(Array.isArray(d?.transactions) ? d.transactions : [])
     } catch (e) { setError(e?.message || 'Failed to load transactions') }
     finally { setTxLoading(false) }
   }
 
   useEffect(() => { loadAll() }, [])
 
-  // ── Application Actions ───────────────────────────────────
+  // ── Sponsor Tools loaders ─────────────────────────────────
+
+  const loadSponsorAds = async (sId) => {
+    if (!sId) return
+    setSponsorAdsLoading(true); setSponsorToolsError('')
+    try { const d = await api(`/sponsors/${sId}/ads`, { method: 'GET' }); setSponsorAds(Array.isArray(d?.ads) ? d.ads : []) }
+    catch (e) { setSponsorToolsError(e?.message || 'Failed to load ads') }
+    finally { setSponsorAdsLoading(false) }
+  }
+
+  const loadSponsorCatalog = async (sId) => {
+    if (!sId) return
+    setSponsorCatalogLoading(true); setSponsorToolsError('')
+    try { const d = await api(`/sponsors/${sId}/catalog`, { method: 'GET' }); setSponsorCatalog(Array.isArray(d?.items) ? d.items : []) }
+    catch (e) { setSponsorToolsError(e?.message || 'Failed to load catalog') }
+    finally { setSponsorCatalogLoading(false) }
+  }
+
+  const loadSponsorAnalytics = async (sId) => {
+    if (!sId) return
+    setSponsorAnalyticsLoading(true); setSponsorToolsError('')
+    try { const d = await api(`/sponsors/${sId}/analytics`, { method: 'GET' }); setSponsorAnalytics(d || null) }
+    catch (e) { setSponsorToolsError(e?.message || 'Failed to load analytics') }
+    finally { setSponsorAnalyticsLoading(false) }
+  }
+
+  const handleSponsorSelect = (sId) => {
+    setSelectedSponsorId(sId); setSponsorAds([]); setSponsorCatalog([]); setSponsorAnalytics(null)
+    setSponsorToolsError(''); setSponsorToolsSuccess('')
+    if (!sId) return
+    if (sponsorToolsTab === 'ads') loadSponsorAds(sId)
+    else if (sponsorToolsTab === 'catalog') loadSponsorCatalog(sId)
+    else loadSponsorAnalytics(sId)
+  }
+
+  const handleSponsorToolsTabChange = (tab) => {
+    setSponsorToolsTab(tab); setSponsorToolsError(''); setSponsorToolsSuccess('')
+    if (!selectedSponsorId) return
+    if (tab === 'ads') loadSponsorAds(selectedSponsorId)
+    else if (tab === 'catalog') loadSponsorCatalog(selectedSponsorId)
+    else loadSponsorAnalytics(selectedSponsorId)
+  }
+
+  const deleteAd = async (adId) => {
+    if (!window.confirm('Delete this ad?')) return
+    setSponsorToolsError(''); setSponsorToolsSuccess('')
+    try { await api(`/sponsors/${selectedSponsorId}/ads/${adId}`, { method: 'DELETE' }); setSponsorToolsSuccess('Ad deleted.'); await loadSponsorAds(selectedSponsorId) }
+    catch (e) { setSponsorToolsError(e?.message || 'Failed to delete ad') }
+  }
+
+  const createAd = async (e) => {
+    e.preventDefault(); setNewAdLoading(true); setSponsorToolsError(''); setSponsorToolsSuccess('')
+    try {
+      await api(`/sponsors/${selectedSponsorId}/ads`, { method: 'POST', body: JSON.stringify(newAdForm) })
+      setSponsorToolsSuccess('Ad created.'); setNewAdForm({ title: '', description: '', requirements: '', benefits: '' })
+      await loadSponsorAds(selectedSponsorId)
+    } catch (e) { setSponsorToolsError(e?.message || 'Failed to create ad') }
+    finally { setNewAdLoading(false) }
+  }
+
+  const deleteCatalogItem = async (itemId) => {
+    if (!window.confirm('Remove this item?')) return
+    setSponsorToolsError(''); setSponsorToolsSuccess('')
+    try { await api(`/sponsors/${selectedSponsorId}/catalog/${itemId}`, { method: 'DELETE' }); setSponsorToolsSuccess('Item removed.'); await loadSponsorCatalog(selectedSponsorId) }
+    catch (e) { setSponsorToolsError(e?.message || 'Failed to remove item') }
+  }
+
+  // ── Edit User ─────────────────────────────────────────────
+
+  const openEditUser = (user) => {
+    setEditUser(user)
+    setEditForm({ first_name: user.first_name || '', last_name: user.last_name || '', email: user.email || '', role: user.role || '' })
+    setError(''); setSuccess('')
+  }
+
+  const handleEditUser = async (e) => {
+    e.preventDefault(); setEditLoading(true); setError(''); setSuccess('')
+    try {
+      await api(`/users/${editUser.id}`, { method: 'PUT', body: JSON.stringify(editForm) })
+      setSuccess(`Updated user: ${editForm.email}`); setEditUser(null); await loadAll()
+    } catch (e) { setError(e?.message || 'Failed to update user') }
+    finally { setEditLoading(false) }
+  }
+
+  // ── Deactivate with reason ────────────────────────────────
+
+  const openDeactivate = (user) => { setDeactivateTarget(user); setDeactivateReason(''); setError(''); setSuccess('') }
+
+  const handleDeactivate = async () => {
+    if (!deactivateTarget) return
+    setDeactivateLoading(true); setError(''); setSuccess('')
+    try {
+      await api(`/users/${deactivateTarget.id}/deactivate`, { method: 'PUT', body: JSON.stringify({ reason: deactivateReason.trim() || undefined }) })
+      setSuccess(`Account deactivated: ${deactivateTarget.email}`); setDeactivateTarget(null); await loadAll()
+      if (expandedSponsorId) await loadSponsorDrivers(expandedSponsorId)
+    } catch (e) { setError(e?.message || 'Failed to deactivate') }
+    finally { setDeactivateLoading(false) }
+  }
+
+  const handleReactivate = async (user) => {
+    setError(''); setSuccess('')
+    try { await api(`/users/${user.id}/reactivate`, { method: 'PUT' }); setSuccess(`Account reactivated: ${user.email}`); await loadAll() }
+    catch (e) { setError(e?.message || 'Failed to reactivate') }
+  }
+
+  // ── Application actions ───────────────────────────────────
 
   const handleAppAction = async (appId, newStatus) => {
     setError(''); setSuccess('')
     const notes = (appNotesById[appId] || '').trim()
     try {
-      await api(`/applications/${appId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: newStatus, notes: notes || undefined }),
-      })
-      setSuccess(`Application #${appId} updated to "${newStatus}".`)
+      await api(`/applications/${appId}`, { method: 'PUT', body: JSON.stringify({ status: newStatus, notes: notes || undefined }) })
+      setSuccess(`Application #${appId} → "${newStatus}".`)
       setAppNotesById(p => { const n = { ...p }; delete n[appId]; return n })
       setAppActionById(p => { const n = { ...p }; delete n[appId]; return n })
       await reloadApplications()
     } catch (e) { setError(e?.message || `Failed to ${newStatus} application`) }
   }
 
-  // ── #37: Deactivate / Reactivate ─────────────────────────
-
-  const toggleActive = async (user, currentlyActive) => {
-    setError(''); setSuccess('')
-    const endpoint = currentlyActive ? `/users/${user.id}/deactivate` : `/users/${user.id}/reactivate`
-    try {
-      await api(endpoint, { method: 'PUT' })
-      setSuccess(`Account ${currentlyActive ? 'deactivated' : 'reactivated'}: ${user.email}`)
-      await loadAll()
-      // Refresh expanded sponsor drivers if relevant
-      if (expandedSponsorId) await loadSponsorDrivers(expandedSponsorId)
-    } catch (e) { setError(e?.message || 'Failed to update account status') }
-  }
-
-  // ── #29: Create Sponsor ───────────────────────────────────
+  // ── Create Sponsor ────────────────────────────────────────
 
   const handleCreateSponsor = async (e) => {
-    e.preventDefault()
-    setCreateSponsorLoading(true); setError(''); setSuccess('')
+    e.preventDefault(); setCreateSponsorLoading(true); setError(''); setSuccess('')
     try {
-      await api('/users/create-sponsor', {
-        method: 'POST',
-        body: JSON.stringify(createSponsorForm),
-      })
-      setSuccess(`Sponsor org "${createSponsorForm.company_name}" created.`)
+      await api('/users/create-sponsor', { method: 'POST', body: JSON.stringify(createSponsorForm) })
+      setSuccess(`Sponsor "${createSponsorForm.company_name}" created.`)
       setCreateSponsorForm({ email: '', password: '', company_name: '', first_name: '', last_name: '' })
-      setShowCreateSponsor(false)
-      await reloadSponsors()
+      setShowCreateSponsor(false); await reloadSponsors()
     } catch (e) { setError(e?.message || 'Failed to create sponsor') }
     finally { setCreateSponsorLoading(false) }
   }
 
-  // ── Driver Point Adjustment ───────────────────────────────
+  // ── Driver point adjustment ───────────────────────────────
 
   const adjustPoints = async (driver) => {
     setError(''); setSuccess('')
     const driverId = driver?.id ?? driver?.user_id
     if (!driverId) { setError('Missing driver id'); return }
     const delta = Number(deltaById[driverId])
-    if (!Number.isFinite(delta) || delta === 0) { setError('Enter a non-zero amount (+ to add, − to deduct).'); return }
+    if (!Number.isFinite(delta) || delta === 0) { setError('Enter a non-zero amount.'); return }
     const reason = (reasonById[driverId] || '').trim()
     if (!reason) { setError('A reason is required.'); return }
     try {
-      const points = Math.abs(delta)
-      await api(`/drivers/${driverId}/points/${delta > 0 ? 'add' : 'deduct'}`, {
-        method: 'POST', body: JSON.stringify({ points, reason }),
-      })
+      await api(`/drivers/${driverId}/points/${delta > 0 ? 'add' : 'deduct'}`, { method: 'POST', body: JSON.stringify({ points: Math.abs(delta), reason }) })
       setSuccess(`Updated points for driver ${driverId}.`)
-      setDeltaById(p => ({ ...p, [driverId]: '' }))
-      setReasonById(p => ({ ...p, [driverId]: '' }))
-      await reloadDrivers()
-      if (selectedLedgerDriverId === driverId) await openLedger(driver)
+      setDeltaById(p => ({ ...p, [driverId]: '' })); setReasonById(p => ({ ...p, [driverId]: '' }))
+      await reloadDrivers(); if (selectedLedgerDriverId === driverId) await openLedger(driver)
     } catch (e) { setError(e?.message || 'Failed to adjust points') }
   }
 
   const removeDriverFromSponsor = async (driver) => {
-    const driverId = driver?.id ?? driver?.user_id
-    if (!driverId) return
+    const driverId = driver?.id ?? driver?.user_id; if (!driverId) return
     const name = [driver.first_name, driver.last_name].filter(Boolean).join(' ') || driver.email || `Driver ${driverId}`
     if (!window.confirm(`Remove ${name} from their sponsor org?`)) return
     setError(''); setSuccess('')
     try {
       await api(`/drivers/${driverId}/sponsor`, { method: 'DELETE' })
-      setSuccess(`Removed ${name} from their sponsor org.`)
-      await reloadDrivers()
-      await reloadApplications()
+      setSuccess(`Removed ${name}.`); await reloadDrivers(); await reloadApplications()
       if (expandedSponsorId) await loadSponsorDrivers(expandedSponsorId)
     } catch (e) { setError(e?.message || 'Failed to remove from sponsor') }
   }
 
-  // ── #43: Bulk CSV Import ──────────────────────────────────
+  // ── Bulk CSV ──────────────────────────────────────────────
 
   const parseBulkCsv = () => {
     setBulkParseError(''); setBulkPreview([]); setBulkResults(null)
     const lines = bulkCsvText.trim().split('\n').map(l => l.trim()).filter(Boolean)
     if (lines.length < 2) { setBulkParseError('Need a header row and at least one data row.'); return }
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/[^a-z_]/g, ''))
-    if (!headers.includes('email') || !headers.includes('password')) {
-      setBulkParseError('CSV must include "email" and "password" columns.')
-      return
-    }
+    if (!headers.includes('email') || !headers.includes('password')) { setBulkParseError('CSV must include "email" and "password" columns.'); return }
     const preview = []
     for (let i = 1; i < lines.length; i++) {
-      // Basic CSV parse — handles quoted values
-      const vals = []
-      let cur = '', inQuote = false
-      for (const ch of lines[i]) {
-        if (ch === '"') { inQuote = !inQuote }
-        else if (ch === ',' && !inQuote) { vals.push(cur.trim()); cur = '' }
-        else cur += ch
-      }
+      const vals = []; let cur = '', inQuote = false
+      for (const ch of lines[i]) { if (ch === '"') { inQuote = !inQuote } else if (ch === ',' && !inQuote) { vals.push(cur.trim()); cur = '' } else cur += ch }
       vals.push(cur.trim())
-      const row = {}
-      headers.forEach((h, j) => { row[h] = vals[j] || '' })
-      preview.push(row)
+      const row = {}; headers.forEach((h, j) => { row[h] = vals[j] || '' }); preview.push(row)
     }
     setBulkPreview(preview)
   }
@@ -2499,45 +2543,25 @@ const AdminUsersPage = () => {
   const submitBulkImport = async () => {
     setBulkImporting(true); setBulkResults(null); setError('')
     try {
-      const data = await api('/drivers/bulk-import', {
-        method: 'POST',
-        body: JSON.stringify({
-          drivers: bulkPreview.map(r => ({
-            email: r.email,
-            password: r.password,
-            first_name: r.first_name || r.firstname || '',
-            last_name:  r.last_name  || r.lastname  || '',
-            dob: r.dob || undefined,
-          })),
-        }),
-      })
-      setBulkResults(data)
-      setSuccess(`Bulk import: ${data.successCount} created, ${data.failCount} failed.`)
-      await reloadDrivers()
+      const data = await api('/drivers/bulk-import', { method: 'POST', body: JSON.stringify({ drivers: bulkPreview.map(r => ({ email: r.email, password: r.password, first_name: r.first_name || r.firstname || '', last_name: r.last_name || r.lastname || '', dob: r.dob || undefined })) }) })
+      setBulkResults(data); setSuccess(`Bulk import: ${data.successCount} created, ${data.failCount} failed.`); await reloadDrivers()
     } catch (e) { setError(e?.message || 'Bulk import failed') }
     finally { setBulkImporting(false) }
   }
 
   const downloadBulkTemplate = () => {
-    const csv = 'email,password,first_name,last_name,dob\njohn@example.com,password123,John,Doe,1990-01-15\njane@example.com,password123,Jane,Smith,1985-06-22'
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = 'driver-import-template.csv'; a.click()
-    URL.revokeObjectURL(url)
+    const csv = 'email,password,first_name,last_name,dob\njohn@example.com,password123,John,Doe,1990-01-15'
+    const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'driver-import-template.csv'; a.click(); URL.revokeObjectURL(url)
   }
 
-  // ── #44: Temp Admin ───────────────────────────────────────
+  // ── Temp Admin ────────────────────────────────────────────
 
   const handleCreateTempAdmin = async (e) => {
-    e.preventDefault()
-    setTempAdminLoading(true); setTempAdminResult(null); setError(''); setSuccess('')
+    e.preventDefault(); setTempAdminLoading(true); setTempAdminResult(null); setError(''); setSuccess('')
     try {
-      const data = await api('/users/temp-admin', {
-        method: 'POST',
-        body: JSON.stringify(tempAdminForm),
-      })
-      setTempAdminResult(data)
-      setSuccess(`Temporary admin created: ${tempAdminForm.email} (expires ${tempAdminForm.expires_at})`)
+      const data = await api('/users/temp-admin', { method: 'POST', body: JSON.stringify(tempAdminForm) })
+      setTempAdminResult(data); setSuccess(`Temp admin: ${tempAdminForm.email} (expires ${tempAdminForm.expires_at})`)
       setTempAdminForm({ email: '', password: '', display_name: '', expires_at: '' })
     } catch (e) { setError(e?.message || 'Failed to create temp admin') }
     finally { setTempAdminLoading(false) }
@@ -2547,807 +2571,485 @@ const AdminUsersPage = () => {
 
   const exportCSV = () => {
     if (!transactions.length) return
-    const headers = ['ID', 'Date', 'Driver', 'Driver Email', 'Sponsor', 'Delta', 'Reason']
-    const rows = transactions.map(t => [
-      t.id,
-      t.created_at ? new Date(t.created_at).toLocaleString() : '',
-      (t.driver_name || '').trim(),
-      t.driver_email || '',
-      t.sponsor_company || (t.sponsor_id == null ? 'Admin' : `#${t.sponsor_id}`),
-      t.delta,
-      `"${(t.reason || '').replace(/"/g, '""')}"`,
-    ])
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `transactions-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
-    URL.revokeObjectURL(url)
+    const csv = [['ID','Date','Driver','Driver Email','Sponsor','Delta','Reason'], ...transactions.map(t => [t.id, t.created_at ? new Date(t.created_at).toLocaleString() : '', (t.driver_name||'').trim(), t.driver_email||'', t.sponsor_company||(t.sponsor_id==null?'Admin':`#${t.sponsor_id}`), t.delta, `"${(t.reason||'').replace(/"/g,'""')}"`])].map(r=>r.join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = `transactions-${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url)
   }
 
-  // ── Filtered Data ─────────────────────────────────────────
+  // ── Filtered data ─────────────────────────────────────────
 
   const filteredApplications = useMemo(() => {
     let list = applications
     if (appStatusFilter !== 'all') list = list.filter(a => a.status === appStatusFilter)
-    const q = (searchQuery || '').trim().toLowerCase()
-    if (!q) return list
-    return list.filter(a =>
-      String(a.id ?? '').includes(q) ||
-      String(a.driver_email ?? '').toLowerCase().includes(q) ||
-      String(a.driver_name ?? '').toLowerCase().includes(q) ||
-      String(a.sponsor_email ?? '').toLowerCase().includes(q) ||
-      String(a.sponsor_company ?? '').toLowerCase().includes(q)
-    )
+    const q = (searchQuery || '').trim().toLowerCase(); if (!q) return list
+    return list.filter(a => String(a.id??'').includes(q) || String(a.driver_email??'').toLowerCase().includes(q) || String(a.driver_name??'').toLowerCase().includes(q) || String(a.sponsor_email??'').toLowerCase().includes(q) || String(a.sponsor_company??'').toLowerCase().includes(q))
   }, [applications, appStatusFilter, searchQuery])
 
   const filteredSponsors = useMemo(() => {
-    const q = (searchQuery || '').trim().toLowerCase()
-    if (!q) return sponsors
-    return sponsors.filter(s =>
-      String(s.id ?? '').includes(q) ||
-      String(s.email ?? '').toLowerCase().includes(q) ||
-      String(s.company_name ?? '').toLowerCase().includes(q)
-    )
+    const q = (searchQuery||'').trim().toLowerCase(); if (!q) return sponsors
+    return sponsors.filter(s => String(s.id??'').includes(q) || String(s.email??'').toLowerCase().includes(q) || String(s.company_name??'').toLowerCase().includes(q))
   }, [sponsors, searchQuery])
 
   const filteredDrivers = useMemo(() => {
-    const q = (searchQuery || '').trim().toLowerCase()
-    if (!q) return drivers
-    return drivers.filter(d =>
-      String(d.id ?? '').includes(q) ||
-      String(d.email ?? '').toLowerCase().includes(q) ||
-      [d.first_name, d.last_name].filter(Boolean).join(' ').toLowerCase().includes(q) ||
-      String(d.sponsor_org ?? '').toLowerCase().includes(q)
-    )
+    const q = (searchQuery||'').trim().toLowerCase(); if (!q) return drivers
+    return drivers.filter(d => String(d.id??'').includes(q) || String(d.email??'').toLowerCase().includes(q) || [d.first_name,d.last_name].filter(Boolean).join(' ').toLowerCase().includes(q) || String(d.sponsor_org??'').toLowerCase().includes(q))
   }, [drivers, searchQuery])
 
   const statusCounts = useMemo(() => {
     const c = { all: applications.length, pending: 0, accepted: 0, rejected: 0, cancelled: 0 }
-    applications.forEach(a => { if (a.status in c) c[a.status]++ })
-    return c
+    applications.forEach(a => { if (a.status in c) c[a.status]++ }); return c
   }, [applications])
 
-  // ── UI Helpers ────────────────────────────────────────────
+  // ── UI helpers ────────────────────────────────────────────
 
-  const fmtDate = (ts) => ts ? new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+  const fmtDate = (ts) => ts ? new Date(ts).toLocaleString(undefined, { month:'short', day:'numeric', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—'
   const fmtDateShort = (ts) => ts ? new Date(ts).toLocaleDateString() : '—'
 
-  const ActiveBadge = ({ isActive }) => (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '2px 8px', borderRadius: 999, fontSize: '0.75em', fontWeight: 600,
-      background: isActive !== false ? '#dcfce7' : '#fee2e2',
-      color: isActive !== false ? '#166534' : '#991b1b',
+  const ActiveBadge = ({ isActive, reason }) => (
+    <span title={!isActive && reason ? `Reason: ${reason}` : ''} style={{
+      display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:999, fontSize:'0.75em', fontWeight:600,
+      background: isActive!==false ? '#dcfce7' : '#fee2e2', color: isActive!==false ? '#166534' : '#991b1b',
+      cursor: !isActive && reason ? 'help' : 'default',
     }}>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: isActive !== false ? '#22c55e' : '#ef4444' }} />
-      {isActive !== false ? 'Active' : 'Inactive'}
+      <span style={{ width:6, height:6, borderRadius:'50%', background: isActive!==false ? '#22c55e' : '#ef4444' }} />
+      {isActive!==false ? 'Active' : 'Inactive'}{!isActive && reason ? ' ⓘ' : ''}
     </span>
   )
 
   const StatusBadge = ({ status }) => {
-    const map = {
-      accepted: { bg: '#d4edda', color: '#155724', label: 'Accepted' },
-      pending:  { bg: '#fff3cd', color: '#856404', label: 'Pending' },
-      rejected: { bg: '#f8d7da', color: '#721c24', label: 'Rejected' },
-      cancelled:{ bg: '#e2e3e5', color: '#383d41', label: 'Cancelled' },
-    }
-    const s = map[status] || { bg: '#f3f4f6', color: '#6b7280', label: status }
-    return (
-      <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: '0.8em', fontWeight: 600, backgroundColor: s.bg, color: s.color, whiteSpace: 'nowrap' }}>
-        {s.label}
-      </span>
-    )
+    const map = { accepted:{bg:'#d4edda',color:'#155724',label:'Accepted'}, pending:{bg:'#fff3cd',color:'#856404',label:'Pending'}, rejected:{bg:'#f8d7da',color:'#721c24',label:'Rejected'}, cancelled:{bg:'#e2e3e5',color:'#383d41',label:'Cancelled'} }
+    const s = map[status] || { bg:'#f3f4f6', color:'#6b7280', label:status }
+    return <span style={{ padding:'3px 10px', borderRadius:999, fontSize:'0.8em', fontWeight:600, backgroundColor:s.bg, color:s.color, whiteSpace:'nowrap' }}>{s.label}</span>
   }
 
   const DetailGrid = ({ fields }) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, marginTop: 12 }}>
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:8, marginTop:12 }}>
       {fields.map(({ label, value }) => (
-        <div key={label} style={{ padding: '10px 12px', borderRadius: 6, background: '#fff', border: '1px solid var(--border)' }}>
-          <p style={{ margin: '0 0 2px', fontSize: '0.7em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af' }}>{label}</p>
-          <p style={{ margin: 0, fontSize: '0.85em', fontWeight: 500, color: '#374151', wordBreak: 'break-all' }}>{String(value ?? '—')}</p>
+        <div key={label} style={{ padding:'10px 12px', borderRadius:6, background:'#fff', border:'1px solid var(--border)' }}>
+          <p style={{ margin:'0 0 2px', fontSize:'0.7em', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color:'#9ca3af' }}>{label}</p>
+          <p style={{ margin:0, fontSize:'0.85em', fontWeight:500, color:'#374151', wordBreak:'break-all' }}>{String(value??'—')}</p>
         </div>
       ))}
     </div>
   )
 
   const tabStyle = (tab) => ({
-    padding: '8px 18px', borderRadius: '6px 6px 0 0',
-    border: '1px solid var(--border)',
-    borderBottom: activeTab === tab ? '2px solid white' : '1px solid var(--border)',
-    background: activeTab === tab ? 'white' : '#f3f4f6',
-    fontWeight: activeTab === tab ? 700 : 400,
-    cursor: 'pointer', fontSize: '0.875em', marginBottom: -1,
+    padding:'8px 18px', borderRadius:'6px 6px 0 0', border:'1px solid var(--border)',
+    borderBottom: activeTab===tab ? '2px solid white' : '1px solid var(--border)',
+    background: activeTab===tab ? 'white' : '#f3f4f6', fontWeight: activeTab===tab ? 700 : 400,
+    cursor:'pointer', fontSize:'0.875em', marginBottom:-1,
   })
 
-  const cardStyle = { borderRadius: '0 8px 8px 8px', border: '1px solid var(--border)', padding: '16px 20px', background: '#fff' }
+  const cardStyle = { borderRadius:'0 8px 8px 8px', border:'1px solid var(--border)', padding:'16px 20px', background:'#fff' }
+
+  const stBtn = (key) => (
+    <button type="button" onClick={() => handleSponsorToolsTabChange(key)} style={{
+      padding:'5px 14px', borderRadius:6, border:'1px solid var(--border)',
+      background: sponsorToolsTab===key ? '#1e40af' : '#f9fafb', color: sponsorToolsTab===key ? '#fff' : '#374151',
+      fontSize:'0.82em', fontWeight: sponsorToolsTab===key ? 700 : 400, cursor:'pointer',
+    }}>{key.charAt(0).toUpperCase()+key.slice(1)}</button>
+  )
 
   // ─────────────────────────────────────────────────────────
-  //  RENDER
-  // ─────────────────────────────────────────────────────────
-
   return (
     <div>
       <Navigation />
       <main className="app-main">
 
-        {/* ── Header ── */}
-        <div style={{ marginBottom: 20 }}>
-          <h1 className="page-title" style={{ marginBottom: 4 }}>Admin — User Management</h1>
+        <div style={{ marginBottom:20 }}>
+          <h1 className="page-title" style={{ marginBottom:4 }}>Admin — User Management</h1>
           <p className="page-subtitle">Manage sponsors, drivers, applications, and access</p>
         </div>
 
-        {/* ── Summary stats ── */}
-        <div className="stats-grid" style={{ marginBottom: 20 }}>
-          <div className="stat-card">
-            <p className="stat-label">Sponsors</p>
-            <p className="stat-value stat-value-blue">{sponsors.length}</p>
-          </div>
-          <div className="stat-card">
-            <p className="stat-label">Drivers</p>
-            <p className="stat-value stat-value-green">{drivers.length}</p>
-          </div>
-          <div className="stat-card">
-            <p className="stat-label">Applications</p>
-            <p className="stat-value stat-value-amber">{applications.length}</p>
-          </div>
-          <div className="stat-card">
-            <p className="stat-label">Pending Review</p>
-            <p className="stat-value" style={{ color: '#d97706' }}>{statusCounts.pending}</p>
-          </div>
-          <div className="stat-card">
-            <p className="stat-label">Inactive Accounts</p>
-            <p className="stat-value" style={{ color: '#dc2626' }}>
-              {[...sponsors, ...drivers].filter(u => u.is_active === 0).length}
-            </p>
+        {/* Stats */}
+        <div className="stats-grid" style={{ marginBottom:20 }}>
+          <div className="stat-card"><p className="stat-label">Sponsors</p><p className="stat-value stat-value-blue">{sponsors.length}</p></div>
+          <div className="stat-card"><p className="stat-label">Drivers</p><p className="stat-value stat-value-green">{drivers.length}</p></div>
+          <div className="stat-card"><p className="stat-label">Applications</p><p className="stat-value stat-value-amber">{applications.length}</p></div>
+          <div className="stat-card"><p className="stat-label">Pending Review</p><p className="stat-value" style={{ color:'#d97706' }}>{statusCounts.pending}</p></div>
+          <div className="stat-card"><p className="stat-label">Inactive</p><p className="stat-value" style={{ color:'#dc2626' }}>{[...sponsors,...drivers].filter(u=>u.is_active===0).length}</p></div>
+        </div>
+
+        {/* Search */}
+        <div className="card" style={{ marginBottom:8 }}>
+          <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
+            <input className="form-input" style={{ flex:1, minWidth:220 }} placeholder="Search by name, email, company, or ID…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+            <button className="btn btn-primary" type="button" onClick={loadAll} disabled={loading}>{loading ? 'Loading…' : '↺ Refresh'}</button>
           </div>
         </div>
 
-        {/* ── Search + refresh ── */}
-        <div className="card" style={{ marginBottom: 8 }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              className="form-input"
-              style={{ flex: 1, minWidth: 220 }}
-              placeholder="Search by name, email, company, or ID…"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
-            <button className="btn btn-primary" type="button" onClick={loadAll} disabled={loading}>
-              {loading ? 'Loading…' : '↺ Refresh'}
-            </button>
-          </div>
+        {error   && <p className="form-footer" style={{ color:'crimson',  margin:'0 0 8px' }}>{error}</p>}
+        {success && <p className="form-footer" style={{ color:'#16a34a', margin:'0 0 8px' }}>{success}</p>}
+
+        {/* Tabs */}
+        <div style={{ display:'flex', gap:2, flexWrap:'wrap' }}>
+          <button type="button" style={tabStyle('applications')} onClick={() => setActiveTab('applications')}>Applications ({filteredApplications.length})</button>
+          <button type="button" style={tabStyle('sponsors')} onClick={() => setActiveTab('sponsors')}>Sponsors ({filteredSponsors.length})</button>
+          <button type="button" style={tabStyle('drivers')} onClick={() => setActiveTab('drivers')}>Drivers ({filteredDrivers.length})</button>
+          <button type="button" style={tabStyle('transactions')} onClick={() => setActiveTab('transactions')}>Transactions</button>
+          <button type="button" style={tabStyle('sponsor-tools')} onClick={() => setActiveTab('sponsor-tools')}>Sponsor Tools</button>
+          <button type="button" style={tabStyle('tools')} onClick={() => setActiveTab('tools')}>User Tools</button>
         </div>
 
-        {error   && <p className="form-footer" style={{ color: 'crimson',  margin: '0 0 8px' }}>{error}</p>}
-        {success && <p className="form-footer" style={{ color: '#16a34a', margin: '0 0 8px' }}>{success}</p>}
-
-        {/* ── Tabs ── */}
-        <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <button type="button" style={tabStyle('applications')} onClick={() => setActiveTab('applications')}>
-            Applications ({filteredApplications.length})
-          </button>
-          <button type="button" style={tabStyle('sponsors')} onClick={() => setActiveTab('sponsors')}>
-            Sponsors ({filteredSponsors.length})
-          </button>
-          <button type="button" style={tabStyle('drivers')} onClick={() => setActiveTab('drivers')}>
-            Drivers ({filteredDrivers.length})
-          </button>
-          <button type="button" style={tabStyle('transactions')} onClick={() => setActiveTab('transactions')}>
-            Transactions
-          </button>
-          <button type="button" style={tabStyle('tools')} onClick={() => setActiveTab('tools')}>
-            User Tools
-          </button>
-        </div>
-
-        {/* ══════════════════════════════════════════════════
-            TAB: APPLICATIONS
-        ══════════════════════════════════════════════════ */}
+        {/* ══ APPLICATIONS ══ */}
         {activeTab === 'applications' && (
           <div style={cardStyle}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-              {['all', 'pending', 'accepted', 'rejected', 'cancelled'].map(s => (
-                <button key={s} type="button" onClick={() => setAppStatusFilter(s)} style={{
-                  padding: '4px 14px', borderRadius: 999, border: '1px solid var(--border)',
-                  fontSize: '0.82em', fontWeight: appStatusFilter === s ? 700 : 400, cursor: 'pointer',
-                  background: appStatusFilter === s ? '#1e40af' : '#f9fafb',
-                  color: appStatusFilter === s ? '#fff' : '#374151',
-                }}>
-                  {s.charAt(0).toUpperCase() + s.slice(1)} ({statusCounts[s] ?? 0})
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:16 }}>
+              {['all','pending','accepted','rejected','cancelled'].map(s => (
+                <button key={s} type="button" onClick={() => setAppStatusFilter(s)} style={{ padding:'4px 14px', borderRadius:999, border:'1px solid var(--border)', fontSize:'0.82em', fontWeight: appStatusFilter===s?700:400, cursor:'pointer', background: appStatusFilter===s?'#1e40af':'#f9fafb', color: appStatusFilter===s?'#fff':'#374151' }}>
+                  {s.charAt(0).toUpperCase()+s.slice(1)} ({statusCounts[s]??0})
                 </button>
               ))}
             </div>
-
             <div className="table-wrap">
               <table className="table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Driver</th>
-                    <th>Sponsor / Org</th>
-                    <th>Ad</th>
-                    <th>Status</th>
-                    <th>Applied</th>
-                    <th>Notes</th>
-                    <th style={{ minWidth: 260 }}>Actions</th>
-                  </tr>
-                </thead>
+                <thead><tr><th>ID</th><th>Driver</th><th>Sponsor / Org</th><th>Ad</th><th>Status</th><th>Applied</th><th>Notes</th><th style={{ minWidth:260 }}>Actions</th></tr></thead>
                 <tbody>
-                  {loading && applications.length === 0 ? (
-                    <tr><td colSpan="8" className="table-empty">Loading…</td></tr>
-                  ) : filteredApplications.length === 0 ? (
-                    <tr><td colSpan="8" className="table-empty">No applications match the current filter</td></tr>
-                  ) : filteredApplications.map(app => {
-                    const pendingAction = appActionById[app.id]
-                    const isEditable = app.status === 'pending' || app.status === 'accepted'
-                    return (
-                      <React.Fragment key={String(app.id)}>
-                        <tr>
-                          <td style={{ fontFamily: 'monospace', fontSize: '0.82em' }}>{app.id}</td>
-                          <td>
-                            <div style={{ lineHeight: 1.4 }}>
-                              <strong style={{ fontSize: '0.88em' }}>{(app.driver_name || '').trim() || '—'}</strong>
-                              <br /><span style={{ fontSize: '0.78em', color: '#6b7280' }}>{app.driver_email}</span>
-                            </div>
-                          </td>
-                          <td>
-                            <div style={{ lineHeight: 1.4 }}>
-                              <strong style={{ fontSize: '0.88em' }}>{app.sponsor_company || '—'}</strong>
-                              <br /><span style={{ fontSize: '0.78em', color: '#6b7280' }}>{app.sponsor_email}</span>
-                            </div>
-                          </td>
-                          <td style={{ fontSize: '0.85em', maxWidth: 140 }}>{app.ad_title || <em style={{ color: '#9ca3af' }}>—</em>}</td>
-                          <td><StatusBadge status={app.status} /></td>
-                          <td style={{ fontSize: '0.82em', color: '#6b7280', whiteSpace: 'nowrap' }}>{fmtDateShort(app.applied_at)}</td>
-                          <td style={{ fontSize: '0.82em', color: '#555', maxWidth: 140 }}>{app.notes || <em style={{ color: '#9ca3af' }}>—</em>}</td>
-                          <td>
-                            {isEditable ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                  {app.status === 'pending' && (
-                                    <button type="button" className="btn btn-success" style={{ fontSize: '0.78em', padding: '3px 10px' }}
-                                      onClick={() => setAppActionById(p => ({ ...p, [app.id]: p[app.id] === 'accept' ? null : 'accept' }))}>
-                                      ✓ Accept
-                                    </button>
-                                  )}
-                                  <button type="button" className="btn btn-danger" style={{ fontSize: '0.78em', padding: '3px 10px' }}
-                                    onClick={() => setAppActionById(p => ({ ...p, [app.id]: p[app.id] === 'reject' ? null : 'reject' }))}>
-                                    ✕ Reject
-                                  </button>
-                                  <button type="button" className="btn btn-secondary" style={{ fontSize: '0.78em', padding: '3px 10px' }}
-                                    onClick={() => setAppActionById(p => ({ ...p, [app.id]: p[app.id] === 'cancel' ? null : 'cancel' }))}>
-                                    ⊘ Cancel
-                                  </button>
-                                </div>
-                                {pendingAction && (
-                                  <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-                                    <input className="form-input" style={{ flex: 1, minWidth: 130, fontSize: '0.8em' }}
-                                      placeholder={`Reason (optional)`}
-                                      value={appNotesById[app.id] || ''}
-                                      onChange={e => setAppNotesById(p => ({ ...p, [app.id]: e.target.value }))} />
-                                    <button type="button" className="btn btn-primary" style={{ fontSize: '0.78em', padding: '3px 10px' }}
-                                      onClick={() => handleAppAction(app.id, { accept: 'accepted', reject: 'rejected', cancel: 'cancelled' }[pendingAction])}>
-                                      Confirm
-                                    </button>
-                                    <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78em', padding: '3px 8px' }}
-                                      onClick={() => setAppActionById(p => { const n = { ...p }; delete n[app.id]; return n })}>
-                                      ✕
-                                    </button>
+                  {loading && applications.length===0 ? <tr><td colSpan="8" className="table-empty">Loading…</td></tr>
+                    : filteredApplications.length===0 ? <tr><td colSpan="8" className="table-empty">No applications match the current filter</td></tr>
+                    : filteredApplications.map(app => {
+                      const pendingAction = appActionById[app.id]
+                      const isEditable = app.status==='pending' || app.status==='accepted'
+                      return (
+                        <React.Fragment key={String(app.id)}>
+                          <tr>
+                            <td style={{ fontFamily:'monospace', fontSize:'0.82em' }}>{app.id}</td>
+                            <td><div style={{ lineHeight:1.4 }}><strong style={{ fontSize:'0.88em' }}>{(app.driver_name||'').trim()||'—'}</strong><br /><span style={{ fontSize:'0.78em', color:'#6b7280' }}>{app.driver_email}</span></div></td>
+                            <td><div style={{ lineHeight:1.4 }}><strong style={{ fontSize:'0.88em' }}>{app.sponsor_company||'—'}</strong><br /><span style={{ fontSize:'0.78em', color:'#6b7280' }}>{app.sponsor_email}</span></div></td>
+                            <td style={{ fontSize:'0.85em', maxWidth:140 }}>{app.ad_title||<em style={{ color:'#9ca3af' }}>—</em>}</td>
+                            <td><StatusBadge status={app.status} /></td>
+                            <td style={{ fontSize:'0.82em', color:'#6b7280', whiteSpace:'nowrap' }}>{fmtDateShort(app.applied_at)}</td>
+                            <td style={{ fontSize:'0.82em', color:'#555', maxWidth:140 }}>{app.notes||<em style={{ color:'#9ca3af' }}>—</em>}</td>
+                            <td>
+                              {isEditable ? (
+                                <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                                  <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                                    {app.status==='pending' && <button type="button" className="btn btn-success" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => setAppActionById(p => ({ ...p, [app.id]: p[app.id]==='accept'?null:'accept' }))}>✓ Accept</button>}
+                                    <button type="button" className="btn btn-danger" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => setAppActionById(p => ({ ...p, [app.id]: p[app.id]==='reject'?null:'reject' }))}>✕ Reject</button>
+                                    <button type="button" className="btn btn-secondary" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => setAppActionById(p => ({ ...p, [app.id]: p[app.id]==='cancel'?null:'cancel' }))}>⊘ Cancel</button>
                                   </div>
-                                )}
-                              </div>
-                            ) : <span style={{ fontSize: '0.78em', color: '#9ca3af', fontStyle: 'italic' }}>No actions</span>}
-                          </td>
-                        </tr>
-                      </React.Fragment>
-                    )
-                  })}
+                                  {pendingAction && (
+                                    <div style={{ display:'flex', gap:4, alignItems:'center', flexWrap:'wrap' }}>
+                                      <input className="form-input" style={{ flex:1, minWidth:130, fontSize:'0.8em' }} placeholder="Reason (optional)" value={appNotesById[app.id]||''} onChange={e => setAppNotesById(p => ({ ...p, [app.id]:e.target.value }))} />
+                                      <button type="button" className="btn btn-primary" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => handleAppAction(app.id, {accept:'accepted',reject:'rejected',cancel:'cancelled'}[pendingAction])}>Confirm</button>
+                                      <button type="button" className="btn btn-ghost" style={{ fontSize:'0.78em', padding:'3px 8px' }} onClick={() => setAppActionById(p => { const n={...p}; delete n[app.id]; return n })}>✕</button>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : <span style={{ fontSize:'0.78em', color:'#9ca3af', fontStyle:'italic' }}>No actions</span>}
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      )
+                    })}
                 </tbody>
               </table>
             </div>
           </div>
         )}
 
-        {/* ══════════════════════════════════════════════════
-            TAB: SPONSORS  (#29 create | #37 activate | #38 last login | #41 view drivers)
-        ══════════════════════════════════════════════════ */}
+        {/* ══ SPONSORS ══ */}
         {activeTab === 'sponsors' && (
           <div style={cardStyle}>
-
-            {/* #29 — Create Sponsor button */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-              <button type="button" className="btn btn-success"
-                onClick={() => { setShowCreateSponsor(true); setError(''); setSuccess('') }}>
-                + Create Sponsor Org
-              </button>
+            <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:16 }}>
+              <button type="button" className="btn btn-success" onClick={() => { setShowCreateSponsor(true); setError(''); setSuccess('') }}>+ Create Sponsor Org</button>
             </div>
-
             <div className="table-wrap">
               <table className="table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Email</th>
-                    <th>Organization</th>
-                    <th>Status</th>{/* #37 */}
-                    <th>Last Login</th>{/* #38 */}
-                    <th>Joined</th>
-                    <th className="text-right">Drivers</th>
-                    <th style={{ minWidth: 220 }}>Actions</th>
-                  </tr>
-                </thead>
+                <thead><tr><th>ID</th><th>Email</th><th>Organization</th><th>Status</th><th>Last Login</th><th>Joined</th><th className="text-right">Drivers</th><th style={{ minWidth:280 }}>Actions</th></tr></thead>
                 <tbody>
-                  {loading && sponsors.length === 0 ? (
-                    <tr><td colSpan="8" className="table-empty">Loading…</td></tr>
-                  ) : filteredSponsors.length === 0 ? (
-                    <tr><td colSpan="8" className="table-empty">No sponsors found</td></tr>
-                  ) : filteredSponsors.map(s => {
-                    const isExpanded = expandedSponsorId === s.id
-                    const isActive = s.is_active !== 0
-                    return (
-                      <React.Fragment key={String(s.id)}>
-                        <tr style={{ opacity: isActive ? 1 : 0.6 }}>
-                          <td style={{ fontFamily: 'monospace', fontSize: '0.82em' }}>{s.id}</td>
-                          <td>{s.email}</td>
-                          <td>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: s.company_name ? '#22c55e' : '#d1d5db', flexShrink: 0 }} />
-                              {s.company_name || <em style={{ color: '#9ca3af' }}>Not set</em>}
-                            </span>
-                          </td>
-                          <td><ActiveBadge isActive={isActive} /></td>
-                          <td style={{ fontSize: '0.82em', color: '#6b7280', whiteSpace: 'nowrap' }}>{fmtDateShort(s.last_login_at)}</td>
-                          <td style={{ fontSize: '0.82em', color: '#6b7280', whiteSpace: 'nowrap' }}>{fmtDateShort(s.created_at)}</td>
-                          <td className="text-right">
-                            {typeof s.driver_count === 'number' ? <strong style={{ color: '#2563eb' }}>{s.driver_count}</strong> : '—'}
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                              {/* #41 — view drivers */}
-                              <button type="button" className="btn btn-primary" style={{ fontSize: '0.78em', padding: '3px 10px' }}
-                                onClick={async () => {
-                                  if (isExpanded) { setExpandedSponsorId(null); return }
-                                  setExpandedSponsorId(s.id)
-                                  if (!sponsorDriversMap[s.id]) await loadSponsorDrivers(s.id)
-                                }}>
-                                {isExpanded ? 'Hide Drivers' : `View Drivers`}
-                              </button>
-                              {/* #37 — deactivate / reactivate */}
-                              <button type="button"
-                                className={`btn ${isActive ? 'btn-secondary' : 'btn-success'}`}
-                                style={{ fontSize: '0.78em', padding: '3px 10px' }}
-                                onClick={() => toggleActive(s, isActive)}>
-                                {isActive ? 'Deactivate' : 'Reactivate'}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-
-                        {/* #41 — expanded drivers sub-table */}
-                        {isExpanded && (
-                          <tr style={{ background: '#f0fdf4' }}>
-                            <td colSpan="8" style={{ padding: '14px 20px' }}>
-                              <p style={{ margin: '0 0 10px', fontWeight: 700, fontSize: '0.9em', color: '#065f46' }}>
-                                Drivers in "{s.company_name}" ({(sponsorDriversMap[s.id] || []).length})
-                              </p>
-                              {sponsorDriversLoading[s.id] ? (
-                                <p style={{ color: '#9ca3af', fontSize: '0.85em' }}>Loading drivers…</p>
-                              ) : !sponsorDriversMap[s.id]?.length ? (
-                                <p style={{ color: '#9ca3af', fontSize: '0.85em', fontStyle: 'italic' }}>No drivers affiliated with this org yet.</p>
-                              ) : (
-                                <table className="table" style={{ background: '#fff' }}>
-                                  <thead>
-                                    <tr>
-                                      <th>ID</th><th>Name</th><th>Email</th>
-                                      <th>Status</th><th>Last Login</th>
-                                      <th className="text-right">Points</th>
-                                      <th style={{ width: 100 }}>Remove</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {sponsorDriversMap[s.id].map(d => (
-                                      <tr key={d.id} style={{ opacity: d.is_active !== 0 ? 1 : 0.6 }}>
-                                        <td style={{ fontFamily: 'monospace', fontSize: '0.8em' }}>{d.id}</td>
-                                        <td>{d.name?.trim() || '—'}</td>
-                                        <td>{d.email}</td>
-                                        <td><ActiveBadge isActive={d.is_active !== 0} /></td>
-                                        <td style={{ fontSize: '0.8em', color: '#6b7280' }}>{fmtDateShort(d.last_login_at)}</td>
-                                        <td className="text-right" style={{ fontWeight: 600 }}>{Number(d.points_balance || 0).toLocaleString()}</td>
-                                        <td>
-                                          <button type="button" className="btn btn-secondary"
-                                            style={{ fontSize: '0.75em', padding: '3px 8px', color: '#dc2626', borderColor: '#dc2626' }}
-                                            onClick={() => removeDriverFromSponsor(d)}>
-                                            Remove
-                                          </button>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              )}
+                  {loading && sponsors.length===0 ? <tr><td colSpan="8" className="table-empty">Loading…</td></tr>
+                    : filteredSponsors.length===0 ? <tr><td colSpan="8" className="table-empty">No sponsors found</td></tr>
+                    : filteredSponsors.map(s => {
+                      const isExpanded = expandedSponsorId===s.id; const isActive = s.is_active!==0
+                      return (
+                        <React.Fragment key={String(s.id)}>
+                          <tr style={{ opacity: isActive?1:0.6 }}>
+                            <td style={{ fontFamily:'monospace', fontSize:'0.82em' }}>{s.id}</td>
+                            <td>{s.email}</td>
+                            <td><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}><span style={{ width:7, height:7, borderRadius:'50%', background: s.company_name?'#22c55e':'#d1d5db', flexShrink:0 }} />{s.company_name||<em style={{ color:'#9ca3af' }}>Not set</em>}</span></td>
+                            <td><ActiveBadge isActive={isActive} reason={s.deactivate_reason} /></td>
+                            <td style={{ fontSize:'0.82em', color:'#6b7280', whiteSpace:'nowrap' }}>{fmtDateShort(s.last_login_at)}</td>
+                            <td style={{ fontSize:'0.82em', color:'#6b7280', whiteSpace:'nowrap' }}>{fmtDateShort(s.created_at)}</td>
+                            <td className="text-right">{typeof s.driver_count==='number'?<strong style={{ color:'#2563eb' }}>{s.driver_count}</strong>:'—'}</td>
+                            <td>
+                              <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                                <button type="button" className="btn btn-primary" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => openEditUser(s)}>Edit</button>
+                                <button type="button" className="btn btn-primary" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={async () => { if (isExpanded) { setExpandedSponsorId(null); return } setExpandedSponsorId(s.id); if (!sponsorDriversMap[s.id]) await loadSponsorDrivers(s.id) }}>{isExpanded?'Hide':'Drivers'}</button>
+                                {isActive
+                                  ? <button type="button" className="btn btn-secondary" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => openDeactivate(s)}>Deactivate</button>
+                                  : <button type="button" className="btn btn-success" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => handleReactivate(s)}>Reactivate</button>}
+                              </div>
                             </td>
                           </tr>
-                        )}
-                      </React.Fragment>
-                    )
-                  })}
+                          {isExpanded && (
+                            <tr style={{ background:'#f0fdf4' }}>
+                              <td colSpan="8" style={{ padding:'14px 20px' }}>
+                                <p style={{ margin:'0 0 10px', fontWeight:700, fontSize:'0.9em', color:'#065f46' }}>Drivers in "{s.company_name}" ({(sponsorDriversMap[s.id]||[]).length})</p>
+                                {sponsorDriversLoading[s.id] ? <p style={{ color:'#9ca3af', fontSize:'0.85em' }}>Loading…</p>
+                                  : !sponsorDriversMap[s.id]?.length ? <p style={{ color:'#9ca3af', fontSize:'0.85em', fontStyle:'italic' }}>No drivers affiliated yet.</p>
+                                  : (
+                                    <table className="table" style={{ background:'#fff' }}>
+                                      <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Status</th><th>Last Login</th><th className="text-right">Points</th><th style={{ width:100 }}>Remove</th></tr></thead>
+                                      <tbody>
+                                        {sponsorDriversMap[s.id].map(d => (
+                                          <tr key={d.id} style={{ opacity: d.is_active!==0?1:0.6 }}>
+                                            <td style={{ fontFamily:'monospace', fontSize:'0.8em' }}>{d.id}</td>
+                                            <td>{d.name?.trim()||'—'}</td><td>{d.email}</td>
+                                            <td><ActiveBadge isActive={d.is_active!==0} /></td>
+                                            <td style={{ fontSize:'0.8em', color:'#6b7280' }}>{fmtDateShort(d.last_login_at)}</td>
+                                            <td className="text-right" style={{ fontWeight:600 }}>{Number(d.points_balance||0).toLocaleString()}</td>
+                                            <td><button type="button" className="btn btn-secondary" style={{ fontSize:'0.75em', padding:'3px 8px', color:'#dc2626', borderColor:'#dc2626' }} onClick={() => removeDriverFromSponsor(d)}>Remove</button></td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      )
+                    })}
                 </tbody>
               </table>
             </div>
           </div>
         )}
 
-        {/* ══════════════════════════════════════════════════
-            TAB: DRIVERS  (#37 activate | #38 last login | #43 bulk import)
-        ══════════════════════════════════════════════════ */}
+        {/* ══ DRIVERS ══ */}
         {activeTab === 'drivers' && (
           <div style={cardStyle}>
-            {/* #43 — bulk import */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-              <button type="button" className="btn btn-success"
-                onClick={() => { setShowBulkImport(true); setBulkCsvText(''); setBulkPreview([]); setBulkResults(null); setBulkParseError('') }}>
-                ⬆ Bulk Import CSV
-              </button>
+            <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:16 }}>
+              <button type="button" className="btn btn-success" onClick={() => { setShowBulkImport(true); setBulkCsvText(''); setBulkPreview([]); setBulkResults(null); setBulkParseError('') }}>⬆ Bulk Import CSV</button>
             </div>
-
             <div className="table-wrap">
               <table className="table">
                 <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Sponsor Org</th>
-                    <th>Status</th>{/* #37 */}
-                    <th>Last Login</th>{/* #38 */}
-                    <th className="text-right">Points</th>
-                    <th style={{ width: 100 }}>Adjust (±)</th>
-                    <th style={{ width: 150 }}>Reason</th>
-                    <th style={{ width: 65 }}>Apply</th>
-                    <th style={{ width: 65 }}>Ledger</th>
-                    <th style={{ width: 60 }}>Info</th>
-                    <th style={{ width: 100 }}>Remove Org</th>{/* bug-fix: header was missing */}
-                    <th style={{ width: 100 }}>Account</th>{/* #37 */}
-                  </tr>
+                  <tr><th>ID</th><th>Name</th><th>Email</th><th>Sponsor Org</th><th>Status</th><th>Last Login</th><th className="text-right">Points</th><th style={{ width:100 }}>Adjust (±)</th><th style={{ width:150 }}>Reason</th><th style={{ width:65 }}>Apply</th><th style={{ width:65 }}>Ledger</th><th style={{ width:60 }}>Info</th><th style={{ width:60 }}>Edit</th><th style={{ width:100 }}>Rm Org</th><th style={{ width:100 }}>Account</th></tr>
                 </thead>
                 <tbody>
-                  {loading && drivers.length === 0 ? (
-                    <tr><td colSpan="14" className="table-empty">Loading…</td></tr>
-                  ) : filteredDrivers.length === 0 ? (
-                    <tr><td colSpan="14" className="table-empty">No drivers found</td></tr>
-                  ) : filteredDrivers.map(d => {
-                    const id = d.id
-                    const name = [d.first_name, d.last_name].filter(Boolean).join(' ') || '—'
-                    const sponsorOrg = d.sponsor_org || null
-                    const points = Number(d.points_balance ?? d.points ?? 0)
-                    const isExpanded = expandedDriverId === id
-                    const isActive = d.is_active !== 0
-                    const isLedgerOpen = selectedLedgerDriverId === id
-
-                    return (
-                      <React.Fragment key={String(id)}>
-                        <tr style={{ opacity: isActive ? 1 : 0.55 }}>
-                          <td style={{ fontFamily: 'monospace', fontSize: '0.82em' }}>{id}</td>
-                          <td>{name}</td>
-                          <td>{d.email}</td>
-                          <td>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: sponsorOrg ? '#22c55e' : '#d1d5db', flexShrink: 0 }} />
-                              {sponsorOrg || <em style={{ color: '#9ca3af' }}>None</em>}
-                            </span>
-                          </td>
-                          <td><ActiveBadge isActive={isActive} /></td>
-                          <td style={{ fontSize: '0.8em', color: '#6b7280', whiteSpace: 'nowrap' }}>{fmtDateShort(d.last_login_at)}</td>
-                          <td className="text-right" style={{ fontWeight: 600 }}>{points.toLocaleString()}</td>
-                          <td>
-                            <input className="form-input" type="number" placeholder="±pts"
-                              style={{ fontSize: '0.8em', padding: '4px 6px' }}
-                              value={deltaById[id] ?? ''}
-                              onChange={e => setDeltaById(p => ({ ...p, [id]: e.target.value }))} />
-                          </td>
-                          <td>
-                            <input className="form-input" type="text" placeholder="Reason"
-                              style={{ fontSize: '0.8em', padding: '4px 6px' }}
-                              value={reasonById[id] ?? ''}
-                              onChange={e => setReasonById(p => ({ ...p, [id]: e.target.value }))} />
-                          </td>
-                          <td>
-                            <button className="btn btn-success" type="button" style={{ fontSize: '0.78em', padding: '4px 8px' }}
-                              onClick={() => adjustPoints({ ...d, id })}>
-                              Apply
-                            </button>
-                          </td>
-                          <td>
-                            <button className="btn btn-primary" type="button" style={{ fontSize: '0.78em', padding: '4px 8px' }}
-                              onClick={() => {
-                                if (isLedgerOpen) { setSelectedLedgerDriverId(null); return }
-                                openLedger(d)
-                              }}>
-                              {isLedgerOpen ? 'Close' : 'View'}
-                            </button>
-                          </td>
-                          <td>
-                            <button className="btn btn-primary" type="button" style={{ fontSize: '0.78em', padding: '4px 8px' }}
-                              onClick={() => setExpandedDriverId(isExpanded ? null : id)}>
-                              {isExpanded ? 'Close' : 'Info'}
-                            </button>
-                          </td>
-                          <td>
-                            {sponsorOrg ? (
-                              <button className="btn btn-secondary" type="button"
-                                style={{ fontSize: '0.75em', padding: '3px 8px', color: '#dc2626', borderColor: '#dc2626' }}
-                                onClick={() => removeDriverFromSponsor({ ...d, id })}>
-                                Remove
-                              </button>
-                            ) : <span style={{ fontSize: '0.78em', color: '#d1d5db' }}>—</span>}
-                          </td>
-                          <td>
-                            <button type="button"
-                              className={`btn ${isActive ? 'btn-secondary' : 'btn-success'}`}
-                              style={{ fontSize: '0.75em', padding: '3px 8px' }}
-                              onClick={() => toggleActive(d, isActive)}>
-                              {isActive ? 'Deactivate' : 'Reactivate'}
-                            </button>
-                          </td>
-                        </tr>
-
-                        {/* Ledger inline */}
-                        {isLedgerOpen && (
-                          <tr style={{ background: '#f0fdf4' }}>
-                            <td colSpan="14" style={{ padding: '14px 20px' }}>
-                              <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.9em' }}>
-                                Points ledger — {name}
-                                {ledgerBalance !== null && (
-                                  <span style={{ marginLeft: 12, fontWeight: 400, color: '#6b7280' }}>
-                                    Balance: <strong style={{ color: '#16a34a' }}>{Number(ledgerBalance).toLocaleString()}</strong>
-                                  </span>
-                                )}
-                              </p>
-                              {ledgerLoading ? <p style={{ color: '#9ca3af', fontSize: '0.85em' }}>Loading…</p>
-                                : ledger.length === 0 ? <p style={{ color: '#9ca3af', fontSize: '0.85em', fontStyle: 'italic' }}>No entries yet</p>
-                                : (
-                                  <table className="table" style={{ background: '#fff' }}>
-                                    <thead><tr><th>Date</th><th>Sponsor</th><th className="text-right">Delta</th><th>Reason</th></tr></thead>
-                                    <tbody>
-                                      {ledger.map((row, i) => (
-                                        <tr key={row.id ?? i}>
-                                          <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap' }}>{fmtDate(row.created_at)}</td>
-                                          <td style={{ fontSize: '0.82em' }}>{row.sponsor_company || (row.sponsor_id == null ? <em style={{ color: '#9ca3af' }}>Admin</em> : `#${row.sponsor_id}`)}</td>
-                                          <td className="text-right" style={{ fontWeight: 700, color: Number(row.delta) >= 0 ? '#16a34a' : '#dc2626' }}>
-                                            {Number(row.delta) >= 0 ? '+' : ''}{row.delta}
-                                          </td>
-                                          <td style={{ fontSize: '0.82em' }}>{row.reason ?? '—'}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                )}
+                  {loading && drivers.length===0 ? <tr><td colSpan="15" className="table-empty">Loading…</td></tr>
+                    : filteredDrivers.length===0 ? <tr><td colSpan="15" className="table-empty">No drivers found</td></tr>
+                    : filteredDrivers.map(d => {
+                      const id=d.id; const name=[d.first_name,d.last_name].filter(Boolean).join(' ')||'—'
+                      const sponsorOrg=d.sponsor_org||null; const points=Number(d.points_balance??d.points??0)
+                      const isExpanded=expandedDriverId===id; const isActive=d.is_active!==0; const isLedgerOpen=selectedLedgerDriverId===id
+                      return (
+                        <React.Fragment key={String(id)}>
+                          <tr style={{ opacity: isActive?1:0.55 }}>
+                            <td style={{ fontFamily:'monospace', fontSize:'0.82em' }}>{id}</td>
+                            <td>{name}</td><td>{d.email}</td>
+                            <td><span style={{ display:'inline-flex', alignItems:'center', gap:5 }}><span style={{ width:7, height:7, borderRadius:'50%', background: sponsorOrg?'#22c55e':'#d1d5db', flexShrink:0 }} />{sponsorOrg||<em style={{ color:'#9ca3af' }}>None</em>}</span></td>
+                            <td><ActiveBadge isActive={isActive} reason={d.deactivate_reason} /></td>
+                            <td style={{ fontSize:'0.8em', color:'#6b7280', whiteSpace:'nowrap' }}>{fmtDateShort(d.last_login_at)}</td>
+                            <td className="text-right" style={{ fontWeight:600 }}>{points.toLocaleString()}</td>
+                            <td><input className="form-input" type="number" placeholder="±pts" style={{ fontSize:'0.8em', padding:'4px 6px' }} value={deltaById[id]??''} onChange={e => setDeltaById(p => ({ ...p,[id]:e.target.value }))} /></td>
+                            <td><input className="form-input" type="text" placeholder="Reason" style={{ fontSize:'0.8em', padding:'4px 6px' }} value={reasonById[id]??''} onChange={e => setReasonById(p => ({ ...p,[id]:e.target.value }))} /></td>
+                            <td><button className="btn btn-success" type="button" style={{ fontSize:'0.78em', padding:'4px 8px' }} onClick={() => adjustPoints({ ...d,id })}>Apply</button></td>
+                            <td><button className="btn btn-primary" type="button" style={{ fontSize:'0.78em', padding:'4px 8px' }} onClick={() => { if(isLedgerOpen){setSelectedLedgerDriverId(null);return} openLedger(d) }}>{isLedgerOpen?'Close':'View'}</button></td>
+                            <td><button className="btn btn-primary" type="button" style={{ fontSize:'0.78em', padding:'4px 8px' }} onClick={() => setExpandedDriverId(isExpanded?null:id)}>{isExpanded?'Close':'Info'}</button></td>
+                            <td><button className="btn btn-primary" type="button" style={{ fontSize:'0.78em', padding:'4px 8px' }} onClick={() => openEditUser(d)}>Edit</button></td>
+                            <td>{sponsorOrg ? <button className="btn btn-secondary" type="button" style={{ fontSize:'0.75em', padding:'3px 8px', color:'#dc2626', borderColor:'#dc2626' }} onClick={() => removeDriverFromSponsor({ ...d,id })}>Rm</button> : <span style={{ fontSize:'0.78em', color:'#d1d5db' }}>—</span>}</td>
+                            <td>{isActive
+                              ? <button type="button" className="btn btn-secondary" style={{ fontSize:'0.75em', padding:'3px 8px' }} onClick={() => openDeactivate(d)}>Deactivate</button>
+                              : <button type="button" className="btn btn-success" style={{ fontSize:'0.75em', padding:'3px 8px' }} onClick={() => handleReactivate(d)}>Reactivate</button>}
                             </td>
                           </tr>
-                        )}
-
-                        {/* Detail expand */}
-                        {isExpanded && (
-                          <tr style={{ background: '#f9fafb' }}>
-                            <td colSpan="14" style={{ padding: '14px 20px' }}>
-                              <DetailGrid fields={[
-                                { label: 'User ID', value: id },
-                                { label: 'Email', value: d.email },
-                                { label: 'Full Name', value: name },
-                                { label: 'DOB', value: d.dob },
-                                { label: 'Phone', value: d.phone },
-                                { label: 'Address', value: d.address_line1 },
-                                { label: 'City', value: d.city },
-                                { label: 'State', value: d.state },
-                                { label: 'Sponsor Org', value: sponsorOrg || 'None' },
-                                { label: 'Points', value: points.toLocaleString() },
-                                { label: 'Joined', value: fmtDate(d.created_at) },
-                                { label: 'Last Login', value: fmtDate(d.last_login_at) },
-                              ]} />
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    )
-                  })}
+                          {isLedgerOpen && (
+                            <tr style={{ background:'#f0fdf4' }}>
+                              <td colSpan="15" style={{ padding:'14px 20px' }}>
+                                <p style={{ margin:'0 0 8px', fontWeight:700, fontSize:'0.9em' }}>Points ledger — {name}{ledgerBalance!==null && <span style={{ marginLeft:12, fontWeight:400, color:'#6b7280' }}>Balance: <strong style={{ color:'#16a34a' }}>{Number(ledgerBalance).toLocaleString()}</strong></span>}</p>
+                                {ledgerLoading ? <p style={{ color:'#9ca3af', fontSize:'0.85em' }}>Loading…</p>
+                                  : ledger.length===0 ? <p style={{ color:'#9ca3af', fontSize:'0.85em', fontStyle:'italic' }}>No entries yet</p>
+                                  : <table className="table" style={{ background:'#fff' }}><thead><tr><th>Date</th><th>Sponsor</th><th className="text-right">Delta</th><th>Reason</th></tr></thead><tbody>{ledger.map((row,i) => <tr key={row.id??i}><td style={{ fontSize:'0.82em', whiteSpace:'nowrap' }}>{fmtDate(row.created_at)}</td><td style={{ fontSize:'0.82em' }}>{row.sponsor_company||(row.sponsor_id==null?<em style={{ color:'#9ca3af' }}>Admin</em>:`#${row.sponsor_id}`)}</td><td className="text-right" style={{ fontWeight:700, color: Number(row.delta)>=0?'#16a34a':'#dc2626' }}>{Number(row.delta)>=0?'+':''}{row.delta}</td><td style={{ fontSize:'0.82em' }}>{row.reason??'—'}</td></tr>)}</tbody></table>}
+                              </td>
+                            </tr>
+                          )}
+                          {isExpanded && (
+                            <tr style={{ background:'#f9fafb' }}>
+                              <td colSpan="15" style={{ padding:'14px 20px' }}>
+                                <DetailGrid fields={[
+                                  {label:'User ID',value:id},{label:'Email',value:d.email},{label:'Full Name',value:name},
+                                  {label:'DOB',value:d.dob},{label:'Phone',value:d.phone},{label:'Address',value:d.address_line1},
+                                  {label:'City',value:d.city},{label:'State',value:d.state},{label:'Sponsor Org',value:sponsorOrg||'None'},
+                                  {label:'Points',value:points.toLocaleString()},{label:'Joined',value:fmtDate(d.created_at)},
+                                  {label:'Last Login',value:fmtDate(d.last_login_at)},{label:'Deactivate Reason',value:d.deactivate_reason||'—'},
+                                ]} />
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      )
+                    })}
                 </tbody>
               </table>
             </div>
-            <p className="form-footer" style={{ marginTop: 8 }}>
-              Tip: use positive numbers to add points, negative to deduct. Reason is always required.
-            </p>
+            <p className="form-footer" style={{ marginTop:8 }}>Positive = add points, negative = deduct. Reason always required.</p>
           </div>
         )}
 
-        {/* ══════════════════════════════════════════════════
-            TAB: TRANSACTIONS
-        ══════════════════════════════════════════════════ */}
+        {/* ══ TRANSACTIONS ══ */}
         {activeTab === 'transactions' && (
           <div style={cardStyle}>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}>
-              {[
-                { label: 'Driver', value: txDriverFilter, set: setTxDriverFilter, placeholder: 'Name, email, or ID' },
-                { label: 'Sponsor', value: txSponsorFilter, set: setTxSponsorFilter, placeholder: 'Org, email, or ID' },
-              ].map(({ label, value, set, placeholder }) => (
-                <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label style={{ fontSize: '0.72em', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>{label}</label>
-                  <input className="form-input" style={{ minWidth: 160 }} placeholder={placeholder} value={value} onChange={e => set(e.target.value)} />
+            <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:16, alignItems:'flex-end' }}>
+              {[{label:'Driver',value:txDriverFilter,set:setTxDriverFilter,placeholder:'Name, email, or ID'},{label:'Sponsor',value:txSponsorFilter,set:setTxSponsorFilter,placeholder:'Org, email, or ID'}].map(({ label,value,set,placeholder }) => (
+                <div key={label} style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                  <label style={{ fontSize:'0.72em', fontWeight:700, color:'#6b7280', textTransform:'uppercase' }}>{label}</label>
+                  <input className="form-input" style={{ minWidth:160 }} placeholder={placeholder} value={value} onChange={e => set(e.target.value)} />
                 </div>
               ))}
-              {[
-                { label: 'From', value: txDateFrom, set: setTxDateFrom },
-                { label: 'To', value: txDateTo, set: setTxDateTo },
-              ].map(({ label, value, set }) => (
-                <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label style={{ fontSize: '0.72em', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>{label}</label>
+              {[{label:'From',value:txDateFrom,set:setTxDateFrom},{label:'To',value:txDateTo,set:setTxDateTo}].map(({ label,value,set }) => (
+                <div key={label} style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                  <label style={{ fontSize:'0.72em', fontWeight:700, color:'#6b7280', textTransform:'uppercase' }}>{label}</label>
                   <input className="form-input" type="date" value={value} onChange={e => set(e.target.value)} />
                 </div>
               ))}
-              <button className="btn btn-primary" type="button" onClick={loadTransactions} disabled={txLoading}>
-                {txLoading ? 'Loading…' : '🔍 Apply Filters'}
-              </button>
-              <button className="btn btn-secondary" type="button"
-                onClick={() => { setTxDriverFilter(''); setTxSponsorFilter(''); setTxDateFrom(''); setTxDateTo('') }}>
-                Clear
-              </button>
-              <button className="btn btn-success" type="button" onClick={exportCSV}
-                disabled={!transactions.length} style={{ marginLeft: 'auto' }}>
-                ⬇ Export CSV
-              </button>
+              <button className="btn btn-primary" type="button" onClick={loadTransactions} disabled={txLoading}>{txLoading?'Loading…':'🔍 Apply'}</button>
+              <button className="btn btn-secondary" type="button" onClick={() => { setTxDriverFilter(''); setTxSponsorFilter(''); setTxDateFrom(''); setTxDateTo('') }}>Clear</button>
+              <button className="btn btn-success" type="button" onClick={exportCSV} disabled={!transactions.length} style={{ marginLeft:'auto' }}>⬇ Export CSV</button>
             </div>
-
             <div className="table-wrap">
               <table className="table">
-                <thead>
-                  <tr><th>Date</th><th>Driver</th><th>Sponsor</th><th className="text-right">Delta</th><th>Reason</th></tr>
-                </thead>
+                <thead><tr><th>Date</th><th>Driver</th><th>Sponsor</th><th className="text-right">Delta</th><th>Reason</th></tr></thead>
                 <tbody>
-                  {txLoading ? (
-                    <tr><td colSpan="5" className="table-empty">Loading…</td></tr>
-                  ) : transactions.length === 0 ? (
-                    <tr><td colSpan="5" className="table-empty">Apply filters above to load transactions</td></tr>
-                  ) : transactions.map((t, i) => (
-                    <tr key={t.id ?? i}>
-                      <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap', color: '#6b7280' }}>{fmtDate(t.created_at)}</td>
-                      <td>
-                        <div style={{ lineHeight: 1.4 }}>
-                          <strong style={{ fontSize: '0.88em' }}>{(t.driver_name || '').trim() || '—'}</strong>
-                          <br /><span style={{ fontSize: '0.78em', color: '#6b7280' }}>{t.driver_email}</span>
-                        </div>
-                      </td>
-                      <td style={{ fontSize: '0.85em' }}>
-                        {t.sponsor_company
-                          ? <><strong>{t.sponsor_company}</strong><br /><span style={{ fontSize: '0.85em', color: '#6b7280' }}>{t.sponsor_email}</span></>
-                          : t.sponsor_id == null ? <em style={{ color: '#6b7280' }}>Admin</em> : `#${t.sponsor_id}`}
-                      </td>
-                      <td className="text-right" style={{ fontWeight: 700, color: Number(t.delta) >= 0 ? '#16a34a' : '#dc2626' }}>
-                        {Number(t.delta) >= 0 ? '+' : ''}{t.delta}
-                      </td>
-                      <td style={{ fontSize: '0.85em' }}>{t.reason || <em style={{ color: '#9ca3af' }}>—</em>}</td>
-                    </tr>
-                  ))}
+                  {txLoading ? <tr><td colSpan="5" className="table-empty">Loading…</td></tr>
+                    : transactions.length===0 ? <tr><td colSpan="5" className="table-empty">Apply filters above to load transactions</td></tr>
+                    : transactions.map((t,i) => (
+                      <tr key={t.id??i}>
+                        <td style={{ fontSize:'0.82em', whiteSpace:'nowrap', color:'#6b7280' }}>{fmtDate(t.created_at)}</td>
+                        <td><div style={{ lineHeight:1.4 }}><strong style={{ fontSize:'0.88em' }}>{(t.driver_name||'').trim()||'—'}</strong><br /><span style={{ fontSize:'0.78em', color:'#6b7280' }}>{t.driver_email}</span></div></td>
+                        <td style={{ fontSize:'0.85em' }}>{t.sponsor_company?<><strong>{t.sponsor_company}</strong><br /><span style={{ fontSize:'0.85em', color:'#6b7280' }}>{t.sponsor_email}</span></>:t.sponsor_id==null?<em style={{ color:'#6b7280' }}>Admin</em>:`#${t.sponsor_id}`}</td>
+                        <td className="text-right" style={{ fontWeight:700, color: Number(t.delta)>=0?'#16a34a':'#dc2626' }}>{Number(t.delta)>=0?'+':''}{t.delta}</td>
+                        <td style={{ fontSize:'0.85em' }}>{t.reason||<em style={{ color:'#9ca3af' }}>—</em>}</td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
-            {transactions.length > 0 && (
-              <p style={{ fontSize: '0.78em', color: '#9ca3af', marginTop: 8 }}>
-                {transactions.length} transaction{transactions.length !== 1 ? 's' : ''}
-                {transactions.length === 2000 ? ' (limit 2000 — apply filters to narrow)' : ''}
-              </p>
-            )}
           </div>
         )}
 
-        {/* ══════════════════════════════════════════════════
-            TAB: USER TOOLS  (#44 temp admin)
-        ══════════════════════════════════════════════════ */}
+        {/* ══ SPONSOR TOOLS ══ */}
+        {activeTab === 'sponsor-tools' && (
+          <div style={cardStyle}>
+            <p className="page-subtitle" style={{ marginBottom:16 }}>Manage ads, catalogs, and analytics for any sponsor org — same capabilities a sponsor has.</p>
+            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
+              <label style={{ fontSize:'0.85em', fontWeight:600, color:'#374151', whiteSpace:'nowrap' }}>Select sponsor:</label>
+              <select className="form-input" style={{ maxWidth:320 }} value={selectedSponsorId} onChange={e => handleSponsorSelect(e.target.value)}>
+                <option value="">— Choose a sponsor org —</option>
+                {sponsors.filter(s => s.company_name).map(s => <option key={s.id} value={s.id}>{s.company_name} ({s.email})</option>)}
+              </select>
+            </div>
+
+            {selectedSponsorId ? (
+              <>
+                <div style={{ display:'flex', gap:6, marginBottom:16 }}>
+                  {stBtn('ads')}{stBtn('catalog')}{stBtn('analytics')}
+                </div>
+                {sponsorToolsError && <p style={{ color:'#dc2626', fontSize:'0.85em', marginBottom:10 }}>{sponsorToolsError}</p>}
+                {sponsorToolsSuccess && <p style={{ color:'#16a34a', fontSize:'0.85em', marginBottom:10 }}>{sponsorToolsSuccess}</p>}
+
+                {/* Ads */}
+                {sponsorToolsTab === 'ads' && (
+                  <div>
+                    <details style={{ marginBottom:16 }}>
+                      <summary style={{ cursor:'pointer', fontWeight:600, fontSize:'0.9em', padding:'8px 0', userSelect:'none' }}>+ Create new ad</summary>
+                      <form onSubmit={createAd} style={{ marginTop:12, display:'grid', gap:10 }}>
+                        <div className="form-group"><label className="form-label">Title</label><input type="text" className="form-input" required value={newAdForm.title} onChange={e => setNewAdForm(p => ({ ...p,title:e.target.value }))} placeholder="e.g. Join Our Program" /></div>
+                        <div className="form-group"><label className="form-label">Description</label><textarea className="form-input" rows={3} required value={newAdForm.description} onChange={e => setNewAdForm(p => ({ ...p,description:e.target.value }))} placeholder="Describe the program…" /></div>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                          <div className="form-group"><label className="form-label">Requirements</label><textarea className="form-input" rows={2} value={newAdForm.requirements} onChange={e => setNewAdForm(p => ({ ...p,requirements:e.target.value }))} placeholder="Optional" /></div>
+                          <div className="form-group"><label className="form-label">Benefits</label><textarea className="form-input" rows={2} value={newAdForm.benefits} onChange={e => setNewAdForm(p => ({ ...p,benefits:e.target.value }))} placeholder="Optional" /></div>
+                        </div>
+                        <button type="submit" className="btn btn-success" disabled={newAdLoading} style={{ width:'fit-content' }}>{newAdLoading?'Creating…':'Create Ad'}</button>
+                      </form>
+                    </details>
+                    {sponsorAdsLoading ? <p style={{ color:'#9ca3af' }}>Loading ads…</p>
+                      : sponsorAds.length===0 ? <p style={{ color:'#9ca3af', fontStyle:'italic' }}>No ads for this sponsor yet.</p>
+                      : <div style={{ display:'grid', gap:10 }}>{sponsorAds.map(ad => (
+                        <div key={ad.id} style={{ padding:'12px 16px', border:'1px solid var(--border)', borderRadius:8, background:'#f9fafb', display:'flex', justifyContent:'space-between', alignItems:'start', gap:12 }}>
+                          <div style={{ flex:1 }}>
+                            <p style={{ margin:'0 0 4px', fontWeight:600, fontSize:'0.9em' }}>{ad.title}</p>
+                            <p style={{ margin:'0 0 4px', fontSize:'0.82em', color:'#6b7280' }}>{ad.description}</p>
+                            {ad.requirements && <p style={{ margin:0, fontSize:'0.78em', color:'#9ca3af' }}>Req: {ad.requirements}</p>}
+                            <p style={{ margin:'4px 0 0', fontSize:'0.75em', color:'#9ca3af' }}>Created {fmtDateShort(ad.created_at)}</p>
+                          </div>
+                          <button type="button" className="btn btn-danger" style={{ fontSize:'0.78em', padding:'3px 10px', flexShrink:0 }} onClick={() => deleteAd(ad.id)}>Delete</button>
+                        </div>
+                      ))}</div>}
+                  </div>
+                )}
+
+                {/* Catalog */}
+                {sponsorToolsTab === 'catalog' && (
+                  <div>
+                    {sponsorCatalogLoading ? <p style={{ color:'#9ca3af' }}>Loading catalog…</p>
+                      : sponsorCatalog.length===0 ? <p style={{ color:'#9ca3af', fontStyle:'italic' }}>Catalog is empty.</p>
+                      : <div className="table-wrap"><table className="table">
+                        <thead><tr><th>Item</th><th className="text-right">Retail</th><th className="text-right">Points</th><th style={{ width:80 }}>Remove</th></tr></thead>
+                        <tbody>{sponsorCatalog.map(item => (
+                          <tr key={item.id}>
+                            <td><div style={{ display:'flex', alignItems:'center', gap:10 }}>{item.image_url && <img src={item.image_url} alt="" style={{ width:40, height:40, objectFit:'contain', borderRadius:4 }} />}<span style={{ fontSize:'0.88em' }}>{item.title}</span></div></td>
+                            <td className="text-right" style={{ fontSize:'0.85em' }}>${Number(item.price||0).toFixed(2)}</td>
+                            <td className="text-right" style={{ fontWeight:600, color:'#2563eb' }}>{item.point_cost}</td>
+                            <td><button type="button" className="btn btn-secondary" style={{ fontSize:'0.75em', padding:'3px 8px', color:'#dc2626', borderColor:'#dc2626' }} onClick={() => deleteCatalogItem(item.id)}>Remove</button></td>
+                          </tr>
+                        ))}</tbody>
+                      </table></div>}
+                  </div>
+                )}
+
+                {/* Analytics */}
+                {sponsorToolsTab === 'analytics' && (
+                  <div>
+                    <button type="button" className="btn btn-primary" style={{ marginBottom:16 }} onClick={() => loadSponsorAnalytics(selectedSponsorId)}>Refresh</button>
+                    {sponsorAnalyticsLoading ? <p style={{ color:'#9ca3af' }}>Loading…</p>
+                      : !sponsorAnalytics ? <p style={{ color:'#9ca3af', fontStyle:'italic' }}>No data.</p>
+                      : <>
+                        <div className="stats-grid" style={{ marginBottom:16 }}>
+                          <div className="stat-card"><p className="stat-label">Total Unredeemed</p><p className="stat-value stat-value-blue">{Number(sponsorAnalytics.totalUnredeemed||0).toLocaleString()}</p></div>
+                          <div className="stat-card"><p className="stat-label">Awarded This Month</p><p className="stat-value stat-value-green">{Number(sponsorAnalytics.totalAwardedThisMonth||0).toLocaleString()}</p></div>
+                          <div className="stat-card"><p className="stat-label">Redeemed This Month</p><p className="stat-value stat-value-amber">{Number(sponsorAnalytics.totalRedeemedThisMonth||0).toLocaleString()}</p></div>
+                        </div>
+                        {sponsorAnalytics.driverBreakdown?.length>0 && <div className="table-wrap"><table className="table"><thead><tr><th>Driver</th><th>Email</th><th className="text-right">Balance</th></tr></thead><tbody>{sponsorAnalytics.driverBreakdown.map((d,i) => <tr key={i}><td>{(d.driver_name||'').trim()||'—'}</td><td style={{ fontSize:'0.85em', color:'#6b7280' }}>{d.driver_email}</td><td className="text-right" style={{ fontWeight:600 }}>{Number(d.balance||0).toLocaleString()}</td></tr>)}</tbody></table></div>}
+                      </>}
+                  </div>
+                )}
+              </>
+            ) : <p style={{ color:'#9ca3af', fontStyle:'italic', fontSize:'0.875em' }}>Select a sponsor org above to manage their ads, catalog, and analytics.</p>}
+          </div>
+        )}
+
+        {/* ══ USER TOOLS ══ */}
         {activeTab === 'tools' && (
           <div style={cardStyle}>
-
-            {/* ── Temp Admin (#44) ── */}
-            <section style={{ maxWidth: 520 }}>
-              <h2 className="section-title" style={{ marginTop: 0 }}>Create Temporary Admin (#44)</h2>
-              <p className="page-subtitle" style={{ marginBottom: 16 }}>
-                This admin account will be automatically locked out after the expiry date.
-              </p>
-
+            <section style={{ maxWidth:520 }}>
+              <h2 className="section-title" style={{ marginTop:0 }}>Create Temporary Admin</h2>
+              <p className="page-subtitle" style={{ marginBottom:16 }}>Account is automatically locked out after the expiry date.</p>
               <form onSubmit={handleCreateTempAdmin}>
-                <div className="form-group">
-                  <label className="form-label">Email</label>
-                  <input type="email" className="form-input" required
-                    value={tempAdminForm.email}
-                    onChange={e => setTempAdminForm(p => ({ ...p, email: e.target.value }))}
-                    placeholder="temp-admin@example.com" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Password (min 8 characters)</label>
-                  <input type="password" className="form-input" required minLength={8}
-                    value={tempAdminForm.password}
-                    onChange={e => setTempAdminForm(p => ({ ...p, password: e.target.value }))}
-                    placeholder="Strong password" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Display Name (optional)</label>
-                  <input type="text" className="form-input"
-                    value={tempAdminForm.display_name}
-                    onChange={e => setTempAdminForm(p => ({ ...p, display_name: e.target.value }))}
-                    placeholder="e.g. Temp Support Admin" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Access Expires On</label>
-                  <input type="date" className="form-input" required
-                    min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
-                    value={tempAdminForm.expires_at}
-                    onChange={e => setTempAdminForm(p => ({ ...p, expires_at: e.target.value }))} />
-                  <p style={{ margin: '4px 0 0', fontSize: '0.78em', color: '#6b7280' }}>
-                    The account will be locked at midnight on this date.
-                  </p>
-                </div>
-
-                <button type="submit" className="btn btn-success" disabled={tempAdminLoading}>
-                  {tempAdminLoading ? 'Creating…' : 'Create Temp Admin'}
-                </button>
+                <div className="form-group"><label className="form-label">Email</label><input type="email" className="form-input" required value={tempAdminForm.email} onChange={e => setTempAdminForm(p => ({ ...p,email:e.target.value }))} placeholder="temp-admin@example.com" /></div>
+                <div className="form-group"><label className="form-label">Password (min 8 characters)</label><input type="password" className="form-input" required minLength={8} value={tempAdminForm.password} onChange={e => setTempAdminForm(p => ({ ...p,password:e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">Display Name (optional)</label><input type="text" className="form-input" value={tempAdminForm.display_name} onChange={e => setTempAdminForm(p => ({ ...p,display_name:e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">Access Expires On</label>
+                  <input type="date" className="form-input" required min={new Date(Date.now()+86400000).toISOString().slice(0,10)} value={tempAdminForm.expires_at} onChange={e => setTempAdminForm(p => ({ ...p,expires_at:e.target.value }))} /></div>
+                <button type="submit" className="btn btn-success" disabled={tempAdminLoading}>{tempAdminLoading?'Creating…':'Create Temp Admin'}</button>
               </form>
-
-              {tempAdminResult && (
-                <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #86efac' }}>
-                  <p style={{ margin: 0, fontWeight: 700, color: '#166534', fontSize: '0.9em' }}>✓ Temp admin created</p>
-                  <p style={{ margin: '4px 0 0', fontSize: '0.82em', color: '#374151' }}>
-                    User ID: <code>{tempAdminResult.userId}</code> · Expires: <strong>{tempAdminResult.expiresAt}</strong>
-                  </p>
-                </div>
-              )}
+              {tempAdminResult && <div style={{ marginTop:16, padding:'12px 16px', borderRadius:8, background:'#f0fdf4', border:'1px solid #86efac' }}><p style={{ margin:0, fontWeight:700, color:'#166534', fontSize:'0.9em' }}>✓ Temp admin created</p><p style={{ margin:'4px 0 0', fontSize:'0.82em', color:'#374151' }}>User ID: <code>{tempAdminResult.userId}</code> · Expires: <strong>{tempAdminResult.expiresAt}</strong></p></div>}
             </section>
 
-            <hr style={{ margin: '32px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
+            <hr style={{ margin:'32px 0', border:'none', borderTop:'1px solid var(--border)' }} />
 
-            {/* ── Quick stats on inactive accounts (#37) ── */}
-            <section style={{ maxWidth: 520 }}>
-              <h2 className="section-title" style={{ marginTop: 0 }}>Inactive Accounts (#37)</h2>
-              <p className="page-subtitle" style={{ marginBottom: 12 }}>
-                Use the Sponsors and Drivers tabs to deactivate or reactivate individual accounts.
-                Deactivated users will be signed out and unable to log back in.
-              </p>
+            <section style={{ maxWidth:520 }}>
+              <h2 className="section-title" style={{ marginTop:0 }}>Inactive Accounts</h2>
+              <p className="page-subtitle" style={{ marginBottom:12 }}>Deactivated users cannot log in. Hover the Inactive badge to see the reason.</p>
               {(() => {
-                const inactiveSponsors = sponsors.filter(s => s.is_active === 0)
-                const inactiveDrivers  = drivers.filter(d => d.is_active === 0)
-                if (!inactiveSponsors.length && !inactiveDrivers.length) {
-                  return <p style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: '0.875em' }}>No inactive accounts.</p>
-                }
-                return (
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    {inactiveSponsors.length > 0 && (
-                      <div style={{ padding: '10px 16px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca' }}>
-                        <p style={{ margin: 0, fontWeight: 700, color: '#991b1b', fontSize: '0.9em' }}>
-                          {inactiveSponsors.length} inactive sponsor{inactiveSponsors.length !== 1 ? 's' : ''}
-                        </p>
-                        {inactiveSponsors.map(s => (
-                          <p key={s.id} style={{ margin: '3px 0 0', fontSize: '0.8em', color: '#374151' }}>
-                            {s.email} ({s.company_name || 'no org'})
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                    {inactiveDrivers.length > 0 && (
-                      <div style={{ padding: '10px 16px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca' }}>
-                        <p style={{ margin: 0, fontWeight: 700, color: '#991b1b', fontSize: '0.9em' }}>
-                          {inactiveDrivers.length} inactive driver{inactiveDrivers.length !== 1 ? 's' : ''}
-                        </p>
-                        {inactiveDrivers.slice(0, 5).map(d => (
-                          <p key={d.id} style={{ margin: '3px 0 0', fontSize: '0.8em', color: '#374151' }}>
-                            {[d.first_name, d.last_name].filter(Boolean).join(' ') || d.email}
-                          </p>
-                        ))}
-                        {inactiveDrivers.length > 5 && (
-                          <p style={{ margin: '3px 0 0', fontSize: '0.8em', color: '#9ca3af' }}>
-                            …and {inactiveDrivers.length - 5} more
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
+                const inSp = sponsors.filter(s => s.is_active===0); const inDr = drivers.filter(d => d.is_active===0)
+                if (!inSp.length && !inDr.length) return <p style={{ color:'#9ca3af', fontStyle:'italic', fontSize:'0.875em' }}>No inactive accounts.</p>
+                return <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
+                  {inSp.length>0 && <div style={{ padding:'10px 16px', borderRadius:8, background:'#fef2f2', border:'1px solid #fecaca' }}><p style={{ margin:0, fontWeight:700, color:'#991b1b', fontSize:'0.9em' }}>{inSp.length} inactive sponsor{inSp.length!==1?'s':''}</p>{inSp.map(s => <p key={s.id} style={{ margin:'3px 0 0', fontSize:'0.8em', color:'#374151' }}>{s.email}{s.deactivate_reason?` — ${s.deactivate_reason}`:''}</p>)}</div>}
+                  {inDr.length>0 && <div style={{ padding:'10px 16px', borderRadius:8, background:'#fef2f2', border:'1px solid #fecaca' }}><p style={{ margin:0, fontWeight:700, color:'#991b1b', fontSize:'0.9em' }}>{inDr.length} inactive driver{inDr.length!==1?'s':''}</p>{inDr.slice(0,5).map(d => <p key={d.id} style={{ margin:'3px 0 0', fontSize:'0.8em', color:'#374151' }}>{[d.first_name,d.last_name].filter(Boolean).join(' ')||d.email}{d.deactivate_reason?` — ${d.deactivate_reason}`:''}</p>)}{inDr.length>5 && <p style={{ margin:'3px 0 0', fontSize:'0.8em', color:'#9ca3af' }}>…and {inDr.length-5} more</p>}</div>}
+                </div>
               })()}
             </section>
           </div>
@@ -3355,168 +3057,108 @@ const AdminUsersPage = () => {
 
       </main>
 
-      {/* ══════════════════════════════════════════════════
-          MODAL: Create Sponsor (#29)
-      ══════════════════════════════════════════════════ */}
-      {showCreateSponsor && (
+      {/* MODAL: Edit User */}
+      {editUser && (
         <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: 500 }}>
-            <h2 className="page-title" style={{ marginBottom: 4 }}>Create Sponsor Org</h2>
-            <p className="page-subtitle" style={{ marginBottom: 16 }}>
-              Creates a new sponsor account with the given organization name.
-            </p>
-            <form onSubmit={handleCreateSponsor}>
+          <div className="modal-card" style={{ maxWidth:480 }}>
+            <h2 className="page-title" style={{ marginBottom:4 }}>Edit User</h2>
+            <p className="page-subtitle" style={{ marginBottom:16 }}>ID: <code>{editUser.id}</code> · Current role: <strong>{editUser.role}</strong></p>
+            <form onSubmit={handleEditUser}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                <div className="form-group"><label className="form-label">First Name</label><input type="text" className="form-input" value={editForm.first_name} onChange={e => setEditForm(p => ({ ...p,first_name:e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">Last Name</label><input type="text" className="form-input" value={editForm.last_name} onChange={e => setEditForm(p => ({ ...p,last_name:e.target.value }))} /></div>
+              </div>
+              <div className="form-group"><label className="form-label">Email</label><input type="email" className="form-input" required value={editForm.email} onChange={e => setEditForm(p => ({ ...p,email:e.target.value }))} /></div>
               <div className="form-group">
-                <label className="form-label">Organization Name <span style={{ color: '#dc2626' }}>*</span></label>
-                <input type="text" className="form-input" required
-                  value={createSponsorForm.company_name}
-                  onChange={e => setCreateSponsorForm(p => ({ ...p, company_name: e.target.value }))}
-                  placeholder="e.g. Acme Trucking Co." />
+                <label className="form-label">Role</label>
+                <select className="form-input" value={editForm.role} onChange={e => setEditForm(p => ({ ...p,role:e.target.value }))}>
+                  <option value="driver">Driver</option>
+                  <option value="sponsor">Sponsor</option>
+                  <option value="admin">Admin</option>
+                </select>
+                {editForm.role!==editUser.role && <p style={{ margin:'4px 0 0', fontSize:'0.78em', color:'#d97706' }}>⚠ Role change takes effect on their next login.</p>}
               </div>
-              <div className="form-group">
-                <label className="form-label">Email <span style={{ color: '#dc2626' }}>*</span></label>
-                <input type="email" className="form-input" required
-                  value={createSponsorForm.email}
-                  onChange={e => setCreateSponsorForm(p => ({ ...p, email: e.target.value }))}
-                  placeholder="sponsor@example.com" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Password <span style={{ color: '#dc2626' }}>*</span></label>
-                <input type="password" className="form-input" required minLength={8}
-                  value={createSponsorForm.password}
-                  onChange={e => setCreateSponsorForm(p => ({ ...p, password: e.target.value }))}
-                  placeholder="Min 8 characters" />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div className="form-group">
-                  <label className="form-label">First Name</label>
-                  <input type="text" className="form-input"
-                    value={createSponsorForm.first_name}
-                    onChange={e => setCreateSponsorForm(p => ({ ...p, first_name: e.target.value }))}
-                    placeholder="Optional" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Last Name</label>
-                  <input type="text" className="form-input"
-                    value={createSponsorForm.last_name}
-                    onChange={e => setCreateSponsorForm(p => ({ ...p, last_name: e.target.value }))}
-                    placeholder="Optional" />
-                </div>
-              </div>
-              <div className="modal-actions" style={{ marginTop: 16 }}>
-                <button type="submit" className="btn btn-success" disabled={createSponsorLoading}>
-                  {createSponsorLoading ? 'Creating…' : 'Create Sponsor'}
-                </button>
-                <button type="button" className="btn btn-ghost"
-                  onClick={() => { setShowCreateSponsor(false); setError('') }}>
-                  Cancel
-                </button>
+              {error && <p className="form-footer" style={{ color:'crimson' }}>{error}</p>}
+              <div className="modal-actions" style={{ marginTop:16 }}>
+                <button type="submit" className="btn btn-success" disabled={editLoading}>{editLoading?'Saving…':'Save Changes'}</button>
+                <button type="button" className="btn btn-ghost" onClick={() => { setEditUser(null); setError('') }}>Cancel</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          MODAL: Bulk CSV Import (#43)
-      ══════════════════════════════════════════════════ */}
+      {/* MODAL: Deactivate with Reason */}
+      {deactivateTarget && (
+        <div className="modal-backdrop">
+          <div className="modal-card" style={{ maxWidth:440 }}>
+            <h2 className="page-title" style={{ marginBottom:4 }}>Deactivate Account</h2>
+            <p className="page-subtitle" style={{ marginBottom:16 }}><strong>{deactivateTarget.email}</strong> will be signed out and unable to log back in.</p>
+            <div className="form-group">
+              <label className="form-label">Reason for deactivation (optional)</label>
+              <textarea className="form-input" rows={3} value={deactivateReason} onChange={e => setDeactivateReason(e.target.value)} placeholder="e.g. Violation of terms of service, account under review…" />
+              <p style={{ margin:'4px 0 0', fontSize:'0.78em', color:'#6b7280' }}>Stored in the admin UI. The user is not notified.</p>
+            </div>
+            {error && <p className="form-footer" style={{ color:'crimson' }}>{error}</p>}
+            <div className="modal-actions" style={{ marginTop:16 }}>
+              <button type="button" className="btn btn-danger" onClick={handleDeactivate} disabled={deactivateLoading}>{deactivateLoading?'Deactivating…':'Deactivate Account'}</button>
+              <button type="button" className="btn btn-ghost" onClick={() => { setDeactivateTarget(null); setError('') }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Create Sponsor */}
+      {showCreateSponsor && (
+        <div className="modal-backdrop">
+          <div className="modal-card" style={{ maxWidth:500 }}>
+            <h2 className="page-title" style={{ marginBottom:4 }}>Create Sponsor Org</h2>
+            <p className="page-subtitle" style={{ marginBottom:16 }}>Creates a new sponsor account with the given organization name.</p>
+            <form onSubmit={handleCreateSponsor}>
+              <div className="form-group"><label className="form-label">Organization Name <span style={{ color:'#dc2626' }}>*</span></label><input type="text" className="form-input" required value={createSponsorForm.company_name} onChange={e => setCreateSponsorForm(p => ({ ...p,company_name:e.target.value }))} placeholder="e.g. Acme Trucking Co." /></div>
+              <div className="form-group"><label className="form-label">Email <span style={{ color:'#dc2626' }}>*</span></label><input type="email" className="form-input" required value={createSponsorForm.email} onChange={e => setCreateSponsorForm(p => ({ ...p,email:e.target.value }))} /></div>
+              <div className="form-group"><label className="form-label">Password <span style={{ color:'#dc2626' }}>*</span></label><input type="password" className="form-input" required minLength={8} value={createSponsorForm.password} onChange={e => setCreateSponsorForm(p => ({ ...p,password:e.target.value }))} placeholder="Min 8 characters" /></div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                <div className="form-group"><label className="form-label">First Name</label><input type="text" className="form-input" value={createSponsorForm.first_name} onChange={e => setCreateSponsorForm(p => ({ ...p,first_name:e.target.value }))} placeholder="Optional" /></div>
+                <div className="form-group"><label className="form-label">Last Name</label><input type="text" className="form-input" value={createSponsorForm.last_name} onChange={e => setCreateSponsorForm(p => ({ ...p,last_name:e.target.value }))} placeholder="Optional" /></div>
+              </div>
+              <div className="modal-actions" style={{ marginTop:16 }}>
+                <button type="submit" className="btn btn-success" disabled={createSponsorLoading}>{createSponsorLoading?'Creating…':'Create Sponsor'}</button>
+                <button type="button" className="btn btn-ghost" onClick={() => { setShowCreateSponsor(false); setError('') }}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Bulk Import */}
       {showBulkImport && (
         <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: 700 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 4 }}>
-              <h2 className="page-title" style={{ marginBottom: 0 }}>Bulk Import Drivers</h2>
-              <button type="button" className="btn btn-secondary" style={{ fontSize: '0.8em', padding: '4px 10px' }}
-                onClick={downloadBulkTemplate}>
-                ⬇ Download Template
-              </button>
+          <div className="modal-card" style={{ maxWidth:700 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'start', marginBottom:4 }}>
+              <h2 className="page-title" style={{ marginBottom:0 }}>Bulk Import Drivers</h2>
+              <button type="button" className="btn btn-secondary" style={{ fontSize:'0.8em', padding:'4px 10px' }} onClick={downloadBulkTemplate}>⬇ Template</button>
             </div>
-            <p className="page-subtitle" style={{ marginBottom: 16 }}>
-              Paste CSV data below. Required columns: <code>email</code>, <code>password</code>.
-              Optional: <code>first_name</code>, <code>last_name</code>, <code>dob</code> (YYYY-MM-DD).
-            </p>
-
-            {!bulkResults && (
-              <>
-                <textarea
-                  value={bulkCsvText}
-                  onChange={e => { setBulkCsvText(e.target.value); setBulkPreview([]); setBulkParseError('') }}
-                  placeholder="email,password,first_name,last_name,dob&#10;john@example.com,password123,John,Doe,1990-01-15"
-                  rows={7}
-                  style={{ width: '100%', resize: 'vertical', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', fontSize: '0.85em', fontFamily: 'monospace', boxSizing: 'border-box' }}
-                />
-                {bulkParseError && <p style={{ color: '#dc2626', fontSize: '0.85em', marginTop: 6 }}>{bulkParseError}</p>}
-                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button type="button" className="btn btn-primary" onClick={parseBulkCsv} disabled={!bulkCsvText.trim()}>
-                    Preview ({bulkCsvText.trim().split('\n').filter(Boolean).length - 1} rows)
-                  </button>
-                </div>
-              </>
-            )}
-
-            {/* Preview table */}
-            {bulkPreview.length > 0 && !bulkResults && (
-              <>
-                <p style={{ margin: '14px 0 8px', fontWeight: 700, fontSize: '0.9em' }}>
-                  Preview — {bulkPreview.length} driver{bulkPreview.length !== 1 ? 's' : ''} to import:
-                </p>
-                <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
-                  <table className="table" style={{ fontSize: '0.82em' }}>
-                    <thead>
-                      <tr>
-                        <th>#</th><th>Email</th><th>First Name</th><th>Last Name</th><th>DOB</th><th>Password</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bulkPreview.map((row, i) => (
-                        <tr key={i} style={{ background: !row.email || !row.password ? '#fef2f2' : undefined }}>
-                          <td>{i + 1}</td>
-                          <td>{row.email || <em style={{ color: '#dc2626' }}>missing</em>}</td>
-                          <td>{row.first_name || '—'}</td>
-                          <td>{row.last_name || '—'}</td>
-                          <td>{row.dob || '—'}</td>
-                          <td>{row.password ? '••••••••' : <em style={{ color: '#dc2626' }}>missing</em>}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-
-            {/* Results after import */}
-            {bulkResults && (
-              <div style={{ marginTop: 14 }}>
-                <p style={{ fontWeight: 700, fontSize: '0.9em', color: bulkResults.failCount > 0 ? '#92400e' : '#166534' }}>
-                  {bulkResults.successCount} created · {bulkResults.failCount} failed
-                </p>
-                <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, marginTop: 8 }}>
-                  <table className="table" style={{ fontSize: '0.82em' }}>
-                    <thead><tr><th>Email</th><th>Result</th></tr></thead>
-                    <tbody>
-                      {bulkResults.results.map((r, i) => (
-                        <tr key={i}>
-                          <td>{r.email}</td>
-                          <td style={{ color: r.ok ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
-                            {r.ok ? `✓ Created (ID ${r.userId})` : `✕ ${r.error}`}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+            <p className="page-subtitle" style={{ marginBottom:16 }}>Required: <code>email</code>, <code>password</code>. Optional: <code>first_name</code>, <code>last_name</code>, <code>dob</code></p>
+            {!bulkResults && <>
+              <textarea value={bulkCsvText} onChange={e => { setBulkCsvText(e.target.value); setBulkPreview([]); setBulkParseError('') }} placeholder="email,password,first_name,last_name,dob&#10;john@example.com,password123,John,Doe,1990-01-15" rows={7} style={{ width:'100%', resize:'vertical', padding:'10px 12px', borderRadius:8, border:'1px solid var(--border)', fontSize:'0.85em', fontFamily:'monospace', boxSizing:'border-box' }} />
+              {bulkParseError && <p style={{ color:'#dc2626', fontSize:'0.85em', marginTop:6 }}>{bulkParseError}</p>}
+              <button type="button" className="btn btn-primary" style={{ marginTop:10 }} onClick={parseBulkCsv} disabled={!bulkCsvText.trim()}>Preview ({Math.max(0, bulkCsvText.trim().split('\n').filter(Boolean).length-1)} rows)</button>
+            </>}
+            {bulkPreview.length>0 && !bulkResults && <div style={{ maxHeight:240, overflowY:'auto', border:'1px solid var(--border)', borderRadius:6, marginTop:12 }}>
+              <table className="table" style={{ fontSize:'0.82em' }}><thead><tr><th>#</th><th>Email</th><th>First</th><th>Last</th><th>DOB</th><th>Password</th></tr></thead>
+              <tbody>{bulkPreview.map((row,i) => <tr key={i} style={{ background: !row.email||!row.password?'#fef2f2':undefined }}><td>{i+1}</td><td>{row.email||<em style={{ color:'#dc2626' }}>missing</em>}</td><td>{row.first_name||'—'}</td><td>{row.last_name||'—'}</td><td>{row.dob||'—'}</td><td>{row.password?'••••••••':<em style={{ color:'#dc2626' }}>missing</em>}</td></tr>)}</tbody>
+              </table>
+            </div>}
+            {bulkResults && <div style={{ marginTop:14 }}>
+              <p style={{ fontWeight:700, fontSize:'0.9em', color: bulkResults.failCount>0?'#92400e':'#166534' }}>{bulkResults.successCount} created · {bulkResults.failCount} failed</p>
+              <div style={{ maxHeight:200, overflowY:'auto', border:'1px solid var(--border)', borderRadius:6, marginTop:8 }}>
+                <table className="table" style={{ fontSize:'0.82em' }}><thead><tr><th>Email</th><th>Result</th></tr></thead><tbody>{bulkResults.results.map((r,i) => <tr key={i}><td>{r.email}</td><td style={{ color: r.ok?'#16a34a':'#dc2626', fontWeight:600 }}>{r.ok?`✓ Created (ID ${r.userId})`:`✕ ${r.error}`}</td></tr>)}</tbody></table>
               </div>
-            )}
-
-            <div className="modal-actions" style={{ marginTop: 16 }}>
-              {bulkPreview.length > 0 && !bulkResults && (
-                <button type="button" className="btn btn-success" onClick={submitBulkImport} disabled={bulkImporting}>
-                  {bulkImporting ? 'Importing…' : `Import ${bulkPreview.length} Drivers`}
-                </button>
-              )}
-              <button type="button" className="btn btn-ghost"
-                onClick={() => { setShowBulkImport(false); setBulkCsvText(''); setBulkPreview([]); setBulkResults(null); setBulkParseError('') }}>
-                {bulkResults ? 'Close' : 'Cancel'}
-              </button>
+            </div>}
+            <div className="modal-actions" style={{ marginTop:16 }}>
+              {bulkPreview.length>0 && !bulkResults && <button type="button" className="btn btn-success" onClick={submitBulkImport} disabled={bulkImporting}>{bulkImporting?'Importing…':`Import ${bulkPreview.length} Drivers`}</button>}
+              <button type="button" className="btn btn-ghost" onClick={() => { setShowBulkImport(false); setBulkCsvText(''); setBulkPreview([]); setBulkResults(null); setBulkParseError('') }}>{bulkResults?'Close':'Cancel'}</button>
             </div>
           </div>
         </div>
