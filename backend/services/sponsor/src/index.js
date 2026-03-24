@@ -186,8 +186,22 @@ app.post("/auth/login", async (req, res) => {
     const ok = await verifyPassword(parsed.data.password, user.password_hash);
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
+<<<<<<< Updated upstream
     // FIX #3: record last login — fire-and-forget
     exec("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]).catch(() => {});
+=======
+    // Check if sponsor is deactivated
+    const profileRows = await query(
+      "SELECT is_active FROM sponsor_profiles WHERE user_id = ? LIMIT 1",
+      [user.id]
+    );
+    if (profileRows?.[0]?.is_active === 0) {
+      return res.status(403).json({ error: "Your account has been deactivated. Contact your organization admin." });
+    }
+
+    // Update last login timestamp
+    await exec("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
+>>>>>>> Stashed changes
 
     const token = signToken({ sub: user.id, role: user.role });
     res.cookie(COOKIE_NAME, token, {
@@ -1116,6 +1130,7 @@ app.put("/me/language", requireAuth, async (req, res) => {
   } catch (err) { console.error(err); return res.status(500).json({ error: "Server error" }); }
 });
 
+<<<<<<< Updated upstream
 // ─── External routes ──────────────────────────────────────────────────────────
 
 const fakestoreRoutes = require("../../../routes/sponsor/fakestore");
@@ -1124,6 +1139,489 @@ app.use("/fakestore", requireAuth, fakestoreRoutes);
 app.use("/catalog", requireAuth, sponsorCatalogRoutes);
 
 // ─────────────────────────────────────────────────────────────────────────────
+=======
+// ============================================================
+// ORGANIZATION MANAGEMENT
+// ============================================================
+
+/**
+ * Helper: get or auto-create the sponsor's organization from their company_name.
+ * Returns { org, sponsorProfile } or null (sends error response).
+ */
+async function getOrCreateOrg(sponsorId, res) {
+  const profileRows = await query(
+    "SELECT * FROM sponsor_profiles WHERE user_id = ? LIMIT 1",
+    [sponsorId]
+  );
+  const profile = profileRows?.[0];
+  if (!profile || !profile.company_name || !profile.company_name.trim()) {
+    res.status(400).json({ error: "Your company name is not set. Update your profile first." });
+    return null;
+  }
+
+  const companyName = profile.company_name.trim();
+
+  // Auto-create org if it doesn't exist
+  if (!profile.org_id) {
+    await exec(
+      "INSERT IGNORE INTO sponsor_organizations (name) VALUES (?)",
+      [companyName]
+    );
+    const orgRows = await query(
+      "SELECT id FROM sponsor_organizations WHERE name = ? LIMIT 1",
+      [companyName]
+    );
+    const orgId = orgRows?.[0]?.id;
+    if (orgId) {
+      // Check if anyone else is already owner
+      const existingOwner = await query(
+        "SELECT user_id FROM sponsor_profiles WHERE org_id = ? AND sponsor_role = 'owner' LIMIT 1",
+        [orgId]
+      );
+      const role = (!existingOwner || existingOwner.length === 0) ? 'owner' : (profile.sponsor_role || 'member');
+      await exec(
+        "UPDATE sponsor_profiles SET org_id = ?, sponsor_role = ? WHERE user_id = ?",
+        [orgId, role, sponsorId]
+      );
+    }
+  }
+
+  // Re-fetch
+  const updatedProfile = await query("SELECT * FROM sponsor_profiles WHERE user_id = ? LIMIT 1", [sponsorId]);
+  const sp = updatedProfile?.[0];
+  if (!sp?.org_id) {
+    res.status(500).json({ error: "Failed to resolve organization." });
+    return null;
+  }
+
+  const orgRows = await query("SELECT * FROM sponsor_organizations WHERE id = ? LIMIT 1", [sp.org_id]);
+  return { org: orgRows?.[0], sponsorProfile: sp };
+}
+
+/** Helper: log a sponsor action */
+async function logAction(orgId, sponsorId, action, targetUserId, details) {
+  try {
+    await exec(
+      "INSERT INTO sponsor_action_log (org_id, sponsor_id, action, target_user_id, details) VALUES (?, ?, ?, ?, ?)",
+      [orgId, sponsorId, action, targetUserId || null, details || null]
+    );
+  } catch { /* non-critical */ }
+}
+
+/** Helper: require owner or admin role */
+function requireOrgRole(sponsorProfile, res, allowedRoles) {
+  if (!allowedRoles.includes(sponsorProfile.sponsor_role)) {
+    res.status(403).json({ error: "You do not have permission for this action. Required role: " + allowedRoles.join(" or ") });
+    return false;
+  }
+  return true;
+}
+
+// ── View organization profile (#2980, #2990) ──
+
+app.get('/organization', requireAuth, async (req, res) => {
+  try {
+    const result = await getOrCreateOrg(req.user.id, res);
+    if (!result) return;
+
+    return res.json({
+      organization: result.org,
+      myRole: result.sponsorProfile.sponsor_role,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Update organization info (#2981) ──
+
+app.put('/organization', requireAuth, async (req, res) => {
+  const schema = z.object({
+    name: z.string().min(1).max(255).optional(),
+    description: z.string().max(2000).optional(),
+    phone: z.string().max(50).optional(),
+    address_line1: z.string().max(255).optional(),
+    address_line2: z.string().max(255).optional(),
+    city: z.string().max(100).optional(),
+    state: z.string().max(100).optional(),
+    postal_code: z.string().max(20).optional(),
+    country: z.string().max(100).optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    const result = await getOrCreateOrg(req.user.id, res);
+    if (!result) return;
+    if (!requireOrgRole(result.sponsorProfile, res, ['owner', 'admin'])) return;
+
+    const d = parsed.data;
+    await exec(
+      `UPDATE sponsor_organizations
+       SET name = COALESCE(?, name),
+           description = COALESCE(?, description),
+           phone = COALESCE(?, phone),
+           address_line1 = COALESCE(?, address_line1),
+           address_line2 = COALESCE(?, address_line2),
+           city = COALESCE(?, city),
+           state = COALESCE(?, state),
+           postal_code = COALESCE(?, postal_code),
+           country = COALESCE(?, country)
+       WHERE id = ?`,
+      [d.name || null, d.description || null, d.phone || null,
+       d.address_line1 || null, d.address_line2 || null,
+       d.city || null, d.state || null, d.postal_code || null, d.country || null,
+       result.org.id]
+    );
+
+    // If org name changed, also update company_name on all sponsor_profiles in this org
+    if (d.name && d.name !== result.org.name) {
+      await exec(
+        "UPDATE sponsor_profiles SET company_name = ? WHERE org_id = ?",
+        [d.name, result.org.id]
+      );
+    }
+
+    await logAction(result.org.id, req.user.id, 'update_organization', null, JSON.stringify(d));
+
+    const orgRows = await query("SELECT * FROM sponsor_organizations WHERE id = ? LIMIT 1", [result.org.id]);
+    return res.json({ ok: true, organization: orgRows[0] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── List all sponsor users in org (#2985) ──
+
+app.get('/organization/users', requireAuth, async (req, res) => {
+  try {
+    const result = await getOrCreateOrg(req.user.id, res);
+    if (!result) return;
+
+    const users = await query(
+      `SELECT u.id, u.email, u.created_at, u.last_login_at,
+              sp.first_name, sp.last_name, sp.phone, sp.sponsor_role, sp.is_active
+       FROM users u
+       JOIN sponsor_profiles sp ON u.id = sp.user_id
+       WHERE sp.org_id = ?
+       ORDER BY sp.sponsor_role ASC, u.email ASC`,
+      [result.org.id]
+    );
+
+    return res.json({ users: users || [], myRole: result.sponsorProfile.sponsor_role });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Create additional sponsor user (#2982) ──
+
+app.post('/organization/users', requireAuth, async (req, res) => {
+  const schema = z.object({
+    email: z.string().email(),
+    password: z.string().min(8),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    role: z.enum(['admin', 'member']).optional().default('member'),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    const result = await getOrCreateOrg(req.user.id, res);
+    if (!result) return;
+    if (!requireOrgRole(result.sponsorProfile, res, ['owner', 'admin'])) return;
+
+    const { email, password, firstName, lastName, role } = parsed.data;
+    const password_hash = await hashPassword(password);
+
+    const userInsert = await exec(
+      "INSERT INTO users (email, password_hash, role) VALUES (?, ?, 'sponsor')",
+      [email.toLowerCase(), password_hash]
+    );
+    const newUserId = userInsert.insertId;
+
+    await exec(
+      `INSERT INTO sponsor_profiles (user_id, first_name, last_name, company_name, org_id, sponsor_role, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      [newUserId, firstName || null, lastName || null, result.org.name, result.org.id, role]
+    );
+
+    await logAction(result.org.id, req.user.id, 'create_sponsor_user', newUserId,
+      `Created user ${email} with role ${role}`);
+
+    return res.status(201).json({ ok: true, userId: newUserId });
+  } catch (err) {
+    if (err?.code === 'ER_DUP_ENTRY' || String(err?.message || '').includes('Duplicate')) {
+      return res.status(409).json({ error: 'Email already in use' });
+    }
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Assign role to sponsor user (#2983) ──
+
+app.put('/organization/users/:userId/role', requireAuth, async (req, res) => {
+  const schema = z.object({ role: z.enum(['admin', 'member']) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+
+  const targetId = toInt(req.params.userId);
+  if (!Number.isFinite(targetId)) return res.status(400).json({ error: 'Invalid userId' });
+
+  try {
+    const result = await getOrCreateOrg(req.user.id, res);
+    if (!result) return;
+    if (!requireOrgRole(result.sponsorProfile, res, ['owner'])) return;
+
+    // Verify target is in same org
+    const targetRows = await query(
+      "SELECT user_id, sponsor_role FROM sponsor_profiles WHERE user_id = ? AND org_id = ? LIMIT 1",
+      [targetId, result.org.id]
+    );
+    if (!targetRows || targetRows.length === 0) return res.status(404).json({ error: 'User not found in your organization' });
+    if (targetRows[0].sponsor_role === 'owner') return res.status(400).json({ error: 'Cannot change the owner role' });
+
+    await exec("UPDATE sponsor_profiles SET sponsor_role = ? WHERE user_id = ?", [parsed.data.role, targetId]);
+    await logAction(result.org.id, req.user.id, 'change_role', targetId, `Changed role to ${parsed.data.role}`);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Deactivate sponsor user (#2984) ──
+
+app.put('/organization/users/:userId/deactivate', requireAuth, async (req, res) => {
+  const targetId = toInt(req.params.userId);
+  if (!Number.isFinite(targetId)) return res.status(400).json({ error: 'Invalid userId' });
+
+  try {
+    const result = await getOrCreateOrg(req.user.id, res);
+    if (!result) return;
+    if (!requireOrgRole(result.sponsorProfile, res, ['owner', 'admin'])) return;
+
+    const targetRows = await query(
+      "SELECT user_id, sponsor_role FROM sponsor_profiles WHERE user_id = ? AND org_id = ? LIMIT 1",
+      [targetId, result.org.id]
+    );
+    if (!targetRows || targetRows.length === 0) return res.status(404).json({ error: 'User not found in your organization' });
+    if (targetRows[0].sponsor_role === 'owner') return res.status(400).json({ error: 'Cannot deactivate the owner' });
+    if (targetId === req.user.id) return res.status(400).json({ error: 'Cannot deactivate yourself' });
+
+    await exec("UPDATE sponsor_profiles SET is_active = 0 WHERE user_id = ?", [targetId]);
+    await logAction(result.org.id, req.user.id, 'deactivate_user', targetId, 'Deactivated user');
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Reactivate sponsor user ──
+
+app.put('/organization/users/:userId/activate', requireAuth, async (req, res) => {
+  const targetId = toInt(req.params.userId);
+  if (!Number.isFinite(targetId)) return res.status(400).json({ error: 'Invalid userId' });
+
+  try {
+    const result = await getOrCreateOrg(req.user.id, res);
+    if (!result) return;
+    if (!requireOrgRole(result.sponsorProfile, res, ['owner', 'admin'])) return;
+
+    const targetRows = await query(
+      "SELECT user_id FROM sponsor_profiles WHERE user_id = ? AND org_id = ? LIMIT 1",
+      [targetId, result.org.id]
+    );
+    if (!targetRows || targetRows.length === 0) return res.status(404).json({ error: 'User not found in your organization' });
+
+    await exec("UPDATE sponsor_profiles SET is_active = 1 WHERE user_id = ?", [targetId]);
+    await logAction(result.org.id, req.user.id, 'activate_user', targetId, 'Reactivated user');
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Edit another sponsor's profile (#2986) ──
+
+app.put('/organization/users/:userId/profile', requireAuth, async (req, res) => {
+  const schema = z.object({
+    firstName: z.string().min(1).optional(),
+    lastName: z.string().min(1).optional(),
+    phone: z.string().max(50).optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const targetId = toInt(req.params.userId);
+  if (!Number.isFinite(targetId)) return res.status(400).json({ error: 'Invalid userId' });
+
+  try {
+    const result = await getOrCreateOrg(req.user.id, res);
+    if (!result) return;
+    if (!requireOrgRole(result.sponsorProfile, res, ['owner', 'admin'])) return;
+
+    const targetRows = await query(
+      "SELECT user_id FROM sponsor_profiles WHERE user_id = ? AND org_id = ? LIMIT 1",
+      [targetId, result.org.id]
+    );
+    if (!targetRows || targetRows.length === 0) return res.status(404).json({ error: 'User not found in your organization' });
+
+    const d = parsed.data;
+    await exec(
+      `UPDATE sponsor_profiles
+       SET first_name = COALESCE(?, first_name),
+           last_name  = COALESCE(?, last_name),
+           phone      = COALESCE(?, phone)
+       WHERE user_id = ?`,
+      [d.firstName || null, d.lastName || null, d.phone || null, targetId]
+    );
+
+    await logAction(result.org.id, req.user.id, 'edit_profile', targetId, JSON.stringify(d));
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Reset another sponsor's password (#2987) ──
+
+app.post('/organization/users/:userId/reset-password', requireAuth, async (req, res) => {
+  const schema = z.object({ newPassword: z.string().min(8) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const targetId = toInt(req.params.userId);
+  if (!Number.isFinite(targetId)) return res.status(400).json({ error: 'Invalid userId' });
+
+  try {
+    const result = await getOrCreateOrg(req.user.id, res);
+    if (!result) return;
+    if (!requireOrgRole(result.sponsorProfile, res, ['owner', 'admin'])) return;
+
+    const targetRows = await query(
+      "SELECT user_id, sponsor_role FROM sponsor_profiles WHERE user_id = ? AND org_id = ? LIMIT 1",
+      [targetId, result.org.id]
+    );
+    if (!targetRows || targetRows.length === 0) return res.status(404).json({ error: 'User not found in your organization' });
+
+    // Only owner can reset admin passwords; admins can only reset member passwords
+    if (result.sponsorProfile.sponsor_role === 'admin' && targetRows[0].sponsor_role !== 'member') {
+      return res.status(403).json({ error: 'Admins can only reset member passwords' });
+    }
+
+    const newHash = await hashPassword(parsed.data.newPassword);
+    await exec("UPDATE users SET password_hash = ? WHERE id = ?", [newHash, targetId]);
+    await logAction(result.org.id, req.user.id, 'reset_password', targetId, 'Reset password');
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── View last login date for sponsor users (#2988) ──
+// (Included in GET /organization/users via last_login_at)
+
+// ── View other sponsors' actions / action log (#2989) ──
+
+app.get('/organization/activity-log', requireAuth, async (req, res) => {
+  try {
+    const result = await getOrCreateOrg(req.user.id, res);
+    if (!result) return;
+
+    const logs = await query(
+      `SELECT sal.id, sal.action, sal.details, sal.created_at,
+              u_actor.email AS actor_email,
+              TRIM(CONCAT(COALESCE(sp_actor.first_name,''), ' ', COALESCE(sp_actor.last_name,''))) AS actor_name,
+              u_target.email AS target_email,
+              TRIM(CONCAT(COALESCE(sp_target.first_name,''), ' ', COALESCE(sp_target.last_name,''))) AS target_name
+       FROM sponsor_action_log sal
+       JOIN users u_actor ON sal.sponsor_id = u_actor.id
+       LEFT JOIN sponsor_profiles sp_actor ON sal.sponsor_id = sp_actor.user_id
+       LEFT JOIN users u_target ON sal.target_user_id = u_target.id
+       LEFT JOIN sponsor_profiles sp_target ON sal.target_user_id = sp_target.user_id
+       WHERE sal.org_id = ?
+       ORDER BY sal.created_at DESC
+       LIMIT 500`,
+      [result.org.id]
+    );
+
+    return res.json({ logs: logs || [] });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Organization stats: total drivers (#2991), total points (#2992), creation date (#2990) ──
+
+app.get('/organization/stats', requireAuth, async (req, res) => {
+  try {
+    const result = await getOrCreateOrg(req.user.id, res);
+    if (!result) return;
+
+    const sponsorCompany = result.org.name;
+
+    // Total drivers in program
+    const driverRows = await query(
+      `SELECT COUNT(DISTINCT u.id) AS total_drivers
+       FROM users u
+       JOIN driver_profiles dp ON u.id = dp.user_id
+       WHERE u.role = 'driver'
+         AND (
+           dp.sponsor_org = ?
+           OR EXISTS (
+             SELECT 1 FROM applications a
+             JOIN sponsor_profiles sp ON a.sponsor_id = sp.user_id
+             WHERE a.driver_id = u.id AND sp.org_id = ? AND a.status = 'accepted'
+           )
+         )`,
+      [sponsorCompany, result.org.id]
+    );
+
+    // Total points distributed (all positive deltas from sponsors in this org)
+    const pointsRows = await query(
+      `SELECT COALESCE(SUM(l.delta), 0) AS total_points_distributed
+       FROM driver_points_ledger l
+       JOIN sponsor_profiles sp ON l.sponsor_id = sp.user_id
+       WHERE sp.org_id = ? AND l.delta > 0`,
+      [result.org.id]
+    );
+
+    // Total sponsor users
+    const sponsorCountRows = await query(
+      "SELECT COUNT(*) AS total_sponsors FROM sponsor_profiles WHERE org_id = ?",
+      [result.org.id]
+    );
+
+    return res.json({
+      totalDrivers: Number(driverRows?.[0]?.total_drivers || 0),
+      totalPointsDistributed: Number(pointsRows?.[0]?.total_points_distributed || 0),
+      totalSponsors: Number(sponsorCountRows?.[0]?.total_sponsors || 0),
+      organizationCreatedAt: result.org.created_at,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+>>>>>>> Stashed changes
 
 app.listen(PORT, () => {
   console.log(`[sponsor] listening on :${PORT}`);

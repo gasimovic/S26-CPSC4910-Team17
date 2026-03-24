@@ -261,3 +261,43 @@ CREATE TABLE IF NOT EXISTS point_expiration_rules (
 
 -- Language preference per user
 ALTER TABLE users ADD COLUMN preferred_language VARCHAR(10) NULL DEFAULT 'en';
+
+-- Track last login timestamp
+ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP NULL;
+
+-- Sponsor organizations
+CREATE TABLE IF NOT EXISTS sponsor_organizations (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  name         VARCHAR(255) NOT NULL UNIQUE,
+  description  TEXT NULL,
+  phone        VARCHAR(50) NULL,
+  address_line1 VARCHAR(255) NULL,
+  address_line2 VARCHAR(255) NULL,
+  city         VARCHAR(100) NULL,
+  state        VARCHAR(100) NULL,
+  postal_code  VARCHAR(20) NULL,
+  country      VARCHAR(100) NULL,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Link sponsors to their organization + add role and active status
+ALTER TABLE sponsor_profiles ADD COLUMN org_id INT NULL;
+ALTER TABLE sponsor_profiles ADD COLUMN sponsor_role ENUM('owner','admin','member') NOT NULL DEFAULT 'member';
+ALTER TABLE sponsor_profiles ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1;
+
+-- Sponsor action log (audit trail)
+CREATE TABLE IF NOT EXISTS sponsor_action_log (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  org_id         INT NULL,
+  sponsor_id     INT NOT NULL,
+  action         VARCHAR(100) NOT NULL,
+  target_user_id INT NULL,
+  details        TEXT NULL,
+  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_sal_org     (org_id),
+  INDEX idx_sal_sponsor (sponsor_id),
+  INDEX idx_sal_target  (target_user_id),
+  CONSTRAINT fk_sal_sponsor FOREIGN KEY (sponsor_id)     REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_sal_target  FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -59,6 +59,8 @@ function App() {
         return '/about'
       case 'point-management':
         return '/point-management'
+      case 'organization':
+        return '/organization'
       default:
         return '/'
     }
@@ -89,6 +91,7 @@ function App() {
     if (path === '/admin-users') return 'admin-users'
     if (path === '/about') return 'about'
     if (path === '/point-management') return 'point-management'
+    if (path === '/organization') return 'organization'
 
     // Back-compat: if the path is unknown, fall back to any legacy ?page= value.
     const pageFromQuery = (searchParams.get('page') || '').toLowerCase()
@@ -379,6 +382,7 @@ function App() {
       'dashboard',
       'drivers',
       'point-management',
+      'organization',
       'applications',
       'catalog',
       'messages',
@@ -1018,6 +1022,13 @@ function App() {
             </button>
           )}
 
+          {/* Sponsor-only: Organization button */}
+          {isSponsor && allowed.includes('organization') && (
+            <button type="button" onClick={() => setCurrentPage('organization')} className="nav-link">
+              Organization
+            </button>
+          )}
+
           {/* Sponsor-only: Catalog button */}
           {isSponsor && allowed.includes('catalog') && (
             <button type="button" onClick={() => setCurrentPage('catalog')} className="nav-link">
@@ -1084,6 +1095,488 @@ function App() {
           </button>
         </div>
       </nav>
+    )
+  }
+
+  // ============ ORGANIZATION PAGE (sponsor) ============
+  // Covers: #2980-2992, tasks #17506-17527
+  const OrganizationPage = () => {
+    const [activeTab, setActiveTab] = useState('overview')
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState('')
+    const [success, setSuccess] = useState('')
+
+    // Org data
+    const [org, setOrg] = useState(null)
+    const [myRole, setMyRole] = useState('member')
+    const [stats, setStats] = useState(null)
+
+    // Users
+    const [orgUsers, setOrgUsers] = useState([])
+
+    // New user form
+    const [newUser, setNewUser] = useState({ email: '', password: '', firstName: '', lastName: '', role: 'member' })
+
+    // Edit org form
+    const [editOrg, setEditOrg] = useState({})
+
+    // Edit user profile
+    const [editingUser, setEditingUser] = useState(null)
+    const [editUserForm, setEditUserForm] = useState({ firstName: '', lastName: '', phone: '' })
+
+    // Reset password
+    const [resetPwUser, setResetPwUser] = useState(null)
+    const [resetPwValue, setResetPwValue] = useState('')
+
+    // Activity log
+    const [logs, setLogs] = useState([])
+
+    const isOwnerOrAdmin = myRole === 'owner' || myRole === 'admin'
+
+    const loadOrg = async () => {
+      try {
+        const data = await api('/organization', { method: 'GET' })
+        setOrg(data?.organization || null)
+        setMyRole(data?.myRole || 'member')
+        if (data?.organization) {
+          setEditOrg({
+            name: data.organization.name || '',
+            description: data.organization.description || '',
+            phone: data.organization.phone || '',
+            address_line1: data.organization.address_line1 || '',
+            city: data.organization.city || '',
+            state: data.organization.state || '',
+            postal_code: data.organization.postal_code || '',
+            country: data.organization.country || '',
+          })
+        }
+      } catch (e) { setError(e?.message || 'Failed to load organization') }
+    }
+
+    const loadStats = async () => {
+      try {
+        const data = await api('/organization/stats', { method: 'GET' })
+        setStats(data || null)
+      } catch (e) { setError(e?.message || 'Failed to load stats') }
+    }
+
+    const loadUsers = async () => {
+      try {
+        const data = await api('/organization/users', { method: 'GET' })
+        setOrgUsers(Array.isArray(data?.users) ? data.users : [])
+      } catch (e) { setError(e?.message || 'Failed to load users') }
+    }
+
+    const loadLogs = async () => {
+      try {
+        const data = await api('/organization/activity-log', { method: 'GET' })
+        setLogs(Array.isArray(data?.logs) ? data.logs : [])
+      } catch (e) { setError(e?.message || 'Failed to load activity log') }
+    }
+
+    useEffect(() => {
+      setLoading(true)
+      Promise.all([loadOrg(), loadStats(), loadUsers(), loadLogs()])
+        .finally(() => setLoading(false))
+    }, [])
+
+    const saveOrg = async () => {
+      setError(''); setSuccess('')
+      try {
+        await api('/organization', { method: 'PUT', body: JSON.stringify(editOrg) })
+        setSuccess('Organization updated.')
+        await loadOrg()
+      } catch (e) { setError(e?.message || 'Failed to update organization') }
+    }
+
+    const createUser = async () => {
+      setError(''); setSuccess('')
+      if (!newUser.email || !newUser.password) { setError('Email and password are required.'); return }
+      try {
+        await api('/organization/users', { method: 'POST', body: JSON.stringify(newUser) })
+        setSuccess('User created successfully.')
+        setNewUser({ email: '', password: '', firstName: '', lastName: '', role: 'member' })
+        await loadUsers()
+      } catch (e) { setError(e?.message || 'Failed to create user') }
+    }
+
+    const changeRole = async (userId, role) => {
+      setError(''); setSuccess('')
+      try {
+        await api(`/organization/users/${userId}/role`, { method: 'PUT', body: JSON.stringify({ role }) })
+        setSuccess('Role updated.')
+        await loadUsers()
+      } catch (e) { setError(e?.message || 'Failed to change role') }
+    }
+
+    const toggleActive = async (userId, currentlyActive) => {
+      setError(''); setSuccess('')
+      const endpoint = currentlyActive ? 'deactivate' : 'activate'
+      if (currentlyActive && !window.confirm('Deactivate this user? They will not be able to log in.')) return
+      try {
+        await api(`/organization/users/${userId}/${endpoint}`, { method: 'PUT' })
+        setSuccess(currentlyActive ? 'User deactivated.' : 'User reactivated.')
+        await loadUsers()
+      } catch (e) { setError(e?.message || 'Failed to update user status') }
+    }
+
+    const saveEditUser = async () => {
+      setError(''); setSuccess('')
+      if (!editingUser) return
+      try {
+        await api(`/organization/users/${editingUser}/profile`, {
+          method: 'PUT', body: JSON.stringify(editUserForm)
+        })
+        setSuccess('Profile updated.')
+        setEditingUser(null)
+        await loadUsers()
+      } catch (e) { setError(e?.message || 'Failed to update profile') }
+    }
+
+    const doResetPassword = async () => {
+      setError(''); setSuccess('')
+      if (!resetPwUser || resetPwValue.length < 8) { setError('Password must be at least 8 characters.'); return }
+      try {
+        await api(`/organization/users/${resetPwUser}/reset-password`, {
+          method: 'POST', body: JSON.stringify({ newPassword: resetPwValue })
+        })
+        setSuccess('Password has been reset.')
+        setResetPwUser(null); setResetPwValue('')
+      } catch (e) { setError(e?.message || 'Failed to reset password') }
+    }
+
+    const tabs = [
+      { key: 'overview', label: 'Overview' },
+      { key: 'users', label: 'Users' },
+      { key: 'settings', label: 'Settings' },
+      { key: 'activity', label: 'Activity Log' },
+    ]
+
+    const formatAction = (action) => {
+      const map = {
+        update_organization: 'Updated organization',
+        create_sponsor_user: 'Created user',
+        change_role: 'Changed role',
+        deactivate_user: 'Deactivated user',
+        activate_user: 'Reactivated user',
+        edit_profile: 'Edited profile',
+        reset_password: 'Reset password',
+      }
+      return map[action] || action
+    }
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Organization</h1>
+          <p className="page-subtitle">{org?.name || 'Loading...'}</p>
+
+          <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
+            {tabs.map(t => (
+              <button key={t.key} type="button"
+                className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => { setActiveTab(t.key); setError(''); setSuccess('') }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {error && <p className="form-footer" style={{ color: 'crimson' }}>{error}</p>}
+          {success && <p className="form-footer" style={{ color: 'green' }}>{success}</p>}
+
+          {/* ── Overview Tab ── */}
+          {activeTab === 'overview' && (
+            <div>
+              {loading ? <p>Loading...</p> : (
+                <>
+                  <div className="stats-grid">
+                    <div className="stat-card">
+                      <p className="stat-label">Total Drivers</p>
+                      <p className="stat-value stat-value-blue">{stats?.totalDrivers ?? 0}</p>
+                    </div>
+                    <div className="stat-card">
+                      <p className="stat-label">Total Points Distributed</p>
+                      <p className="stat-value stat-value-green">{Number(stats?.totalPointsDistributed ?? 0).toLocaleString()}</p>
+                    </div>
+                    <div className="stat-card">
+                      <p className="stat-label">Sponsor Users</p>
+                      <p className="stat-value stat-value-amber">{stats?.totalSponsors ?? 0}</p>
+                    </div>
+                    <div className="stat-card">
+                      <p className="stat-label">Organization Created</p>
+                      <p className="stat-value" style={{ fontSize: '1em' }}>
+                        {stats?.organizationCreatedAt ? new Date(stats.organizationCreatedAt).toLocaleDateString() : '-'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {org && (
+                    <div className="card" style={{ marginTop: 16 }}>
+                      <h2 className="section-title" style={{ marginTop: 0 }}>Organization Info</h2>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+                        {[
+                          { label: 'Name', value: org.name },
+                          { label: 'Description', value: org.description },
+                          { label: 'Phone', value: org.phone },
+                          { label: 'Address', value: org.address_line1 },
+                          { label: 'City', value: org.city },
+                          { label: 'State', value: org.state },
+                          { label: 'Postal Code', value: org.postal_code },
+                          { label: 'Country', value: org.country },
+                          { label: 'Your Role', value: myRole },
+                        ].map(({ label, value }) => (
+                          <div key={label} style={{ padding: '10px 14px', borderRadius: 6, background: '#fff', border: '1px solid var(--border)' }}>
+                            <p style={{ margin: '0 0 2px', fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af' }}>{label}</p>
+                            <p style={{ margin: 0, fontSize: '0.875em', fontWeight: 500, color: '#374151', wordBreak: 'break-all' }}>{String(value ?? '\u2014')}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <button className="btn btn-primary" type="button" onClick={() => { loadOrg(); loadStats() }} style={{ marginTop: 12 }}>
+                    Refresh
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── Users Tab ── */}
+          {activeTab === 'users' && (
+            <div>
+              {isOwnerOrAdmin && (
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <h2 className="section-title" style={{ marginTop: 0 }}>Add Sponsor User</h2>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, marginBottom: 12 }}>
+                    <input className="form-input" type="email" placeholder="Email" value={newUser.email} onChange={e => setNewUser(p => ({ ...p, email: e.target.value }))} />
+                    <input className="form-input" type="password" placeholder="Password (min 8)" value={newUser.password} onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))} />
+                    <input className="form-input" type="text" placeholder="First Name" value={newUser.firstName} onChange={e => setNewUser(p => ({ ...p, firstName: e.target.value }))} />
+                    <input className="form-input" type="text" placeholder="Last Name" value={newUser.lastName} onChange={e => setNewUser(p => ({ ...p, lastName: e.target.value }))} />
+                    <select className="form-input" value={newUser.role} onChange={e => setNewUser(p => ({ ...p, role: e.target.value }))}>
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
+                  <button className="btn btn-success" type="button" onClick={createUser}>Create User</button>
+                </div>
+              )}
+
+              <div className="card">
+                <h2 className="section-title" style={{ marginTop: 0 }}>Organization Members</h2>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Last Login</th>
+                        {isOwnerOrAdmin && <th style={{ width: 280 }}>Actions</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orgUsers.length === 0 ? (
+                        <tr><td colSpan={isOwnerOrAdmin ? 6 : 5} className="table-empty">No users found</td></tr>
+                      ) : orgUsers.map(u => {
+                        const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email
+                        const isActive = u.is_active !== 0
+                        return (
+                          <tr key={u.id} style={{ opacity: isActive ? 1 : 0.5 }}>
+                            <td>{name}</td>
+                            <td>{u.email}</td>
+                            <td>
+                              <span style={{
+                                padding: '2px 8px', borderRadius: 4, fontSize: '0.8em', fontWeight: 600,
+                                background: u.sponsor_role === 'owner' ? '#dbeafe' : u.sponsor_role === 'admin' ? '#e0e7ff' : '#f3f4f6',
+                                color: u.sponsor_role === 'owner' ? '#1e40af' : u.sponsor_role === 'admin' ? '#3730a3' : '#374151',
+                              }}>
+                                {u.sponsor_role}
+                              </span>
+                            </td>
+                            <td>
+                              <span style={{
+                                padding: '2px 8px', borderRadius: 4, fontSize: '0.8em', fontWeight: 600,
+                                background: isActive ? '#d1fae5' : '#fee2e2',
+                                color: isActive ? '#065f46' : '#991b1b',
+                              }}>
+                                {isActive ? 'Active' : 'Inactive'}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: '0.85em' }}>
+                              {u.last_login_at ? new Date(u.last_login_at).toLocaleString() : 'Never'}
+                            </td>
+                            {isOwnerOrAdmin && (
+                              <td>
+                                <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                                  {u.sponsor_role !== 'owner' && myRole === 'owner' && (
+                                    <select className="form-input" style={{ width: 90, fontSize: '0.75em', padding: '2px 4px' }}
+                                      value={u.sponsor_role}
+                                      onChange={e => changeRole(u.id, e.target.value)}>
+                                      <option value="admin">Admin</option>
+                                      <option value="member">Member</option>
+                                    </select>
+                                  )}
+                                  {u.sponsor_role !== 'owner' && u.id !== (currentUser?.id) && (
+                                    <>
+                                      <button className="btn btn-secondary" type="button"
+                                        style={{ fontSize: '0.7em', padding: '2px 6px' }}
+                                        onClick={() => {
+                                          setEditingUser(u.id)
+                                          setEditUserForm({ firstName: u.first_name || '', lastName: u.last_name || '', phone: u.phone || '' })
+                                        }}>
+                                        Edit
+                                      </button>
+                                      <button className="btn btn-secondary" type="button"
+                                        style={{ fontSize: '0.7em', padding: '2px 6px' }}
+                                        onClick={() => { setResetPwUser(u.id); setResetPwValue('') }}>
+                                        Reset PW
+                                      </button>
+                                      <button className={isActive ? 'btn btn-danger' : 'btn btn-success'} type="button"
+                                        style={{ fontSize: '0.7em', padding: '2px 6px' }}
+                                        onClick={() => toggleActive(u.id, isActive)}>
+                                        {isActive ? 'Deactivate' : 'Activate'}
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Edit user modal */}
+              {editingUser && (
+                <div className="card" style={{ marginTop: 16 }}>
+                  <h2 className="section-title" style={{ marginTop: 0 }}>Edit User Profile</h2>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <input className="form-input" placeholder="First Name" value={editUserForm.firstName} onChange={e => setEditUserForm(p => ({ ...p, firstName: e.target.value }))} />
+                    <input className="form-input" placeholder="Last Name" value={editUserForm.lastName} onChange={e => setEditUserForm(p => ({ ...p, lastName: e.target.value }))} />
+                    <input className="form-input" placeholder="Phone" value={editUserForm.phone} onChange={e => setEditUserForm(p => ({ ...p, phone: e.target.value }))} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-success" type="button" onClick={saveEditUser}>Save</button>
+                    <button className="btn btn-secondary" type="button" onClick={() => setEditingUser(null)}>Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Reset password modal */}
+              {resetPwUser && (
+                <div className="card" style={{ marginTop: 16 }}>
+                  <h2 className="section-title" style={{ marginTop: 0 }}>Reset Password</h2>
+                  <p className="page-subtitle" style={{ marginBottom: 8 }}>
+                    Enter a new password for user #{resetPwUser}
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <input className="form-input" type="password" placeholder="New password (min 8 chars)" value={resetPwValue}
+                      onChange={e => setResetPwValue(e.target.value)} style={{ minWidth: 250 }} />
+                    <button className="btn btn-success" type="button" onClick={doResetPassword}>Reset</button>
+                    <button className="btn btn-secondary" type="button" onClick={() => setResetPwUser(null)}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Settings Tab ── */}
+          {activeTab === 'settings' && (
+            <div className="card">
+              <h2 className="section-title" style={{ marginTop: 0 }}>Edit Organization</h2>
+              {!isOwnerOrAdmin ? (
+                <p className="activity-empty">Only owners and admins can edit organization settings.</p>
+              ) : (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8, marginBottom: 12 }}>
+                    <div>
+                      <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280' }}>Organization Name</label>
+                      <input className="form-input" value={editOrg.name || ''} onChange={e => setEditOrg(p => ({ ...p, name: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280' }}>Phone</label>
+                      <input className="form-input" value={editOrg.phone || ''} onChange={e => setEditOrg(p => ({ ...p, phone: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280' }}>Address</label>
+                      <input className="form-input" value={editOrg.address_line1 || ''} onChange={e => setEditOrg(p => ({ ...p, address_line1: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280' }}>City</label>
+                      <input className="form-input" value={editOrg.city || ''} onChange={e => setEditOrg(p => ({ ...p, city: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280' }}>State</label>
+                      <input className="form-input" value={editOrg.state || ''} onChange={e => setEditOrg(p => ({ ...p, state: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280' }}>Postal Code</label>
+                      <input className="form-input" value={editOrg.postal_code || ''} onChange={e => setEditOrg(p => ({ ...p, postal_code: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280' }}>Country</label>
+                      <input className="form-input" value={editOrg.country || ''} onChange={e => setEditOrg(p => ({ ...p, country: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: '0.75em', fontWeight: 600, color: '#6b7280' }}>Description</label>
+                    <textarea className="form-input" rows={3} value={editOrg.description || ''}
+                      onChange={e => setEditOrg(p => ({ ...p, description: e.target.value }))}
+                      style={{ width: '100%', resize: 'vertical' }} />
+                  </div>
+                  <button className="btn btn-success" type="button" onClick={saveOrg}>Save Changes</button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── Activity Log Tab ── */}
+          {activeTab === 'activity' && (
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h2 className="section-title" style={{ margin: 0 }}>Activity Log</h2>
+                <button className="btn btn-primary" type="button" onClick={loadLogs}>Refresh</button>
+              </div>
+              {logs.length === 0 ? (
+                <p className="activity-empty">No activity recorded yet</p>
+              ) : (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Target</th>
+                        <th>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {logs.map(l => (
+                        <tr key={l.id}>
+                          <td style={{ fontSize: '0.85em', whiteSpace: 'nowrap' }}>{l.created_at ? new Date(l.created_at).toLocaleString() : '-'}</td>
+                          <td>{(l.actor_name || '').trim() || l.actor_email || '-'}</td>
+                          <td>{formatAction(l.action)}</td>
+                          <td>{(l.target_name || '').trim() || l.target_email || '-'}</td>
+                          <td style={{ fontSize: '0.8em', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {l.details || '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </main>
+      </div>
     )
   }
 
@@ -5756,6 +6249,7 @@ const AdminUsersPage = () => {
 
       {/* Sponsor Pages */}
       {isLoggedIn && currentPage === 'point-management' && <PointManagementPage />}
+      {isLoggedIn && currentPage === 'organization' && <OrganizationPage />}
 
       {/* Sponsor/Admin shared Pages */}
       {isLoggedIn && currentPage === 'applications' && currentUser?.role !== 'admin' && <ApplicationsPage />}
