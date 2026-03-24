@@ -179,17 +179,9 @@ app.post("/auth/login", async (req, res) => {
 
     const user = rows[0];
 
-    // FIX #2: reject deactivated accounts at login
-    if (user.is_active === 0)
-      return res.status(403).json({ error: "Account has been deactivated" });
-
     const ok = await verifyPassword(parsed.data.password, user.password_hash);
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
-<<<<<<< Updated upstream
-    // FIX #3: record last login — fire-and-forget
-    exec("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]).catch(() => {});
-=======
     // Check if sponsor is deactivated
     const profileRows = await query(
       "SELECT is_active FROM sponsor_profiles WHERE user_id = ? LIMIT 1",
@@ -199,9 +191,8 @@ app.post("/auth/login", async (req, res) => {
       return res.status(403).json({ error: "Your account has been deactivated. Contact your organization admin." });
     }
 
-    // Update last login timestamp
-    await exec("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
->>>>>>> Stashed changes
+    // Record last login — fire-and-forget
+    exec("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]).catch(() => {});
 
     const token = signToken({ sub: user.id, role: user.role });
     res.cookie(COOKIE_NAME, token, {
@@ -1130,7 +1121,6 @@ app.put("/me/language", requireAuth, async (req, res) => {
   } catch (err) { console.error(err); return res.status(500).json({ error: "Server error" }); }
 });
 
-<<<<<<< Updated upstream
 // ─── External routes ──────────────────────────────────────────────────────────
 
 const fakestoreRoutes = require("../../../routes/sponsor/fakestore");
@@ -1138,8 +1128,6 @@ const sponsorCatalogRoutes = require("../../../routes/sponsor/catalog");
 app.use("/fakestore", requireAuth, fakestoreRoutes);
 app.use("/catalog", requireAuth, sponsorCatalogRoutes);
 
-// ─────────────────────────────────────────────────────────────────────────────
-=======
 // ============================================================
 // ORGANIZATION MANAGEMENT
 // ============================================================
@@ -1621,7 +1609,6 @@ app.get('/organization/stats', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 });
->>>>>>> Stashed changes
 
 app.listen(PORT, () => {
   console.log(`[sponsor] listening on :${PORT}`);
