@@ -2735,6 +2735,19 @@ const AdminUsersPage = () => {
   const [showCreateSponsor, setShowCreateSponsor] = useState(false)
   const [createSponsorForm, setCreateSponsorForm] = useState({ email: '', password: '', company_name: '', first_name: '', last_name: '' })
   const [createSponsorLoading, setCreateSponsorLoading] = useState(false)
+  const [showCreateUser, setShowCreateUser] = useState(false)
+  const [createUserLoading, setCreateUserLoading] = useState(false)
+  const [createUserForm, setCreateUserForm] = useState({
+    role: 'driver',
+    email: '',
+    password: '',
+    first_name: '',
+    last_name: '',
+    company_name: '',
+    display_name: '',
+    dob: '',
+    phone: '',
+  })
 
   // ── Edit User ─────────────────────────────────────────────
   const [editUser, setEditUser] = useState(null)
@@ -2986,6 +2999,43 @@ const AdminUsersPage = () => {
     finally { setCreateSponsorLoading(false) }
   }
 
+  const handleCreateUser = async (e) => {
+    e.preventDefault()
+    setCreateUserLoading(true); setError(''); setSuccess('')
+    try {
+      const payload = {
+        role: createUserForm.role,
+        email: createUserForm.email,
+        password: createUserForm.password,
+        first_name: createUserForm.first_name,
+        last_name: createUserForm.last_name,
+        company_name: createUserForm.company_name,
+        display_name: createUserForm.display_name,
+        dob: createUserForm.dob || undefined,
+        phone: createUserForm.phone,
+      }
+      await api('/users/create', { method: 'POST', body: JSON.stringify(payload) })
+      setSuccess(`Created ${createUserForm.role} account: ${createUserForm.email}`)
+      setShowCreateUser(false)
+      setCreateUserForm({
+        role: 'driver',
+        email: '',
+        password: '',
+        first_name: '',
+        last_name: '',
+        company_name: '',
+        display_name: '',
+        dob: '',
+        phone: '',
+      })
+      await loadAll()
+    } catch (e) {
+      setError(e?.message || 'Failed to create user')
+    } finally {
+      setCreateUserLoading(false)
+    }
+  }
+
   // ── Driver point adjustment ───────────────────────────────
 
   const adjustPoints = async (driver) => {
@@ -3168,9 +3218,133 @@ const AdminUsersPage = () => {
         <div className="card" style={{ marginBottom:8 }}>
           <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
             <input className="form-input" style={{ flex:1, minWidth:220 }} placeholder="Search by name, email, company, or ID…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+            <button
+              className="btn btn-success"
+              type="button"
+              onClick={() => { setShowCreateUser((v) => !v); setError(''); setSuccess('') }}
+            >
+              {showCreateUser ? 'Close Create User' : '+ Create User'}
+            </button>
             <button className="btn btn-primary" type="button" onClick={loadAll} disabled={loading}>{loading ? 'Loading…' : '↺ Refresh'}</button>
           </div>
         </div>
+
+        {showCreateUser && (
+          <div className="card" style={{ marginBottom: 10 }}>
+            <h2 className="section-title" style={{ marginTop: 0 }}>Create user</h2>
+            <p className="page-subtitle" style={{ marginTop: 0, marginBottom: 12 }}>
+              Create a new driver, sponsor, or admin account.
+            </p>
+
+            <form onSubmit={handleCreateUser}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="form-group">
+                  <label className="form-label">Role</label>
+                  <select
+                    className="form-input"
+                    value={createUserForm.role}
+                    onChange={(e) => setCreateUserForm((p) => ({ ...p, role: e.target.value }))}
+                  >
+                    <option value="driver">Driver</option>
+                    <option value="sponsor">Sponsor</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input
+                    className="form-input"
+                    type="email"
+                    required
+                    value={createUserForm.email}
+                    onChange={(e) => setCreateUserForm((p) => ({ ...p, email: e.target.value }))}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Password</label>
+                  <input
+                    className="form-input"
+                    type="password"
+                    required
+                    minLength={8}
+                    value={createUserForm.password}
+                    onChange={(e) => setCreateUserForm((p) => ({ ...p, password: e.target.value }))}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Phone (optional)</label>
+                  <input
+                    className="form-input"
+                    value={createUserForm.phone}
+                    onChange={(e) => setCreateUserForm((p) => ({ ...p, phone: e.target.value }))}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">First name (optional)</label>
+                  <input
+                    className="form-input"
+                    value={createUserForm.first_name}
+                    onChange={(e) => setCreateUserForm((p) => ({ ...p, first_name: e.target.value }))}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Last name (optional)</label>
+                  <input
+                    className="form-input"
+                    value={createUserForm.last_name}
+                    onChange={(e) => setCreateUserForm((p) => ({ ...p, last_name: e.target.value }))}
+                  />
+                </div>
+
+                {createUserForm.role === 'driver' && (
+                  <div className="form-group">
+                    <label className="form-label">DOB (optional)</label>
+                    <input
+                      className="form-input"
+                      type="date"
+                      value={createUserForm.dob}
+                      onChange={(e) => setCreateUserForm((p) => ({ ...p, dob: e.target.value }))}
+                    />
+                  </div>
+                )}
+
+                {createUserForm.role === 'sponsor' && (
+                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label className="form-label">Company name</label>
+                    <input
+                      className="form-input"
+                      required
+                      value={createUserForm.company_name}
+                      onChange={(e) => setCreateUserForm((p) => ({ ...p, company_name: e.target.value }))}
+                    />
+                  </div>
+                )}
+
+                {createUserForm.role === 'admin' && (
+                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label className="form-label">Display name (optional)</label>
+                    <input
+                      className="form-input"
+                      value={createUserForm.display_name}
+                      onChange={(e) => setCreateUserForm((p) => ({ ...p, display_name: e.target.value }))}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button type="submit" className="btn btn-success" disabled={createUserLoading}>
+                  {createUserLoading ? 'Creating…' : 'Create user'}
+                </button>
+                <button type="button" className="btn btn-ghost" onClick={() => setShowCreateUser(false)} disabled={createUserLoading}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
 
         {error   && <p className="form-footer" style={{ color:'crimson',  margin:'0 0 8px' }}>{error}</p>}
         {success && <p className="form-footer" style={{ color:'#16a34a', margin:'0 0 8px' }}>{success}</p>}
@@ -3808,6 +3982,7 @@ const AdminUsersPage = () => {
             </form>
           </div>
         </main>
+
       </div>
     )
   }

@@ -590,6 +590,66 @@ app.post('/users/create-sponsor', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 });
+
+// ─── Create User (driver/sponsor/admin) ───────────────────────────────────────
+app.post('/users/create', requireAuth, async (req, res) => {
+  const schema = z.object({
+    role: z.enum(['driver', 'sponsor', 'admin']),
+    email: z.string().email(),
+    password: z.string().min(8),
+    first_name: z.string().max(100).optional().default(''),
+    last_name: z.string().max(100).optional().default(''),
+    company_name: z.string().max(200).optional().default(''),
+    display_name: z.string().max(200).optional().default(''),
+    dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    phone: z.string().max(25).optional().default(''),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const data = parsed.data;
+  if (data.role === 'sponsor' && !String(data.company_name || '').trim()) {
+    return res.status(400).json({ error: 'company_name is required for sponsor accounts' });
+  }
+
+  const email = data.email.toLowerCase();
+  try {
+    const password_hash = await hashPassword(data.password);
+    const insert = await exec(
+      'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)',
+      [email, password_hash, data.role]
+    );
+    const userId = insert.insertId;
+
+    if (data.role === 'driver') {
+      await exec(
+        `INSERT INTO driver_profiles (user_id, first_name, last_name, dob, phone)
+         VALUES (?, ?, ?, ?, ?)`,
+        [userId, data.first_name || null, data.last_name || null, data.dob || null, data.phone || null]
+      );
+    } else if (data.role === 'sponsor') {
+      await exec(
+        `INSERT INTO sponsor_profiles (user_id, company_name, first_name, last_name, phone)
+         VALUES (?, ?, ?, ?, ?)`,
+        [userId, data.company_name.trim(), data.first_name || null, data.last_name || null, data.phone || null]
+      );
+    } else {
+      await exec(
+        `INSERT INTO admin_profiles (user_id, display_name, first_name, last_name, phone)
+         VALUES (?, ?, ?, ?, ?)`,
+        [userId, data.display_name || null, data.first_name || null, data.last_name || null, data.phone || null]
+      );
+    }
+
+    return res.status(201).json({ ok: true, userId, email, role: data.role });
+  } catch (err) {
+    if (err?.code === 'ER_DUP_ENTRY' || String(err?.message || '').includes('Duplicate')) {
+      return res.status(409).json({ error: 'Email already in use' });
+    }
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
  
 // ─── #37: Deactivate / Reactivate ────────────────────────────────────────────
  
