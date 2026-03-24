@@ -3169,17 +3169,27 @@ const AdminUsersPage = () => {
           key,
           company_name: orgName,
           repSponsorId: s.id,
-          member_count: 0,
-          active_members: 0,
+          owner_name: [s.first_name, s.last_name].filter(Boolean).join(' ') || '—',
+          owner_email: s.email || '—',
+          driver_count: 0,
         })
       }
       const g = grouped.get(key)
-      g.member_count += 1
-      if (s.is_active !== 0) g.active_members += 1
       // Prefer an active sponsor as representative for loading org drivers.
-      if (g.repSponsorId == null || (s.is_active !== 0 && g.active_members === 1)) {
+      if (g.repSponsorId == null || s.is_active !== 0) {
         g.repSponsorId = s.id
+        g.owner_name = [s.first_name, s.last_name].filter(Boolean).join(' ') || '—'
+        g.owner_email = s.email || '—'
       }
+    })
+
+    // Compute driver counts from the driver user list for each organization.
+    drivers.forEach((d) => {
+      const orgName = String(d.sponsor_org || '').trim()
+      if (!orgName) return
+      const key = orgName.toLowerCase()
+      const g = grouped.get(key)
+      if (g) g.driver_count += 1
     })
 
     const list = Array.from(grouped.values()).sort((a, b) =>
@@ -3192,7 +3202,7 @@ const AdminUsersPage = () => {
       String(o.repSponsorId).includes(q) ||
       String(o.company_name || '').toLowerCase().includes(q)
     )
-  }, [sponsors, searchQuery])
+  }, [sponsors, drivers, searchQuery])
 
   const statusCounts = useMemo(() => {
     const c = { all: applications.length, pending: 0, accepted: 0, rejected: 0, cancelled: 0 }
@@ -3557,7 +3567,7 @@ const AdminUsersPage = () => {
           <div style={cardStyle}>
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Organization</th><th className="text-right">Members</th><th className="text-right">Active Members</th><th style={{ minWidth:220 }}>Actions</th></tr></thead>
+                <thead><tr><th>Organization</th><th>Owner</th><th className="text-right">Drivers</th><th style={{ minWidth:220 }}>Actions</th></tr></thead>
                 <tbody>
                   {loading && filteredOrganizations.length===0 ? <tr><td colSpan="4" className="table-empty">Loading…</td></tr>
                     : filteredOrganizations.length===0 ? <tr><td colSpan="4" className="table-empty">No organizations found</td></tr>
@@ -3568,8 +3578,13 @@ const AdminUsersPage = () => {
                         <React.Fragment key={org.key}>
                           <tr>
                             <td>{org.company_name}</td>
-                            <td className="text-right"><strong>{org.member_count}</strong></td>
-                            <td className="text-right">{org.active_members}</td>
+                            <td>
+                              <div style={{ lineHeight: 1.35 }}>
+                                <strong style={{ fontSize: '0.88em' }}>{org.owner_name}</strong><br />
+                                <span style={{ fontSize: '0.78em', color: '#6b7280' }}>{org.owner_email}</span>
+                              </div>
+                            </td>
+                            <td className="text-right"><strong>{org.driver_count}</strong></td>
                             <td>
                               <button
                                 type="button"
