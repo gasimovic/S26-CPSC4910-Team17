@@ -2721,6 +2721,7 @@ const AdminUsersPage = () => {
   // ── Data ─────────────────────────────────────────────────
   const [sponsors, setSponsors] = useState([])
   const [drivers, setDrivers] = useState([])
+  const [admins, setAdmins] = useState([])
   const [applications, setApplications] = useState([])
 
   // ── Applications ─────────────────────────────────────────
@@ -2808,15 +2809,18 @@ const AdminUsersPage = () => {
   const loadAll = async () => {
     setError(''); setSuccess(''); setLoading(true)
     try {
-      const [sponsorData, driverData, appData] = await Promise.allSettled([
+      const [sponsorData, driverData, adminData, appData] = await Promise.allSettled([
         api('/users?role=sponsor', { method: 'GET' }),
         api('/users?role=driver', { method: 'GET' }),
+        api('/users?role=admin', { method: 'GET' }),
         api('/applications', { method: 'GET' }),
       ])
       if (sponsorData.status === 'fulfilled')
         setSponsors(Array.isArray(sponsorData.value?.users) ? sponsorData.value.users : [])
       if (driverData.status === 'fulfilled')
         setDrivers(Array.isArray(driverData.value?.users) ? driverData.value.users : [])
+      if (adminData.status === 'fulfilled')
+        setAdmins(Array.isArray(adminData.value?.users) ? adminData.value.users : [])
       if (appData.status === 'fulfilled')
         setApplications(Array.isArray(appData.value?.applications) ? appData.value.applications : [])
     } finally { setLoading(false) }
@@ -2833,6 +2837,10 @@ const AdminUsersPage = () => {
   const reloadSponsors = async () => {
     try { const d = await api('/users?role=sponsor', { method: 'GET' }); setSponsors(Array.isArray(d?.users) ? d.users : []) }
     catch (e) { setError(e?.message || 'Failed to reload sponsors') }
+  }
+  const reloadAdmins = async () => {
+    try { const d = await api('/users?role=admin', { method: 'GET' }); setAdmins(Array.isArray(d?.users) ? d.users : []) }
+    catch (e) { setError(e?.message || 'Failed to reload admins') }
   }
 
   const loadSponsorDrivers = async (sponsorId) => {
@@ -3139,6 +3147,16 @@ const AdminUsersPage = () => {
     return drivers.filter(d => String(d.id??'').includes(q) || String(d.email??'').toLowerCase().includes(q) || [d.first_name,d.last_name].filter(Boolean).join(' ').toLowerCase().includes(q) || String(d.sponsor_org??'').toLowerCase().includes(q))
   }, [drivers, searchQuery])
 
+  const filteredAdmins = useMemo(() => {
+    const q = (searchQuery||'').trim().toLowerCase(); if (!q) return admins
+    return admins.filter(a =>
+      String(a.id ?? '').includes(q) ||
+      String(a.email ?? '').toLowerCase().includes(q) ||
+      String(a.display_name ?? '').toLowerCase().includes(q) ||
+      [a.first_name, a.last_name].filter(Boolean).join(' ').toLowerCase().includes(q)
+    )
+  }, [admins, searchQuery])
+
   const statusCounts = useMemo(() => {
     const c = { all: applications.length, pending: 0, accepted: 0, rejected: 0, cancelled: 0 }
     applications.forEach(a => { if (a.status in c) c[a.status]++ }); return c
@@ -3209,9 +3227,10 @@ const AdminUsersPage = () => {
         <div className="stats-grid" style={{ marginBottom:20 }}>
           <div className="stat-card"><p className="stat-label">Sponsors</p><p className="stat-value stat-value-blue">{sponsors.length}</p></div>
           <div className="stat-card"><p className="stat-label">Drivers</p><p className="stat-value stat-value-green">{drivers.length}</p></div>
+          <div className="stat-card"><p className="stat-label">Admins</p><p className="stat-value" style={{ color:'#4f46e5' }}>{admins.length}</p></div>
           <div className="stat-card"><p className="stat-label">Applications</p><p className="stat-value stat-value-amber">{applications.length}</p></div>
           <div className="stat-card"><p className="stat-label">Pending Review</p><p className="stat-value" style={{ color:'#d97706' }}>{statusCounts.pending}</p></div>
-          <div className="stat-card"><p className="stat-label">Inactive</p><p className="stat-value" style={{ color:'#dc2626' }}>{[...sponsors,...drivers].filter(u=>u.is_active===0).length}</p></div>
+          <div className="stat-card"><p className="stat-label">Inactive</p><p className="stat-value" style={{ color:'#dc2626' }}>{[...sponsors,...drivers,...admins].filter(u=>u.is_active===0).length}</p></div>
         </div>
 
         {/* Search */}
@@ -3352,6 +3371,7 @@ const AdminUsersPage = () => {
         {/* Tabs */}
         <div style={{ display:'flex', gap:2, flexWrap:'wrap' }}>
           <button type="button" style={tabStyle('applications')} onClick={() => setActiveTab('applications')}>Applications ({filteredApplications.length})</button>
+          <button type="button" style={tabStyle('admins')} onClick={() => setActiveTab('admins')}>Admins ({filteredAdmins.length})</button>
           <button type="button" style={tabStyle('sponsors')} onClick={() => setActiveTab('sponsors')}>Sponsors ({filteredSponsors.length})</button>
           <button type="button" style={tabStyle('drivers')} onClick={() => setActiveTab('drivers')}>Drivers ({filteredDrivers.length})</button>
           <button type="button" style={tabStyle('transactions')} onClick={() => setActiveTab('transactions')}>Transactions</button>
@@ -3408,6 +3428,43 @@ const AdminUsersPage = () => {
                             </td>
                           </tr>
                         </React.Fragment>
+                      )
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ══ ADMINS ══ */}
+        {activeTab === 'admins' && (
+          <div style={cardStyle}>
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Status</th><th>Last Login</th><th>Joined</th><th style={{ minWidth:280 }}>Actions</th></tr></thead>
+                <tbody>
+                  {loading && admins.length===0 ? <tr><td colSpan="7" className="table-empty">Loading…</td></tr>
+                    : filteredAdmins.length===0 ? <tr><td colSpan="7" className="table-empty">No admins found</td></tr>
+                    : filteredAdmins.map(a => {
+                      const isActive = a.is_active!==0
+                      const name = (a.display_name || [a.first_name, a.last_name].filter(Boolean).join(' ') || '—')
+                      return (
+                        <tr key={String(a.id)} style={{ opacity: isActive?1:0.6 }}>
+                          <td style={{ fontFamily:'monospace', fontSize:'0.82em' }}>{a.id}</td>
+                          <td>{name}</td>
+                          <td>{a.email}</td>
+                          <td><ActiveBadge isActive={isActive} reason={a.deactivate_reason} /></td>
+                          <td style={{ fontSize:'0.82em', color:'#6b7280', whiteSpace:'nowrap' }}>{fmtDateShort(a.last_login_at)}</td>
+                          <td style={{ fontSize:'0.82em', color:'#6b7280', whiteSpace:'nowrap' }}>{fmtDateShort(a.created_at)}</td>
+                          <td>
+                            <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                              <button type="button" className="btn btn-primary" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => openEditUser(a)}>Edit</button>
+                              {isActive
+                                ? <button type="button" className="btn btn-secondary" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => openDeactivate(a)}>Deactivate</button>
+                                : <button type="button" className="btn btn-success" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={async () => { await handleReactivate(a); await reloadAdmins() }}>Reactivate</button>}
+                            </div>
+                          </td>
+                        </tr>
                       )
                     })}
                 </tbody>

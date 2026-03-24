@@ -262,6 +262,18 @@ app.get('/users', requireAuth, async (req, res) => {
          ORDER BY u.created_at DESC`,
         []
       );
+    } else if (role === 'admin') {
+      rows = await query(
+        `SELECT u.id, u.email, u.role, u.created_at,
+           COALESCE(u.is_active, 1) AS is_active,
+           u.last_login_at,
+           ap.display_name, ap.first_name, ap.last_name, ap.phone
+         FROM users u
+         LEFT JOIN admin_profiles ap ON u.id = ap.user_id
+         WHERE u.role = 'admin'
+         ORDER BY u.created_at DESC`,
+        []
+      );
     } else {
       rows = await query(
         `SELECT id, email, role, created_at,
