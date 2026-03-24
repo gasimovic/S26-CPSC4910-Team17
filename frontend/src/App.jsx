@@ -3157,6 +3157,43 @@ const AdminUsersPage = () => {
     )
   }, [admins, searchQuery])
 
+  const filteredOrganizations = useMemo(() => {
+    const grouped = new Map()
+    sponsors.forEach((s) => {
+      const orgName = (s.company_name || '').trim()
+      // Only show real sponsor-created organizations.
+      if (!orgName) return
+      const key = orgName.toLowerCase()
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          key,
+          company_name: orgName,
+          repSponsorId: s.id,
+          member_count: 0,
+          active_members: 0,
+        })
+      }
+      const g = grouped.get(key)
+      g.member_count += 1
+      if (s.is_active !== 0) g.active_members += 1
+      // Prefer an active sponsor as representative for loading org drivers.
+      if (g.repSponsorId == null || (s.is_active !== 0 && g.active_members === 1)) {
+        g.repSponsorId = s.id
+      }
+    })
+
+    const list = Array.from(grouped.values()).sort((a, b) =>
+      a.company_name.localeCompare(b.company_name)
+    )
+
+    const q = (searchQuery || '').trim().toLowerCase()
+    if (!q) return list
+    return list.filter((o) =>
+      String(o.repSponsorId).includes(q) ||
+      String(o.company_name || '').toLowerCase().includes(q)
+    )
+  }, [sponsors, searchQuery])
+
   const statusCounts = useMemo(() => {
     const c = { all: applications.length, pending: 0, accepted: 0, rejected: 0, cancelled: 0 }
     applications.forEach(a => { if (a.status in c) c[a.status]++ }); return c
@@ -3371,6 +3408,7 @@ const AdminUsersPage = () => {
         {/* Tabs */}
         <div style={{ display:'flex', gap:2, flexWrap:'wrap' }}>
           <button type="button" style={tabStyle('applications')} onClick={() => setActiveTab('applications')}>Applications ({filteredApplications.length})</button>
+          <button type="button" style={tabStyle('organizations')} onClick={() => setActiveTab('organizations')}>Organizations ({filteredOrganizations.length})</button>
           <button type="button" style={tabStyle('admins')} onClick={() => setActiveTab('admins')}>Admins ({filteredAdmins.length})</button>
           <button type="button" style={tabStyle('sponsors')} onClick={() => setActiveTab('sponsors')}>Sponsors ({filteredSponsors.length})</button>
           <button type="button" style={tabStyle('drivers')} onClick={() => setActiveTab('drivers')}>Drivers ({filteredDrivers.length})</button>
@@ -3481,43 +3519,86 @@ const AdminUsersPage = () => {
             </div>
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>ID</th><th>Email</th><th>Organization</th><th>Status</th><th>Last Login</th><th>Joined</th><th className="text-right">Drivers</th><th style={{ minWidth:280 }}>Actions</th></tr></thead>
+                <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Organization</th><th>Status</th><th>Last Login</th><th>Joined</th><th style={{ minWidth:220 }}>Actions</th></tr></thead>
                 <tbody>
                   {loading && sponsors.length===0 ? <tr><td colSpan="8" className="table-empty">Loading…</td></tr>
-                    : filteredSponsors.length===0 ? <tr><td colSpan="8" className="table-empty">No sponsors found</td></tr>
+                    : filteredSponsors.length===0 ? <tr><td colSpan="8" className="table-empty">No sponsor users found</td></tr>
                     : filteredSponsors.map(s => {
-                      const isExpanded = expandedSponsorId===s.id; const isActive = s.is_active!==0
+                      const isActive = s.is_active!==0
+                      const name = [s.first_name, s.last_name].filter(Boolean).join(' ') || '—'
                       return (
-                        <React.Fragment key={String(s.id)}>
-                          <tr style={{ opacity: isActive?1:0.6 }}>
-                            <td style={{ fontFamily:'monospace', fontSize:'0.82em' }}>{s.id}</td>
-                            <td>{s.email}</td>
-                            <td><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}><span style={{ width:7, height:7, borderRadius:'50%', background: s.company_name?'#22c55e':'#d1d5db', flexShrink:0 }} />{s.company_name||<em style={{ color:'#9ca3af' }}>Not set</em>}</span></td>
-                            <td><ActiveBadge isActive={isActive} reason={s.deactivate_reason} /></td>
-                            <td style={{ fontSize:'0.82em', color:'#6b7280', whiteSpace:'nowrap' }}>{fmtDateShort(s.last_login_at)}</td>
-                            <td style={{ fontSize:'0.82em', color:'#6b7280', whiteSpace:'nowrap' }}>{fmtDateShort(s.created_at)}</td>
-                            <td className="text-right">{typeof s.driver_count==='number'?<strong style={{ color:'#2563eb' }}>{s.driver_count}</strong>:'—'}</td>
+                        <tr key={String(s.id)} style={{ opacity: isActive?1:0.6 }}>
+                          <td style={{ fontFamily:'monospace', fontSize:'0.82em' }}>{s.id}</td>
+                          <td>{name}</td>
+                          <td>{s.email}</td>
+                          <td><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}><span style={{ width:7, height:7, borderRadius:'50%', background: s.company_name?'#22c55e':'#d1d5db', flexShrink:0 }} />{s.company_name||<em style={{ color:'#9ca3af' }}>Not set</em>}</span></td>
+                          <td><ActiveBadge isActive={isActive} reason={s.deactivate_reason} /></td>
+                          <td style={{ fontSize:'0.82em', color:'#6b7280', whiteSpace:'nowrap' }}>{fmtDateShort(s.last_login_at)}</td>
+                          <td style={{ fontSize:'0.82em', color:'#6b7280', whiteSpace:'nowrap' }}>{fmtDateShort(s.created_at)}</td>
+                          <td>
+                            <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                              <button type="button" className="btn btn-primary" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => openEditUser(s)}>Edit</button>
+                              {isActive
+                                ? <button type="button" className="btn btn-secondary" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => openDeactivate(s)}>Deactivate</button>
+                                : <button type="button" className="btn btn-success" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => handleReactivate(s)}>Reactivate</button>}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ══ ORGANIZATIONS ══ */}
+        {activeTab === 'organizations' && (
+          <div style={cardStyle}>
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Organization</th><th className="text-right">Members</th><th className="text-right">Active Members</th><th style={{ minWidth:220 }}>Actions</th></tr></thead>
+                <tbody>
+                  {loading && filteredOrganizations.length===0 ? <tr><td colSpan="4" className="table-empty">Loading…</td></tr>
+                    : filteredOrganizations.length===0 ? <tr><td colSpan="4" className="table-empty">No organizations found</td></tr>
+                    : filteredOrganizations.map(org => {
+                      const repId = org.repSponsorId
+                      const isExpanded = expandedSponsorId === repId
+                      return (
+                        <React.Fragment key={org.key}>
+                          <tr>
+                            <td>{org.company_name}</td>
+                            <td className="text-right"><strong>{org.member_count}</strong></td>
+                            <td className="text-right">{org.active_members}</td>
                             <td>
-                              <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-                                <button type="button" className="btn btn-primary" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => openEditUser(s)}>Edit</button>
-                                <button type="button" className="btn btn-primary" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={async () => { if (isExpanded) { setExpandedSponsorId(null); return } setExpandedSponsorId(s.id); if (!sponsorDriversMap[s.id]) await loadSponsorDrivers(s.id) }}>{isExpanded?'Hide':'Drivers'}</button>
-                                {isActive
-                                  ? <button type="button" className="btn btn-secondary" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => openDeactivate(s)}>Deactivate</button>
-                                  : <button type="button" className="btn btn-success" style={{ fontSize:'0.78em', padding:'3px 10px' }} onClick={() => handleReactivate(s)}>Reactivate</button>}
-                              </div>
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                style={{ fontSize:'0.78em', padding:'3px 10px' }}
+                                onClick={async () => {
+                                  if (isExpanded) { setExpandedSponsorId(null); return }
+                                  setExpandedSponsorId(repId)
+                                  if (!sponsorDriversMap[repId]) await loadSponsorDrivers(repId)
+                                }}
+                                disabled={!repId}
+                              >
+                                {isExpanded ? 'Hide Drivers' : 'View Drivers'}
+                              </button>
                             </td>
                           </tr>
                           {isExpanded && (
                             <tr style={{ background:'#f0fdf4' }}>
-                              <td colSpan="8" style={{ padding:'14px 20px' }}>
-                                <p style={{ margin:'0 0 10px', fontWeight:700, fontSize:'0.9em', color:'#065f46' }}>Drivers in "{s.company_name}" ({(sponsorDriversMap[s.id]||[]).length})</p>
-                                {sponsorDriversLoading[s.id] ? <p style={{ color:'#9ca3af', fontSize:'0.85em' }}>Loading…</p>
-                                  : !sponsorDriversMap[s.id]?.length ? <p style={{ color:'#9ca3af', fontSize:'0.85em', fontStyle:'italic' }}>No drivers affiliated yet.</p>
+                              <td colSpan="4" style={{ padding:'14px 20px' }}>
+                                <p style={{ margin:'0 0 10px', fontWeight:700, fontSize:'0.9em', color:'#065f46' }}>
+                                  Drivers in "{org.company_name}" ({(sponsorDriversMap[repId]||[]).length})
+                                </p>
+                                {sponsorDriversLoading[repId] ? <p style={{ color:'#9ca3af', fontSize:'0.85em' }}>Loading…</p>
+                                  : !sponsorDriversMap[repId]?.length ? <p style={{ color:'#9ca3af', fontSize:'0.85em', fontStyle:'italic' }}>No drivers affiliated yet.</p>
                                   : (
                                     <table className="table" style={{ background:'#fff' }}>
                                       <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Status</th><th>Last Login</th><th className="text-right">Points</th><th style={{ width:100 }}>Remove</th></tr></thead>
                                       <tbody>
-                                        {sponsorDriversMap[s.id].map(d => (
+                                        {sponsorDriversMap[repId].map(d => (
                                           <tr key={d.id} style={{ opacity: d.is_active!==0?1:0.6 }}>
                                             <td style={{ fontFamily:'monospace', fontSize:'0.8em' }}>{d.id}</td>
                                             <td>{d.name?.trim()||'—'}</td><td>{d.email}</td>
@@ -3561,12 +3642,13 @@ const AdminUsersPage = () => {
                     <th className="text-right">Points</th>
                     <th style={{ width:65 }}>Ledger</th>
                     <th style={{ width:60 }}>Details</th>
+                    <th style={{ width:95 }}>Organization</th>
                     <th style={{ width:100 }}>Account</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {loading && drivers.length===0 ? <tr><td colSpan="10" className="table-empty">Loading…</td></tr>
-                    : filteredDrivers.length===0 ? <tr><td colSpan="10" className="table-empty">No drivers found</td></tr>
+                  {loading && drivers.length===0 ? <tr><td colSpan="11" className="table-empty">Loading…</td></tr>
+                    : filteredDrivers.length===0 ? <tr><td colSpan="11" className="table-empty">No drivers found</td></tr>
                     : filteredDrivers.map(d => {
                       const id=d.id
                       const name=[d.first_name,d.last_name].filter(Boolean).join(' ')||'—'
@@ -3603,6 +3685,18 @@ const AdminUsersPage = () => {
                               </button>
                             </td>
                             <td>
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                style={{ fontSize:'0.75em', padding:'3px 8px', color:'#dc2626', borderColor:'#dc2626' }}
+                                onClick={() => removeDriverFromSponsor(d)}
+                                disabled={!sponsorOrg}
+                                title={sponsorOrg ? 'Remove this driver from their sponsor organization' : 'Driver is not in a sponsor organization'}
+                              >
+                                Remove
+                              </button>
+                            </td>
+                            <td>
                               {isActive
                                 ? <button type="button" className="btn btn-secondary" style={{ fontSize:'0.75em', padding:'3px 8px' }} onClick={() => openDeactivate(d)}>Deactivate</button>
                                 : <button type="button" className="btn btn-success" style={{ fontSize:'0.75em', padding:'3px 8px' }} onClick={() => handleReactivate(d)}>Reactivate</button>}
@@ -3612,7 +3706,7 @@ const AdminUsersPage = () => {
                           {/* Ledger inline */}
                           {isLedgerOpen && (
                             <tr style={{ background:'#f0fdf4' }}>
-                              <td colSpan="10" style={{ padding:'14px 20px' }}>
+                              <td colSpan="11" style={{ padding:'14px 20px' }}>
                                 <p style={{ margin:'0 0 8px', fontWeight:700, fontSize:'0.9em' }}>
                                   Points ledger — {name}
                                   {ledgerBalance!==null && <span style={{ marginLeft:12, fontWeight:400, color:'#6b7280' }}>Balance: <strong style={{ color:'#16a34a' }}>{Number(ledgerBalance).toLocaleString()}</strong></span>}
