@@ -626,8 +626,12 @@ function App() {
       setApiBasePersisted(roleBase)
       setStatusMsg('Account created. Loading your profile…')
 
-      // Load the user profile from backend
-      await loadMe()
+      // Load the user profile using the explicit base (React state may not
+      // have flushed yet, so `api()` / `loadMe()` could still point at the
+      // old apiBase, causing a 401).
+      const me = await apiWithBase(roleBase, '/me', { method: 'GET' })
+      const u = normalizeMe(me)
+      setCurrentUser(u)
 
       // Batch isLoggedIn + currentPage in one render to avoid white screen
       setIsLoggedIn(true)
