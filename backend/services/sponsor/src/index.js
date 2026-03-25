@@ -637,6 +637,15 @@ app.post("/drivers/bulk/points/add", requireAuth, async (req, res) => {
       );
       results.push({ driverId, ok: true, delta: parsed.data.points });
     }
+    // Log to org activity log
+    const successIds = results.filter(r => r.ok).map(r => r.driverId);
+    if (successIds.length) {
+      const sp = (await query("SELECT org_id FROM sponsor_profiles WHERE user_id = ? LIMIT 1", [req.user.id]))?.[0];
+      if (sp?.org_id) {
+        logAction(sp.org_id, req.user.id, 'add_points', null,
+          `Added ${parsed.data.points} points to ${successIds.length} driver(s) [${successIds.join(', ')}]: ${parsed.data.reason}`);
+      }
+    }
     return res.json({ ok: true, results });
   } catch (err) {
     console.error(err);
@@ -675,6 +684,15 @@ app.post("/drivers/bulk/points/deduct", requireAuth, async (req, res) => {
       );
       results.push({ driverId, ok: true, delta });
     }
+    // Log to org activity log
+    const successIds = results.filter(r => r.ok).map(r => r.driverId);
+    if (successIds.length) {
+      const sp = (await query("SELECT org_id FROM sponsor_profiles WHERE user_id = ? LIMIT 1", [req.user.id]))?.[0];
+      if (sp?.org_id) {
+        logAction(sp.org_id, req.user.id, 'deduct_points', null,
+          `Deducted ${parsed.data.points} points from ${successIds.length} driver(s) [${successIds.join(', ')}]: ${parsed.data.reason}`);
+      }
+    }
     return res.json({ ok: true, results });
   } catch (err) {
     console.error(err);
@@ -699,6 +717,12 @@ app.post("/drivers/:driverId/points/add", requireAuth, async (req, res) => {
       "INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)",
       [driverId, req.user.id, parsed.data.points, parsed.data.reason]
     );
+    // Log to org activity log
+    const sp = (await query("SELECT org_id FROM sponsor_profiles WHERE user_id = ? LIMIT 1", [req.user.id]))?.[0];
+    if (sp?.org_id) {
+      logAction(sp.org_id, req.user.id, 'add_points', driverId,
+        `Added ${parsed.data.points} points to driver #${driverId}: ${parsed.data.reason}`);
+    }
     return res.json({ ok: true, driverId, delta: parsed.data.points, balance: await getDriverPointsBalance(driverId) });
   } catch (err) {
     console.error(err);
@@ -724,6 +748,12 @@ app.post("/drivers/:driverId/points/deduct", requireAuth, async (req, res) => {
       "INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)",
       [driverId, req.user.id, delta, parsed.data.reason]
     );
+    // Log to org activity log
+    const sp = (await query("SELECT org_id FROM sponsor_profiles WHERE user_id = ? LIMIT 1", [req.user.id]))?.[0];
+    if (sp?.org_id) {
+      logAction(sp.org_id, req.user.id, 'deduct_points', driverId,
+        `Deducted ${Math.abs(delta)} points from driver #${driverId}: ${parsed.data.reason}`);
+    }
     return res.json({ ok: true, driverId, delta, balance: await getDriverPointsBalance(driverId) });
   } catch (err) {
     console.error(err);
@@ -1386,6 +1416,63 @@ app.post('/organization/users', requireAuth, async (req, res) => {
   }
 });
 
+// ── Add existing sponsor account to organization ──
+
+app.post('/organization/users/invite', requireAuth, async (req, res) => {
+  const schema = z.object({
+    email: z.string().email(),
+    role: z.enum(['admin', 'member']).optional().default('member'),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    const result = await getOrCreateOrg(req.user.id, res);
+    if (!result) return;
+    if (!requireOrgRole(result.sponsorProfile, res, ['owner', 'admin'])) return;
+
+    const { email, role } = parsed.data;
+
+    // Find the existing sponsor account
+    const userRows = await query(
+      "SELECT u.id, u.email FROM users u WHERE u.email = ? AND u.role = 'sponsor' LIMIT 1",
+      [email.toLowerCase()]
+    );
+    if (!userRows || userRows.length === 0) {
+      return res.status(404).json({ error: 'No sponsor account found with that email.' });
+    }
+
+    const targetId = userRows[0].id;
+
+    // Check they aren't already in this org
+    const existingProfile = await query(
+      "SELECT user_id, org_id FROM sponsor_profiles WHERE user_id = ? LIMIT 1",
+      [targetId]
+    );
+    if (existingProfile?.[0]?.org_id === result.org.id) {
+      return res.status(409).json({ error: 'This user is already in your organization.' });
+    }
+    if (existingProfile?.[0]?.org_id && existingProfile[0].org_id !== result.org.id) {
+      return res.status(409).json({ error: 'This user already belongs to another organization.' });
+    }
+
+    // Add them to the org
+    await exec(
+      "UPDATE sponsor_profiles SET org_id = ?, company_name = ?, sponsor_role = ?, is_active = 1 WHERE user_id = ?",
+      [result.org.id, result.org.name, role, targetId]
+    );
+
+    await logAction(result.org.id, req.user.id, 'invite_existing_user', targetId,
+      `Added existing sponsor ${email} as ${role}`);
+
+    return res.json({ ok: true, userId: targetId, email: userRows[0].email });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── Assign role to sponsor user (#2983) ──
 
 app.put('/organization/users/:userId/role', requireAuth, async (req, res) => {
@@ -1642,6 +1729,7 @@ app.get('/organization/stats', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 });
+
 
 app.listen(PORT, () => {
   console.log(`[sponsor] listening on :${PORT}`);
