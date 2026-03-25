@@ -1118,6 +1118,10 @@ function App() {
     // New user form
     const [newUser, setNewUser] = useState({ email: '', password: '', firstName: '', lastName: '', role: 'member' })
 
+    // Invite existing user form
+    const [inviteEmail, setInviteEmail] = useState('')
+    const [inviteRole, setInviteRole] = useState('member')
+
     // Edit org form
     const [editOrg, setEditOrg] = useState({})
 
@@ -1199,6 +1203,19 @@ function App() {
         setNewUser({ email: '', password: '', firstName: '', lastName: '', role: 'member' })
         await loadUsers()
       } catch (e) { setError(e?.message || 'Failed to create user') }
+    }
+
+    const inviteUser = async () => {
+      setError(''); setSuccess('')
+      if (!inviteEmail) { setError('Email is required.'); return }
+      try {
+        const data = await api('/organization/users/invite', {
+          method: 'POST', body: JSON.stringify({ email: inviteEmail, role: inviteRole })
+        })
+        setSuccess(`Added ${data?.email || inviteEmail} to your organization.`)
+        setInviteEmail(''); setInviteRole('member')
+        await loadUsers()
+      } catch (e) { setError(e?.message || 'Failed to add user') }
     }
 
     const changeRole = async (userId, role) => {
@@ -1361,6 +1378,24 @@ function App() {
                     </select>
                   </div>
                   <button className="btn btn-success" type="button" onClick={createUser}>Create User</button>
+                </div>
+              )}
+
+              {isOwnerOrAdmin && (
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <h2 className="section-title" style={{ marginTop: 0 }}>Add Existing Sponsor Account</h2>
+                  <p className="page-subtitle" style={{ marginBottom: 8 }}>
+                    Add a sponsor who already has an account to your organization.
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input className="form-input" style={{ flex: 1, minWidth: 250 }} type="email" placeholder="Sponsor's email address"
+                      value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} />
+                    <select className="form-input" style={{ width: 120 }} value={inviteRole} onChange={e => setInviteRole(e.target.value)}>
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    <button className="btn btn-success" type="button" onClick={inviteUser}>Add to Org</button>
+                  </div>
                 </div>
               )}
 
