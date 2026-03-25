@@ -1279,6 +1279,9 @@ function App() {
         activate_user: 'Reactivated user',
         edit_profile: 'Edited profile',
         reset_password: 'Reset password',
+        invite_existing_user: 'Invited user',
+        add_points: 'Added points',
+        deduct_points: 'Deducted points',
       }
       return map[action] || action
     }

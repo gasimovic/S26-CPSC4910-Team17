@@ -637,6 +637,15 @@ app.post("/drivers/bulk/points/add", requireAuth, async (req, res) => {
       );
       results.push({ driverId, ok: true, delta: parsed.data.points });
     }
+    // Log to org activity log
+    const successIds = results.filter(r => r.ok).map(r => r.driverId);
+    if (successIds.length) {
+      const sp = (await query("SELECT org_id FROM sponsor_profiles WHERE user_id = ? LIMIT 1", [req.user.id]))?.[0];
+      if (sp?.org_id) {
+        logAction(sp.org_id, req.user.id, 'add_points', null,
+          `Added ${parsed.data.points} points to ${successIds.length} driver(s) [${successIds.join(', ')}]: ${parsed.data.reason}`);
+      }
+    }
     return res.json({ ok: true, results });
   } catch (err) {
     console.error(err);
@@ -675,6 +684,15 @@ app.post("/drivers/bulk/points/deduct", requireAuth, async (req, res) => {
       );
       results.push({ driverId, ok: true, delta });
     }
+    // Log to org activity log
+    const successIds = results.filter(r => r.ok).map(r => r.driverId);
+    if (successIds.length) {
+      const sp = (await query("SELECT org_id FROM sponsor_profiles WHERE user_id = ? LIMIT 1", [req.user.id]))?.[0];
+      if (sp?.org_id) {
+        logAction(sp.org_id, req.user.id, 'deduct_points', null,
+          `Deducted ${parsed.data.points} points from ${successIds.length} driver(s) [${successIds.join(', ')}]: ${parsed.data.reason}`);
+      }
+    }
     return res.json({ ok: true, results });
   } catch (err) {
     console.error(err);
@@ -699,6 +717,12 @@ app.post("/drivers/:driverId/points/add", requireAuth, async (req, res) => {
       "INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)",
       [driverId, req.user.id, parsed.data.points, parsed.data.reason]
     );
+    // Log to org activity log
+    const sp = (await query("SELECT org_id FROM sponsor_profiles WHERE user_id = ? LIMIT 1", [req.user.id]))?.[0];
+    if (sp?.org_id) {
+      logAction(sp.org_id, req.user.id, 'add_points', driverId,
+        `Added ${parsed.data.points} points to driver #${driverId}: ${parsed.data.reason}`);
+    }
     return res.json({ ok: true, driverId, delta: parsed.data.points, balance: await getDriverPointsBalance(driverId) });
   } catch (err) {
     console.error(err);
@@ -724,6 +748,12 @@ app.post("/drivers/:driverId/points/deduct", requireAuth, async (req, res) => {
       "INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)",
       [driverId, req.user.id, delta, parsed.data.reason]
     );
+    // Log to org activity log
+    const sp = (await query("SELECT org_id FROM sponsor_profiles WHERE user_id = ? LIMIT 1", [req.user.id]))?.[0];
+    if (sp?.org_id) {
+      logAction(sp.org_id, req.user.id, 'deduct_points', driverId,
+        `Deducted ${Math.abs(delta)} points from driver #${driverId}: ${parsed.data.reason}`);
+    }
     return res.json({ ok: true, driverId, delta, balance: await getDriverPointsBalance(driverId) });
   } catch (err) {
     console.error(err);
