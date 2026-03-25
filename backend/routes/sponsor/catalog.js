@@ -7,7 +7,8 @@ router.get('/', async (req, res) => {
     try {
         const sponsorId = req.user.id;
         const items = await query(
-            `SELECT * FROM catalog_items WHERE sponsor_id = ? ORDER BY created_at DESC`,
+            `SELECT id, sponsor_id, external_item_id, title, description, image_url, price, point_cost, category, is_available, created_at
+             FROM catalog_items WHERE sponsor_id = ? ORDER BY created_at DESC`,
             [sponsorId]
         );
         // Return as { items: [...] } so frontend fetchShopItems works correctly
@@ -32,6 +33,10 @@ router.post('/', async (req, res) => {
         const rawPrice = req.body.price;
         const price = (rawPrice !== undefined && rawPrice !== null && rawPrice !== '') ? parseFloat(rawPrice) : null;
         const point_cost = parseInt(req.body.pointCost || req.body.point_cost, 10);
+        const category = req.body.category || null;
+        const is_available = (req.body.isAvailable !== undefined)
+            ? (req.body.isAvailable ? 1 : 0)
+            : (req.body.is_available !== undefined ? (req.body.is_available ? 1 : 0) : 1);
 
         if (!title) {
             return res.status(400).json({ error: 'title is required' });
@@ -56,9 +61,9 @@ router.post('/', async (req, res) => {
 
         const result = await exec(
             `INSERT INTO catalog_items 
-            (sponsor_id, external_item_id, title, description, image_url, price, point_cost) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [sponsorId, external_item_id, title, description, image_url, price !== null ? price : 0, point_cost]
+            (sponsor_id, external_item_id, title, description, image_url, price, point_cost, category, is_available) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [sponsorId, external_item_id, title, description, image_url, price !== null ? price : 0, point_cost, category, is_available]
         );
 
         res.status(201).json({ ok: true, itemId: result.insertId, message: 'Item added to catalog' });
@@ -87,6 +92,36 @@ router.delete('/:id', async (req, res) => {
     } catch (err) {
         console.error("DELETE /catalog error:", err);
         res.status(500).json({ error: 'Failed to delete item' });
+    }
+});
+
+// PATCH /api/sponsor/catalog/:id/availability - Toggle item availability
+router.patch('/:id/availability', async (req, res) => {
+    try {
+        const sponsorId = req.user.id;
+        const itemId = parseInt(req.params.id, 10);
+        if (!Number.isFinite(itemId)) {
+            return res.status(400).json({ error: 'Invalid item id' });
+        }
+
+        const { isAvailable } = req.body;
+        if (typeof isAvailable !== 'boolean') {
+            return res.status(400).json({ error: 'isAvailable must be a boolean' });
+        }
+
+        const result = await exec(
+            'UPDATE catalog_items SET is_available = ? WHERE id = ? AND sponsor_id = ?',
+            [isAvailable ? 1 : 0, itemId, sponsorId]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Item not found or does not belong to you' });
+        }
+
+        res.json({ ok: true, isAvailable });
+    } catch (err) {
+        console.error("PATCH /catalog/:id/availability error:", err);
+        res.status(500).json({ error: 'Failed to update availability' });
     }
 });
 

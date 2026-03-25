@@ -1045,6 +1045,39 @@ app.put("/point-expiration", requireAuth, async (req, res) => {
   } catch (err) { console.error(err); return res.status(500).json({ error: "Server error" }); }
 });
 
+// ─── Conversion Rate ──────────────────────────────────────────────────────────
+
+app.get("/conversion-rate", requireAuth, async (req, res) => {
+  try {
+    const rows = await query(
+      "SELECT * FROM sponsor_conversion_rates WHERE sponsor_id = ? LIMIT 1",
+      [req.user.id]
+    );
+    return res.json({ rate: rows?.[0] || null });
+  } catch (err) { console.error(err); return res.status(500).json({ error: "Server error" }); }
+});
+
+app.put("/conversion-rate", requireAuth, async (req, res) => {
+  const schema = z.object({ dollarsPerPoint: z.coerce.number().positive() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+  }
+  try {
+    await exec(
+      `INSERT INTO sponsor_conversion_rates (sponsor_id, dollars_per_point)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE dollars_per_point = VALUES(dollars_per_point)`,
+      [req.user.id, parsed.data.dollarsPerPoint]
+    );
+    const rows = await query(
+      "SELECT * FROM sponsor_conversion_rates WHERE sponsor_id = ? LIMIT 1",
+      [req.user.id]
+    );
+    return res.json({ ok: true, rate: rows[0] });
+  } catch (err) { console.error(err); return res.status(500).json({ error: "Server error" }); }
+});
+
 // ─── Analytics ────────────────────────────────────────────────────────────────
 
 app.get("/analytics/points", requireAuth, async (req, res) => {

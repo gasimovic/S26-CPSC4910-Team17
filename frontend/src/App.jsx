@@ -37,6 +37,8 @@ function App() {
         return '/drivers'
       case 'catalog':
         return '/catalog'
+      case 'shop':
+        return '/shop'
       case 'messages':
         return '/messages'
       case 'rewards':
@@ -80,6 +82,7 @@ function App() {
     if (path === '/applications') return 'applications'
     if (path === '/drivers') return 'drivers'
     if (path === '/catalog') return 'catalog'
+    if (path === '/shop') return 'shop'
     if (path === '/messages') return 'messages'
     if (path === '/rewards') return 'rewards'
     if (path === '/leaderboard') return 'leaderboard'
@@ -393,7 +396,7 @@ function App() {
     ];
 
     const driverPages = hasSponsor
-      ? ['dashboard', 'log-trip', 'rewards', 'leaderboard', 'achievements', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
+      ? ['dashboard', 'log-trip', 'shop', 'rewards', 'leaderboard', 'achievements', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
       : ['dashboard', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
 
     // 3. RETURN BASED ON ROLE:
@@ -1044,6 +1047,11 @@ function App() {
           )}
 
           {/* Driver-only */}
+          {isDriver && allowed.includes('shop') && (
+            <button type="button" onClick={() => setCurrentPage('shop')} className="nav-link">
+              Shop
+            </button>
+          )}
           {isDriver && allowed.includes('rewards') && (
             <button type="button" onClick={() => setCurrentPage('rewards')} className="nav-link">
               Rewards
@@ -1610,6 +1618,10 @@ function App() {
     // Analytics state
     const [analytics, setAnalytics] = useState(null)
 
+    // Conversion rate state
+    const [conversionRate, setConversionRate] = useState(null)
+    const [conversionInput, setConversionInput] = useState('')
+
     // Calendar view state
     const [calendarMonth, setCalendarMonth] = useState(() => {
       const now = new Date()
@@ -1656,9 +1668,19 @@ function App() {
       }
     }
 
+    const loadConversionRate = async () => {
+      try {
+        const data = await api('/conversion-rate', { method: 'GET' })
+        setConversionRate(data?.rate || null)
+        if (data?.rate) setConversionInput(String(data.rate.dollars_per_point))
+      } catch (e) {
+        setError(e?.message || 'Failed to load conversion rate')
+      }
+    }
+
     useEffect(() => {
       setLoading(true)
-      Promise.all([loadDrivers(), loadAwards(), loadExpiration(), loadAnalytics()])
+      Promise.all([loadDrivers(), loadAwards(), loadExpiration(), loadAnalytics(), loadConversionRate()])
         .finally(() => setLoading(false))
     }, [])
 
@@ -1773,6 +1795,24 @@ function App() {
       } catch (e) { setError(e?.message || 'Failed to save expiration rule') }
     }
 
+    // -- Conversion Rate --
+    const saveConversionRate = async () => {
+      setError(''); setSuccess('')
+      const val = Number(conversionInput)
+      if (!Number.isFinite(val) || val <= 0) {
+        setError('Enter a positive dollar amount (e.g. 0.01 means $0.01 per point).')
+        return
+      }
+      try {
+        await api('/conversion-rate', {
+          method: 'PUT',
+          body: JSON.stringify({ dollarsPerPoint: val })
+        })
+        setSuccess('Conversion rate saved.')
+        await loadConversionRate()
+      } catch (e) { setError(e?.message || 'Failed to save conversion rate') }
+    }
+
     // ── Calendar helpers ──
     const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate()
     const getFirstDayOfWeek = (year, month) => new Date(year, month, 1).getDay()
@@ -1808,6 +1848,7 @@ function App() {
       { key: 'scheduled', label: 'Scheduled Awards' },
       { key: 'calendar', label: 'Calendar' },
       { key: 'expiration', label: 'Expiration Rules' },
+      { key: 'conversion', label: 'Conversion Rate' },
     ]
 
     return (
@@ -2119,6 +2160,37 @@ function App() {
                   Active
                 </label>
                 <button className="btn btn-success" type="button" onClick={saveExpiration}>Save Rule</button>
+              </div>
+            </div>
+          )}
+
+          {/* -- Conversion Rate Tab -- */}
+          {activeTab === 'conversion' && (
+            <div className="card">
+              <h2 className="section-title" style={{ marginTop: 0 }}>Dollar-to-Point Conversion Rate</h2>
+              <p className="page-subtitle" style={{ marginBottom: 12 }}>
+                Set how many dollars equal one point in your program. This is a reference value -
+                existing catalog item point costs are not automatically changed.
+              </p>
+              {conversionRate && (
+                <p style={{ marginBottom: 12, fontSize: '0.875em', color: '#6b7280' }}>
+                  Current rate: <strong>${Number(conversionRate.dollars_per_point).toFixed(4)}</strong> per point
+                </p>
+              )}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  className="form-input"
+                  style={{ width: 180 }}
+                  type="number"
+                  min="0.0001"
+                  step="0.01"
+                  placeholder="$ per point (e.g. 0.01)"
+                  value={conversionInput}
+                  onChange={e => setConversionInput(e.target.value)}
+                />
+                <button className="btn btn-success" type="button" onClick={saveConversionRate}>
+                  Save Rate
+                </button>
               </div>
             </div>
           )}
@@ -3917,12 +3989,30 @@ const AdminUsersPage = () => {
                     {sponsorCatalogLoading ? <p style={{ color:'#9ca3af' }}>Loading catalog…</p>
                       : sponsorCatalog.length===0 ? <p style={{ color:'#9ca3af', fontStyle:'italic' }}>Catalog is empty.</p>
                       : <div className="table-wrap"><table className="table">
-                        <thead><tr><th>Item</th><th className="text-right">Retail</th><th className="text-right">Points</th><th style={{ width:80 }}>Remove</th></tr></thead>
+                        <thead><tr><th>Item</th><th className="text-right">Retail</th><th className="text-right">Points</th><th style={{ width:90 }}>Availability</th><th style={{ width:80 }}>Remove</th></tr></thead>
                         <tbody>{sponsorCatalog.map(item => (
                           <tr key={item.id}>
                             <td><div style={{ display:'flex', alignItems:'center', gap:10 }}>{item.image_url && <img src={item.image_url} alt="" style={{ width:40, height:40, objectFit:'contain', borderRadius:4 }} />}<span style={{ fontSize:'0.88em' }}>{item.title}</span></div></td>
                             <td className="text-right" style={{ fontSize:'0.85em' }}>${Number(item.price||0).toFixed(2)}</td>
                             <td className="text-right" style={{ fontWeight:600, color:'#2563eb' }}>{item.point_cost}</td>
+                            <td>
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                style={{ fontSize: '0.75em', padding: '3px 8px' }}
+                                onClick={async () => {
+                                  try {
+                                    await api(`/sponsors/${selectedSponsorId}/catalog/${item.id}/availability`, {
+                                      method: 'PATCH',
+                                      body: JSON.stringify({ isAvailable: !item.is_available })
+                                    })
+                                    await loadSponsorCatalog(selectedSponsorId)
+                                  } catch (e) { setSponsorToolsError(e?.message || 'Failed to update availability') }
+                                }}
+                              >
+                                {item.is_available ? 'Disable' : 'Enable'}
+                              </button>
+                            </td>
                             <td><button type="button" className="btn btn-secondary" style={{ fontSize:'0.75em', padding:'3px 8px', color:'#dc2626', borderColor:'#dc2626' }} onClick={() => deleteCatalogItem(item.id)}>Remove</button></td>
                           </tr>
                         ))}</tbody>
@@ -4149,6 +4239,215 @@ const AdminUsersPage = () => {
           </div>
         </main>
 
+      </div>
+    )
+  }
+
+  // ============ DRIVER SHOP PAGE ============
+  const DriverShopPage = () => {
+    const [items, setItems] = useState([])
+    const [categories, setCategories] = useState([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState('')
+    const [search, setSearch] = useState('')
+    const [selectedCategory, setSelectedCategory] = useState('')
+    const [availableOnly, setAvailableOnly] = useState(false)
+    const [selectedItem, setSelectedItem] = useState(null)
+
+    const fetchCategories = async () => {
+      try {
+        const data = await api('/catalog/categories', { method: 'GET' })
+        setCategories(Array.isArray(data?.categories) ? data.categories : [])
+      } catch {
+        // non-critical - filter just won't have options
+      }
+    }
+
+    const fetchItems = async (s, cat, avail) => {
+      setLoading(true)
+      setError('')
+      try {
+        const params = new URLSearchParams()
+        if (s) params.set('search', s)
+        if (cat) params.set('category', cat)
+        if (avail) params.set('available', '1')
+        const qs = params.toString() ? `?${params.toString()}` : ''
+        const data = await api(`/catalog${qs}`, { method: 'GET' })
+        setItems(Array.isArray(data?.items) ? data.items : [])
+      } catch (e) {
+        setError(e?.message || 'Failed to load shop items.')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    useEffect(() => {
+      fetchCategories()
+      fetchItems('', '', false)
+    }, [])
+
+    const handleSearchChange = (e) => {
+      const val = e.target.value
+      setSearch(val)
+      fetchItems(val, selectedCategory, availableOnly)
+    }
+
+    const handleCategoryChange = (e) => {
+      const val = e.target.value
+      setSelectedCategory(val)
+      fetchItems(search, val, availableOnly)
+    }
+
+    const handleAvailableToggle = (e) => {
+      const val = e.target.checked
+      setAvailableOnly(val)
+      fetchItems(search, selectedCategory, val)
+    }
+
+    const openDetail = async (item) => {
+      setSelectedItem(item)
+      try {
+        const data = await api(`/catalog/${item.id}`, { method: 'GET' })
+        if (data?.item) setSelectedItem(data.item)
+      } catch {
+        // keep the card-level data already set
+      }
+    }
+
+    const driverPoints = Number(currentUser?.points ?? 0)
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Shop</h1>
+          <p className="page-subtitle">
+            Your balance: <strong>{driverPoints} pts</strong>
+          </p>
+
+          {/* -- Filters -- */}
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24, alignItems: 'center' }}>
+            <input
+              className="form-input"
+              style={{ flex: '1 1 200px', minWidth: 160 }}
+              type="text"
+              placeholder="Search items..."
+              value={search}
+              onChange={handleSearchChange}
+            />
+            <select
+              className="form-input"
+              style={{ flex: '0 1 180px' }}
+              value={selectedCategory}
+              onChange={handleCategoryChange}
+            >
+              <option value="">All categories</option>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.875em', whiteSpace: 'nowrap' }}>
+              <input type="checkbox" checked={availableOnly} onChange={handleAvailableToggle} />
+              Available only
+            </label>
+          </div>
+
+          {/* -- Detail panel -- */}
+          {selectedItem && (
+            <div className="card" style={{ marginBottom: 24, position: 'relative' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ position: 'absolute', top: 16, right: 16, fontSize: '0.8em' }}
+                onClick={() => setSelectedItem(null)}
+              >
+                Close
+              </button>
+              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                {selectedItem.image_url && (
+                  <img
+                    src={selectedItem.image_url}
+                    alt={selectedItem.title}
+                    style={{ width: 180, height: 180, objectFit: 'contain', borderRadius: 8, background: '#f9fafb', flexShrink: 0 }}
+                  />
+                )}
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <h2 className="section-title" style={{ marginTop: 0 }}>{selectedItem.title}</h2>
+                  {selectedItem.category && (
+                    <span style={{ fontSize: '0.75em', background: '#e0f2fe', color: '#0369a1', borderRadius: 4, padding: '2px 8px', marginBottom: 8, display: 'inline-block' }}>
+                      {selectedItem.category}
+                    </span>
+                  )}
+                  <p style={{ color: '#6b7280', margin: '8px 0' }}>
+                    {selectedItem.description || `Retail value: $${Number(selectedItem.price || 0).toFixed(2)}`}
+                  </p>
+                  <p style={{ fontWeight: 700, fontSize: '1.1em', margin: '8px 0' }}>
+                    {Number(selectedItem.point_cost || 0)} pts
+                  </p>
+                  {!selectedItem.is_available && (
+                    <p style={{ color: '#dc2626', fontWeight: 600 }}>Currently unavailable</p>
+                  )}
+                  {selectedItem.is_available && Number(selectedItem.point_cost || 0) > driverPoints && (
+                    <p style={{ color: '#d97706' }}>
+                      You need <strong>{Number(selectedItem.point_cost || 0) - driverPoints}</strong> more points to redeem this item.
+                    </p>
+                  )}
+                  {selectedItem.is_available && Number(selectedItem.point_cost || 0) <= driverPoints && Number(selectedItem.point_cost || 0) > 0 && (
+                    <p style={{ color: '#059669', fontWeight: 600 }}>You have enough points!</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* -- Item grid -- */}
+          {loading ? (
+            <p className="activity-empty">Loading shop items...</p>
+          ) : error ? (
+            <p style={{ color: 'crimson' }}>Could not load shop: {error}</p>
+          ) : items.length === 0 ? (
+            <p className="activity-empty">No items match your filters, or your sponsor's catalog is empty.</p>
+          ) : (
+            <div className="rewards-grid">
+              {items.map(item => {
+                const pointCost = Number(item.point_cost || 0)
+                const canAfford = driverPoints >= pointCost && pointCost > 0
+                const pointsNeeded = pointCost - driverPoints
+
+                return (
+                  <div
+                    key={item.id}
+                    className="reward-card"
+                    style={{ cursor: 'pointer', opacity: item.is_available ? 1 : 0.55 }}
+                    onClick={() => openDetail(item)}
+                  >
+                    {item.image_url && (
+                      <img
+                        src={item.image_url}
+                        alt={item.title}
+                        style={{ width: '100%', height: 140, objectFit: 'contain', background: '#f9fafb', borderRadius: 6, marginBottom: 8 }}
+                      />
+                    )}
+                    {item.category && (
+                      <span style={{ fontSize: '0.7em', background: '#e0f2fe', color: '#0369a1', borderRadius: 3, padding: '1px 6px', marginBottom: 4, display: 'inline-block' }}>
+                        {item.category}
+                      </span>
+                    )}
+                    <h3 className="reward-title">{item.title}</h3>
+                    <p className="reward-pts">{pointCost} pts</p>
+                    {!item.is_available && (
+                      <p style={{ fontSize: '0.8em', color: '#dc2626', marginTop: 4 }}>Unavailable</p>
+                    )}
+                    {item.is_available && !canAfford && pointsNeeded > 0 && (
+                      <p style={{ fontSize: '0.8em', color: '#d97706', marginTop: 4 }}>{pointsNeeded} more pts needed</p>
+                    )}
+                    {item.is_available && canAfford && (
+                      <p style={{ fontSize: '0.8em', color: '#059669', marginTop: 4 }}>Affordable ✓</p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </main>
       </div>
     )
   }
@@ -5576,7 +5875,8 @@ const AdminUsersPage = () => {
             description: item.description,
             imageUrl: item.image,
             price: parseFloat(item.price?.value || 0),
-            pointCost: pointCost // Sending the manual cost to the backend
+            pointCost: pointCost, // Sending the manual cost to the backend
+            category: item.category || null,
           })
         })
         fetchShopItems()
@@ -6584,6 +6884,7 @@ const AdminUsersPage = () => {
 
       {/* Driver Pages */}
       {isLoggedIn && currentPage === 'log-trip' && <LogTripPage />}
+      {isLoggedIn && currentPage === 'shop' && <DriverShopPage />}
       {isLoggedIn && currentPage === 'rewards' && <RewardsPage />}
       {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
       {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}

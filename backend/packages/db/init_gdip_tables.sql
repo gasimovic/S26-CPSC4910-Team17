@@ -158,6 +158,8 @@ CREATE TABLE IF NOT EXISTS catalog_items (
   image_url VARCHAR(500) NULL,
   price DECIMAL(10, 2) NOT NULL,
   point_cost INT NOT NULL,
+  category VARCHAR(100) NULL,
+  is_available TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_catalog_items_sponsor
     FOREIGN KEY (sponsor_id) REFERENCES users(id) ON DELETE CASCADE
@@ -257,6 +259,15 @@ CREATE TABLE IF NOT EXISTS point_expiration_rules (
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_per_sponsor FOREIGN KEY (sponsor_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Dollar-to-point conversion rate per sponsor
+CREATE TABLE IF NOT EXISTS sponsor_conversion_rates (
+  id                INT AUTO_INCREMENT PRIMARY KEY,
+  sponsor_id        INT NOT NULL UNIQUE,
+  dollars_per_point DECIMAL(10,4) NOT NULL,
+  updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_scr_sponsor FOREIGN KEY (sponsor_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Language preference per user
