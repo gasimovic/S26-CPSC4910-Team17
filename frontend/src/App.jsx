@@ -63,6 +63,8 @@ function App() {
         return '/point-management'
       case 'organization':
         return '/organization'
+      case 'system-monitoring':
+        return '/system-monitoring'
       default:
         return '/'
     }
@@ -95,6 +97,7 @@ function App() {
     if (path === '/about') return 'about'
     if (path === '/point-management') return 'point-management'
     if (path === '/organization') return 'organization'
+    if (path === '/system-monitoring') return 'system-monitoring'
 
     // Back-compat: if the path is unknown, fall back to any legacy ?page= value.
     const pageFromQuery = (searchParams.get('page') || '').toLowerCase()
@@ -375,6 +378,7 @@ function App() {
     const adminPages = [
       'dashboard',
       'admin-users',
+      'system-monitoring',
       'profile',
       'account-details',
       'change-password',
@@ -1093,6 +1097,9 @@ function App() {
 
           {isAdmin && allowed.includes('admin-users') && (
             <button type="button" onClick={() => setCurrentPage('admin-users')} className="nav-link">Users</button>
+          )}
+          {isAdmin && allowed.includes('system-monitoring') && (
+            <button type="button" onClick={() => setCurrentPage('system-monitoring')} className="nav-link">System</button>
           )}
 
           {/* Points are only meaningful for drivers; keep UI clean for sponsors/admin */}
@@ -2824,6 +2831,491 @@ function App() {
 //     catalog items, and view their point analytics
 // ============================================================
 
+// ============ SYSTEM MONITORING PAGE (admin) ============
+// Covers: uptime (#3144), API metrics (#3145), background jobs (#3146),
+// retry jobs (#3147), maintenance windows (#3148), feature flags (#3149)
+const SystemMonitoringPage = () => {
+  const ADMIN_BASE = (import.meta.env.VITE_ADMIN_API_BASE || '/api/admin').replace(/\/$/, '')
+  const [activeTab, setActiveTab] = useState('overview')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  // Overview state
+  const [stats, setStats] = useState(null)
+  const [metrics, setMetrics] = useState(null)
+
+  // Jobs state
+  const [jobs, setJobs] = useState([])
+
+  // Maintenance state
+  const [mWindows, setMWindows] = useState([])
+  const [newMaint, setNewMaint] = useState({ title: '', description: '', starts_at: '', ends_at: '' })
+
+  // Feature flags state
+  const [features, setFeatures] = useState([])
+  const [newFeature, setNewFeature] = useState({ feature_key: '', label: '', description: '', is_enabled: false })
+
+  const adminApi = async (path, options = {}) => {
+    const safePath = path.startsWith('/') ? path : `/${path}`
+    const res = await fetch(`${ADMIN_BASE}${safePath}`, {
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      ...options,
+    })
+    const data = await res.json().catch(() => null)
+    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+    return data
+  }
+
+  const loadOverview = async () => {
+    setLoading(true); setError('')
+    try {
+      const [s, m] = await Promise.all([
+        adminApi('/system/stats'),
+        adminApi('/system/metrics'),
+      ])
+      setStats(s); setMetrics(m)
+    } catch (e) { setError(e.message) }
+    setLoading(false)
+  }
+
+  const loadJobs = async () => {
+    setLoading(true); setError('')
+    try {
+      const d = await adminApi('/system/jobs')
+      setJobs(d.jobs || [])
+    } catch (e) { setError(e.message) }
+    setLoading(false)
+  }
+
+  const retryJob = async (jobId) => {
+    setError(''); setSuccess('')
+    try {
+      await adminApi(`/system/jobs/${jobId}/retry`, { method: 'POST' })
+      setSuccess('Job retried successfully')
+      loadJobs()
+    } catch (e) { setError(e.message) }
+  }
+
+  const loadMaintenance = async () => {
+    setLoading(true); setError('')
+    try {
+      const d = await adminApi('/system/maintenance')
+      setMWindows(d.windows || [])
+    } catch (e) { setError(e.message) }
+    setLoading(false)
+  }
+
+  const createMaintenance = async () => {
+    if (!newMaint.title || !newMaint.starts_at || !newMaint.ends_at) {
+      setError('Title, start time, and end time are required'); return
+    }
+    setError(''); setSuccess('')
+    try {
+      await adminApi('/system/maintenance', { method: 'POST', body: JSON.stringify(newMaint) })
+      setNewMaint({ title: '', description: '', starts_at: '', ends_at: '' })
+      setSuccess('Maintenance window created')
+      loadMaintenance()
+    } catch (e) { setError(e.message) }
+  }
+
+  const toggleMaintenance = async (id, currentActive) => {
+    try {
+      await adminApi(`/system/maintenance/${id}`, { method: 'PUT', body: JSON.stringify({ is_active: !currentActive }) })
+      loadMaintenance()
+    } catch (e) { setError(e.message) }
+  }
+
+  const deleteMaintenance = async (id) => {
+    try {
+      await adminApi(`/system/maintenance/${id}`, { method: 'DELETE' })
+      loadMaintenance()
+    } catch (e) { setError(e.message) }
+  }
+
+  const loadFeatures = async () => {
+    setLoading(true); setError('')
+    try {
+      const d = await adminApi('/system/features')
+      setFeatures(d.features || [])
+    } catch (e) { setError(e.message) }
+    setLoading(false)
+  }
+
+  const createFeature = async () => {
+    if (!newFeature.feature_key || !newFeature.label) {
+      setError('Feature key and label are required'); return
+    }
+    setError(''); setSuccess('')
+    try {
+      await adminApi('/system/features', { method: 'POST', body: JSON.stringify(newFeature) })
+      setNewFeature({ feature_key: '', label: '', description: '', is_enabled: false })
+      setSuccess('Feature flag created')
+      loadFeatures()
+    } catch (e) { setError(e.message) }
+  }
+
+  const toggleFeature = async (id) => {
+    try {
+      const d = await adminApi(`/system/features/${id}/toggle`, { method: 'PUT' })
+      setFeatures(prev => prev.map(f => f.id === id ? { ...f, is_enabled: d.is_enabled ? 1 : 0 } : f))
+    } catch (e) { setError(e.message) }
+  }
+
+  const deleteFeature = async (id) => {
+    try {
+      await adminApi(`/system/features/${id}`, { method: 'DELETE' })
+      setFeatures(prev => prev.filter(f => f.id !== id))
+    } catch (e) { setError(e.message) }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'overview') loadOverview()
+    else if (activeTab === 'jobs') loadJobs()
+    else if (activeTab === 'maintenance') loadMaintenance()
+    else if (activeTab === 'features') loadFeatures()
+  }, [activeTab])
+
+  const formatUptime = (s) => {
+    if (!s && s !== 0) return '-'
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60)
+    return [d && `${d}d`, h && `${h}h`, `${m}m`].filter(Boolean).join(' ')
+  }
+
+  const formatBytes = (b) => {
+    if (!b) return '-'
+    if (b < 1024) return `${b} B`
+    if (b < 1048576) return `${(b / 1024).toFixed(1)} KB`
+    return `${(b / 1048576).toFixed(1)} MB`
+  }
+
+  const tabs = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'jobs', label: 'Background Jobs' },
+    { key: 'maintenance', label: 'Maintenance' },
+    { key: 'features', label: 'Feature Flags' },
+  ]
+
+  return (
+    <div>
+      <Navigation />
+      <main className="app-main">
+        <h1 className="page-title">System Monitoring</h1>
+        <p className="page-subtitle">Infrastructure health, metrics, and configuration</p>
+
+        {error && <div className="alert alert-danger">{error}</div>}
+        {success && <div className="alert alert-success">{success}</div>}
+
+        <div className="tab-bar" style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          {tabs.map(t => (
+            <button key={t.key} type="button"
+              className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => { setActiveTab(t.key); setError(''); setSuccess('') }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Overview Tab (#3144, #3145) ── */}
+        {activeTab === 'overview' && (
+          <div>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
+              <div className="card" style={{ flex: '1 1 200px', minWidth: 200 }}>
+                <h3 style={{ margin: '0 0 8px', fontSize: '0.9em', color: '#6b7280' }}>Uptime</h3>
+                <div style={{ fontSize: '1.5em', fontWeight: 700 }}>{stats ? formatUptime(stats.uptime_seconds) : '-'}</div>
+              </div>
+              <div className="card" style={{ flex: '1 1 200px', minWidth: 200 }}>
+                <h3 style={{ margin: '0 0 8px', fontSize: '0.9em', color: '#6b7280' }}>Database</h3>
+                <div style={{ fontSize: '1.5em', fontWeight: 700, color: stats?.db_connected ? '#16a34a' : '#dc2626' }}>
+                  {stats ? (stats.db_connected ? 'Connected' : 'Disconnected') : '-'}
+                </div>
+              </div>
+              <div className="card" style={{ flex: '1 1 200px', minWidth: 200 }}>
+                <h3 style={{ margin: '0 0 8px', fontSize: '0.9em', color: '#6b7280' }}>Total Users</h3>
+                <div style={{ fontSize: '1.5em', fontWeight: 700 }}>{stats?.total_users ?? '-'}</div>
+              </div>
+              <div className="card" style={{ flex: '1 1 200px', minWidth: 200 }}>
+                <h3 style={{ margin: '0 0 8px', fontSize: '0.9em', color: '#6b7280' }}>Memory (RSS)</h3>
+                <div style={{ fontSize: '1.5em', fontWeight: 700 }}>{stats ? formatBytes(stats.memory?.rss) : '-'}</div>
+              </div>
+            </div>
+
+            {/* API Metrics */}
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h2 className="section-title" style={{ margin: 0 }}>API Usage Metrics</h2>
+                <button className="btn btn-primary" type="button" onClick={loadOverview}>Refresh</button>
+              </div>
+              {metrics && (
+                <>
+                  <p style={{ margin: '0 0 12px', color: '#6b7280' }}>
+                    Total requests since boot: <strong>{metrics.total_requests}</strong> &middot;
+                    Tracking since: {metrics.since ? new Date(metrics.since).toLocaleString() : '-'}
+                  </p>
+                  {metrics.top_endpoints?.length > 0 && (
+                    <div className="table-wrap">
+                      <table className="table">
+                        <thead><tr><th>Endpoint</th><th style={{ textAlign: 'right' }}>Hits</th></tr></thead>
+                        <tbody>
+                          {metrics.top_endpoints.map((e, i) => (
+                            <tr key={i}><td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{e.endpoint}</td><td style={{ textAlign: 'right' }}>{e.count}</td></tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {metrics.requests_per_minute?.length > 0 && (
+                    <div style={{ marginTop: 16 }}>
+                      <h3 style={{ fontSize: '0.95em', marginBottom: 8 }}>Requests Per Minute (last hour)</h3>
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 80, overflow: 'hidden' }}>
+                        {metrics.requests_per_minute.slice(-60).map((m, i) => {
+                          const max = Math.max(...metrics.requests_per_minute.slice(-60).map(x => x.count), 1)
+                          const h = Math.max(4, (m.count / max) * 72)
+                          return <div key={i} title={`${m.minute}: ${m.count} req`} style={{
+                            flex: '1 1 0', background: '#3b82f6', borderRadius: '2px 2px 0 0', height: h, minWidth: 3,
+                          }} />
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+              {!metrics && !loading && <p>No metrics available</p>}
+            </div>
+
+            {/* System info */}
+            <div className="card">
+              <h2 className="section-title" style={{ margin: '0 0 12px' }}>System Info</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 16px', fontSize: '0.9em' }}>
+                <span style={{ color: '#6b7280' }}>Node.js</span><span>{stats?.node_version || '-'}</span>
+                <span style={{ color: '#6b7280' }}>Started At</span><span>{stats?.started_at ? new Date(stats.started_at).toLocaleString() : '-'}</span>
+                <span style={{ color: '#6b7280' }}>Heap Used</span><span>{stats ? formatBytes(stats.memory?.heapUsed) : '-'}</span>
+                <span style={{ color: '#6b7280' }}>Heap Total</span><span>{stats ? formatBytes(stats.memory?.heapTotal) : '-'}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Background Jobs Tab (#3146, #3147) ── */}
+        {activeTab === 'jobs' && (
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Scheduled Point Awards</h2>
+              <button className="btn btn-primary" type="button" onClick={loadJobs}>Refresh</button>
+            </div>
+            {jobs.length === 0 ? (
+              <p style={{ color: '#6b7280' }}>No background jobs found</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Driver</th>
+                      <th>Sponsor</th>
+                      <th>Points</th>
+                      <th>Frequency</th>
+                      <th>Status</th>
+                      <th>Last Run</th>
+                      <th>Runs</th>
+                      <th>Error</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {jobs.map(j => {
+                      const hasError = !!j.last_error
+                      const status = j.is_paused ? 'Paused' : hasError ? 'Failed' : 'Active'
+                      const statusColor = j.is_paused ? '#f59e0b' : hasError ? '#dc2626' : '#16a34a'
+                      return (
+                        <tr key={j.id}>
+                          <td>{j.id}</td>
+                          <td>{j.driver_id || 'All'}</td>
+                          <td>{j.sponsor_id}</td>
+                          <td>{j.points}</td>
+                          <td>{j.frequency}{j.is_recurring ? ' (recurring)' : ''}</td>
+                          <td><span style={{ color: statusColor, fontWeight: 600 }}>{status}</span></td>
+                          <td style={{ fontSize: '0.85em' }}>{j.last_run_at ? new Date(j.last_run_at).toLocaleString() : '-'}</td>
+                          <td>{j.run_count || 0}</td>
+                          <td style={{ fontSize: '0.8em', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', color: '#dc2626' }}>
+                            {j.last_error || '-'}
+                          </td>
+                          <td>
+                            {(hasError || j.is_paused) && (
+                              <button className="btn btn-primary" type="button" style={{ fontSize: '0.8em', padding: '4px 10px' }}
+                                onClick={() => retryJob(j.id)}>
+                                Retry
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Maintenance Tab (#3148) ── */}
+        {activeTab === 'maintenance' && (
+          <div>
+            <div className="card" style={{ marginBottom: 16 }}>
+              <h2 className="section-title" style={{ margin: '0 0 12px' }}>Schedule Maintenance Window</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label className="form-label">Title</label>
+                  <input className="form-input" value={newMaint.title} onChange={e => setNewMaint(p => ({ ...p, title: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="form-label">Description (optional)</label>
+                  <input className="form-input" value={newMaint.description} onChange={e => setNewMaint(p => ({ ...p, description: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="form-label">Start Time</label>
+                  <input type="datetime-local" className="form-input" value={newMaint.starts_at} onChange={e => setNewMaint(p => ({ ...p, starts_at: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="form-label">End Time</label>
+                  <input type="datetime-local" className="form-input" value={newMaint.ends_at} onChange={e => setNewMaint(p => ({ ...p, ends_at: e.target.value }))} />
+                </div>
+              </div>
+              <button className="btn btn-success" type="button" onClick={createMaintenance}>Create Window</button>
+            </div>
+
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h2 className="section-title" style={{ margin: 0 }}>Scheduled Windows</h2>
+                <button className="btn btn-primary" type="button" onClick={loadMaintenance}>Refresh</button>
+              </div>
+              {mWindows.length === 0 ? (
+                <p style={{ color: '#6b7280' }}>No maintenance windows scheduled</p>
+              ) : (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead><tr><th>Title</th><th>Description</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody>
+                      {mWindows.map(w => {
+                        const now = new Date()
+                        const start = new Date(w.starts_at)
+                        const end = new Date(w.ends_at)
+                        const isLive = w.is_active && now >= start && now <= end
+                        const isPast = now > end
+                        return (
+                          <tr key={w.id}>
+                            <td style={{ fontWeight: 600 }}>{w.title}</td>
+                            <td style={{ fontSize: '0.85em', maxWidth: 200 }}>{w.description || '-'}</td>
+                            <td style={{ fontSize: '0.85em', whiteSpace: 'nowrap' }}>{start.toLocaleString()}</td>
+                            <td style={{ fontSize: '0.85em', whiteSpace: 'nowrap' }}>{end.toLocaleString()}</td>
+                            <td>
+                              <span style={{ color: isLive ? '#dc2626' : isPast ? '#6b7280' : w.is_active ? '#16a34a' : '#f59e0b', fontWeight: 600 }}>
+                                {isLive ? 'LIVE' : isPast ? 'Past' : w.is_active ? 'Scheduled' : 'Disabled'}
+                              </span>
+                            </td>
+                            <td style={{ display: 'flex', gap: 6 }}>
+                              <button className="btn btn-ghost" type="button" style={{ fontSize: '0.8em', padding: '4px 8px' }}
+                                onClick={() => toggleMaintenance(w.id, !!w.is_active)}>
+                                {w.is_active ? 'Disable' : 'Enable'}
+                              </button>
+                              <button className="btn btn-danger" type="button" style={{ fontSize: '0.8em', padding: '4px 8px' }}
+                                onClick={() => deleteMaintenance(w.id)}>
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Feature Flags Tab (#3149) ── */}
+        {activeTab === 'features' && (
+          <div>
+            <div className="card" style={{ marginBottom: 16 }}>
+              <h2 className="section-title" style={{ margin: '0 0 12px' }}>Create Feature Flag</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label className="form-label">Key (lowercase, underscores)</label>
+                  <input className="form-input" placeholder="e.g. new_feature" value={newFeature.feature_key}
+                    onChange={e => setNewFeature(p => ({ ...p, feature_key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))} />
+                </div>
+                <div>
+                  <label className="form-label">Label</label>
+                  <input className="form-input" placeholder="Human-readable name" value={newFeature.label}
+                    onChange={e => setNewFeature(p => ({ ...p, label: e.target.value }))} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label className="form-label">Description (optional)</label>
+                  <input className="form-input" value={newFeature.description}
+                    onChange={e => setNewFeature(p => ({ ...p, description: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={newFeature.is_enabled}
+                      onChange={e => setNewFeature(p => ({ ...p, is_enabled: e.target.checked }))} />
+                    Enabled by default
+                  </label>
+                </div>
+              </div>
+              <button className="btn btn-success" type="button" onClick={createFeature}>Create Flag</button>
+            </div>
+
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h2 className="section-title" style={{ margin: 0 }}>Feature Flags</h2>
+                <button className="btn btn-primary" type="button" onClick={loadFeatures}>Refresh</button>
+              </div>
+              {features.length === 0 ? (
+                <p style={{ color: '#6b7280' }}>No feature flags configured</p>
+              ) : (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead><tr><th>Key</th><th>Label</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody>
+                      {features.map(f => (
+                        <tr key={f.id}>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{f.feature_key}</td>
+                          <td style={{ fontWeight: 600 }}>{f.label}</td>
+                          <td style={{ fontSize: '0.85em', maxWidth: 250 }}>{f.description || '-'}</td>
+                          <td>
+                            <span style={{ color: f.is_enabled ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
+                              {f.is_enabled ? 'ON' : 'OFF'}
+                            </span>
+                          </td>
+                          <td style={{ display: 'flex', gap: 6 }}>
+                            <button className={`btn ${f.is_enabled ? 'btn-ghost' : 'btn-success'}`} type="button"
+                              style={{ fontSize: '0.8em', padding: '4px 10px' }}
+                              onClick={() => toggleFeature(f.id)}>
+                              {f.is_enabled ? 'Disable' : 'Enable'}
+                            </button>
+                            <button className="btn btn-danger" type="button"
+                              style={{ fontSize: '0.8em', padding: '4px 10px' }}
+                              onClick={() => deleteFeature(f.id)}>
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}
+
+// ============ ADMIN USERS PAGE ============
 const AdminUsersPage = () => {
   // ── Shared ────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState('applications')
@@ -6944,6 +7436,7 @@ const AdminUsersPage = () => {
 
       {/* Admin ONLY Pages */}
       {isLoggedIn && currentPage === 'admin-users' && <AdminUsersPage />}
+      {isLoggedIn && currentPage === 'system-monitoring' && <SystemMonitoringPage />}
 
       {showLogoutConfirm && (
         <div className="modal-backdrop">

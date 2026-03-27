@@ -1658,12 +1658,16 @@ app.get('/organization/activity-log', requireAuth, async (req, res) => {
               u_actor.email AS actor_email,
               TRIM(CONCAT(COALESCE(sp_actor.first_name,''), ' ', COALESCE(sp_actor.last_name,''))) AS actor_name,
               u_target.email AS target_email,
-              TRIM(CONCAT(COALESCE(sp_target.first_name,''), ' ', COALESCE(sp_target.last_name,''))) AS target_name
+              COALESCE(
+                NULLIF(TRIM(CONCAT(COALESCE(sp_target.first_name,''), ' ', COALESCE(sp_target.last_name,''))), ''),
+                NULLIF(TRIM(CONCAT(COALESCE(dp_target.first_name,''), ' ', COALESCE(dp_target.last_name,''))), '')
+              ) AS target_name
        FROM sponsor_action_log sal
        JOIN users u_actor ON sal.sponsor_id = u_actor.id
        LEFT JOIN sponsor_profiles sp_actor ON sal.sponsor_id = sp_actor.user_id
        LEFT JOIN users u_target ON sal.target_user_id = u_target.id
        LEFT JOIN sponsor_profiles sp_target ON sal.target_user_id = sp_target.user_id
+       LEFT JOIN driver_profiles dp_target ON sal.target_user_id = dp_target.user_id
        WHERE sal.org_id = ?
        ORDER BY sal.created_at DESC
        LIMIT 500`,

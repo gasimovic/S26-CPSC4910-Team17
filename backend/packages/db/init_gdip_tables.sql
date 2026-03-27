@@ -241,6 +241,9 @@ CREATE TABLE IF NOT EXISTS scheduled_point_awards (
   is_recurring  TINYINT(1) NOT NULL DEFAULT 0,
   is_paused     TINYINT(1) NOT NULL DEFAULT 0,
   last_run_at   TIMESTAMP NULL,
+  next_run_at   TIMESTAMP NULL,
+  run_count     INT NOT NULL DEFAULT 0,
+  last_error    TEXT NULL,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_spa_sponsor (sponsor_id),
@@ -311,4 +314,31 @@ CREATE TABLE IF NOT EXISTS sponsor_action_log (
   INDEX idx_sal_target  (target_user_id),
   CONSTRAINT fk_sal_sponsor FOREIGN KEY (sponsor_id)     REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT fk_sal_target  FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Maintenance windows (#3148)
+CREATE TABLE IF NOT EXISTS maintenance_windows (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  title       VARCHAR(255) NOT NULL,
+  description TEXT,
+  starts_at   DATETIME NOT NULL,
+  ends_at     DATETIME NOT NULL,
+  is_active   TINYINT(1) NOT NULL DEFAULT 1,
+  created_by  INT NULL,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_mw_active (is_active, ends_at),
+  CONSTRAINT fk_mw_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Feature flags (#3149)
+CREATE TABLE IF NOT EXISTS feature_flags (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  feature_key VARCHAR(100) NOT NULL UNIQUE,
+  label       VARCHAR(255) NOT NULL,
+  description TEXT,
+  is_enabled  TINYINT(1) NOT NULL DEFAULT 0,
+  updated_by  INT NULL,
+  updated_at  TIMESTAMP NULL,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_ff_updater FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

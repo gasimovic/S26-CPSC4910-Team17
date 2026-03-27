@@ -1063,8 +1063,276 @@ app.get('/sponsors/:sponsorId/analytics', requireAuth, async (req, res) => {
   }
 })
 
+// ═══════════════════════════════════════════════════════════════════════════
+// SYSTEM MONITORING (#3142-#3150)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── In-memory API metrics collector ──
+const apiMetrics = { totalRequests: 0, byEndpoint: {}, byMinute: [], errors: 0, startedAt: new Date().toISOString() };
+app.use((req, _res, next) => {
+  apiMetrics.totalRequests++;
+  const key = `${req.method} ${req.path}`;
+  apiMetrics.byEndpoint[key] = (apiMetrics.byEndpoint[key] || 0) + 1;
+  const minute = new Date().toISOString().slice(0, 16);
+  const last = apiMetrics.byMinute[apiMetrics.byMinute.length - 1];
+  if (last && last.minute === minute) { last.count++; }
+  else { apiMetrics.byMinute.push({ minute, count: 1 }); if (apiMetrics.byMinute.length > 1440) apiMetrics.byMinute.shift(); }
+  next();
+});
+
+// ── #3144 — System uptime / stats ──
+app.get('/system/stats', requireAuth, async (_req, res) => {
+  try {
+    const dbRows = await query("SELECT 1 AS ok").catch(() => null);
+    const [userCount] = await query("SELECT COUNT(*) AS cnt FROM users").catch(() => [{ cnt: 0 }]);
+    return res.json({
+      uptime_seconds: Math.floor(process.uptime()),
+      started_at: apiMetrics.startedAt,
+      db_connected: !!dbRows,
+      total_users: Number(userCount?.cnt || 0),
+      node_version: process.version,
+      memory: process.memoryUsage(),
+    });
+  } catch (err) { console.error(err); return res.status(500).json({ error: 'Server error' }); }
+});
+
+// ── #3145 — API usage metrics ──
+app.get('/system/metrics', requireAuth, (_req, res) => {
+  // Top endpoints sorted by hit count
+  const topEndpoints = Object.entries(apiMetrics.byEndpoint)
+    .map(([endpoint, count]) => ({ endpoint, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 30);
+
+  // Requests per minute for the last 60 minutes
+  const recentMinutes = apiMetrics.byMinute.slice(-60);
+
+  return res.json({
+    total_requests: apiMetrics.totalRequests,
+    total_errors: apiMetrics.errors,
+    top_endpoints: topEndpoints,
+    requests_per_minute: recentMinutes,
+    since: apiMetrics.startedAt,
+  });
+});
+
+// ── #3146 — Background job statuses (scheduled point awards) ──
+app.get('/system/jobs', requireAuth, async (_req, res) => {
+  try {
+    const jobs = await query(
+      `SELECT id, driver_id, sponsor_id, points, reason, frequency,
+              scheduled_date, is_recurring, is_paused,
+              last_run_at, next_run_at, run_count, last_error, created_at
+       FROM scheduled_point_awards
+       ORDER BY created_at DESC
+       LIMIT 200`
+    );
+    return res.json({ jobs: jobs || [] });
+  } catch (err) {
+    // Table may not exist yet
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ jobs: [] });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── #3147 — Retry failed background job ──
+app.post('/system/jobs/:jobId/retry', requireAuth, async (req, res) => {
+  const jobId = Number(req.params.jobId);
+  if (!Number.isFinite(jobId)) return res.status(400).json({ error: 'Invalid jobId' });
+
+  try {
+    const rows = await query('SELECT * FROM scheduled_point_awards WHERE id = ? LIMIT 1', [jobId]);
+    if (!rows?.length) return res.status(404).json({ error: 'Job not found' });
+
+    const job = rows[0];
+
+    // Re-execute the award
+    await exec(
+      "INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)",
+      [job.driver_id, job.sponsor_id, job.points, `[Retry] ${job.reason || 'Scheduled award'}`]
+    );
+
+    // Clear error, update run count
+    await exec(
+      "UPDATE scheduled_point_awards SET last_error = NULL, last_run_at = NOW(), run_count = run_count + 1 WHERE id = ?",
+      [jobId]
+    );
+
+    return res.json({ ok: true, message: 'Job retried successfully' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── #3148 — Maintenance windows ──
+app.get('/system/maintenance', requireAuth, async (_req, res) => {
+  try {
+    const rows = await query(
+      `SELECT id, title, description, starts_at, ends_at, is_active, created_by, created_at
+       FROM maintenance_windows ORDER BY starts_at DESC LIMIT 50`
+    );
+    return res.json({ windows: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ windows: [] });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/system/maintenance', requireAuth, async (req, res) => {
+  const schema = z.object({
+    title: z.string().min(1).max(255),
+    description: z.string().max(2000).optional().default(''),
+    starts_at: z.string().min(1),
+    ends_at: z.string().min(1),
+    is_active: z.boolean().optional().default(true),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    const r = await exec(
+      `INSERT INTO maintenance_windows (title, description, starts_at, ends_at, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?)`,
+      [parsed.data.title, parsed.data.description, parsed.data.starts_at, parsed.data.ends_at, parsed.data.is_active ? 1 : 0, req.user.id]
+    );
+    return res.status(201).json({ ok: true, id: r.insertId });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/system/maintenance/:id', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const schema = z.object({
+    title: z.string().min(1).max(255).optional(),
+    description: z.string().max(2000).optional(),
+    starts_at: z.string().optional(),
+    ends_at: z.string().optional(),
+    is_active: z.boolean().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+
+  try {
+    const sets = [];
+    const vals = [];
+    if (parsed.data.title !== undefined) { sets.push('title = ?'); vals.push(parsed.data.title); }
+    if (parsed.data.description !== undefined) { sets.push('description = ?'); vals.push(parsed.data.description); }
+    if (parsed.data.starts_at !== undefined) { sets.push('starts_at = ?'); vals.push(parsed.data.starts_at); }
+    if (parsed.data.ends_at !== undefined) { sets.push('ends_at = ?'); vals.push(parsed.data.ends_at); }
+    if (parsed.data.is_active !== undefined) { sets.push('is_active = ?'); vals.push(parsed.data.is_active ? 1 : 0); }
+    if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+
+    vals.push(id);
+    await exec(`UPDATE maintenance_windows SET ${sets.join(', ')} WHERE id = ?`, vals);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/system/maintenance/:id', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    await exec('DELETE FROM maintenance_windows WHERE id = ?', [id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── #3149 — Feature flags ──
+app.get('/system/features', requireAuth, async (_req, res) => {
+  try {
+    const rows = await query(
+      `SELECT id, feature_key, label, description, is_enabled, updated_by, updated_at, created_at
+       FROM feature_flags ORDER BY feature_key ASC`
+    );
+    return res.json({ features: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ features: [] });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/system/features', requireAuth, async (req, res) => {
+  const schema = z.object({
+    feature_key: z.string().min(1).max(100).regex(/^[a-z0-9_]+$/),
+    label: z.string().min(1).max(255),
+    description: z.string().max(1000).optional().default(''),
+    is_enabled: z.boolean().optional().default(false),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    const r = await exec(
+      `INSERT INTO feature_flags (feature_key, label, description, is_enabled, updated_by) VALUES (?, ?, ?, ?, ?)`,
+      [parsed.data.feature_key, parsed.data.label, parsed.data.description, parsed.data.is_enabled ? 1 : 0, req.user.id]
+    );
+    return res.status(201).json({ ok: true, id: r.insertId });
+  } catch (err) {
+    if (err?.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Feature key already exists' });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/system/features/:id/toggle', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  try {
+    const rows = await query('SELECT id, is_enabled FROM feature_flags WHERE id = ? LIMIT 1', [id]);
+    if (!rows?.length) return res.status(404).json({ error: 'Feature not found' });
+
+    const newState = rows[0].is_enabled ? 0 : 1;
+    await exec('UPDATE feature_flags SET is_enabled = ?, updated_by = ?, updated_at = NOW() WHERE id = ?', [newState, req.user.id, id]);
+    return res.json({ ok: true, is_enabled: !!newState });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/system/features/:id', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    await exec('DELETE FROM feature_flags WHERE id = ?', [id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Public endpoint: active maintenance banner (no auth) ──
+app.get('/system/maintenance/active', async (_req, res) => {
+  try {
+    const rows = await query(
+      `SELECT title, description, starts_at, ends_at
+       FROM maintenance_windows
+       WHERE is_active = 1 AND ends_at > NOW()
+       ORDER BY starts_at ASC LIMIT 5`
+    );
+    return res.json({ windows: rows || [] });
+  } catch {
+    return res.json({ windows: [] });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
- 
+
 app.listen(PORT, () => {
   console.log(`[admin] listening on :${PORT}`);
 });
