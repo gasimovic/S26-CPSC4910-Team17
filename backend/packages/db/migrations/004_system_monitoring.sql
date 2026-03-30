@@ -3,9 +3,9 @@
 
 -- Add missing columns to scheduled_point_awards for job monitoring.
 -- Idempotency is handled by migrate.js ignoring duplicate-column errors.
-ALTER TABLE scheduled_point_awards ADD COLUMN next_run_at TIMESTAMP NULL AFTER last_run_at;
-ALTER TABLE scheduled_point_awards ADD COLUMN run_count INT NOT NULL DEFAULT 0 AFTER next_run_at;
-ALTER TABLE scheduled_point_awards ADD COLUMN last_error TEXT NULL AFTER run_count;
+ALTER TABLE scheduled_point_awards ADD COLUMN next_run_at TIMESTAMP NULL;
+ALTER TABLE scheduled_point_awards ADD COLUMN run_count INT NOT NULL DEFAULT 0;
+ALTER TABLE scheduled_point_awards ADD COLUMN last_error TEXT NULL;
 
 -- Maintenance windows (#3148)
 CREATE TABLE IF NOT EXISTS maintenance_windows (
