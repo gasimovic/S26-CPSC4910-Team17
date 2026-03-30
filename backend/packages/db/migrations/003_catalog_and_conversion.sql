@@ -14,29 +14,6 @@ CREATE TABLE IF NOT EXISTS sponsor_conversion_rates (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- -- Extend catalog_items ------------------------------------------------------
--- Use stored procedure for IF NOT EXISTS column check (MySQL limitation).
-DELIMITER //
-CREATE PROCEDURE add_catalog_sprint26_columns()
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME   = 'catalog_items'
-      AND COLUMN_NAME  = 'category'
-  ) THEN
-    ALTER TABLE catalog_items ADD COLUMN category VARCHAR(100) NULL;
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME   = 'catalog_items'
-      AND COLUMN_NAME  = 'is_available'
-  ) THEN
-    ALTER TABLE catalog_items ADD COLUMN is_available TINYINT(1) NOT NULL DEFAULT 1;
-  END IF;
-END //
-DELIMITER ;
-
-CALL add_catalog_sprint26_columns();
-DROP PROCEDURE IF EXISTS add_catalog_sprint26_columns;
+-- MySQL 8.0 supports ADD COLUMN IF NOT EXISTS natively.
+ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS category VARCHAR(100) NULL;
+ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS is_available TINYINT(1) NOT NULL DEFAULT 1;

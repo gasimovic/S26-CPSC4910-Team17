@@ -33,46 +33,11 @@ CREATE TABLE IF NOT EXISTS sponsor_action_log (
   CONSTRAINT fk_sal_target  FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Safe column additions via stored procedure
-DELIMITER //
-CREATE PROCEDURE migrate_sponsor_org_columns()
-BEGIN
-  -- Add last_login_at to users
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'last_login_at'
-  ) THEN
-    ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP NULL;
-  END IF;
-
-  -- Add org_id to sponsor_profiles
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sponsor_profiles' AND COLUMN_NAME = 'org_id'
-  ) THEN
-    ALTER TABLE sponsor_profiles ADD COLUMN org_id INT NULL;
-  END IF;
-
-  -- Add sponsor_role to sponsor_profiles
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sponsor_profiles' AND COLUMN_NAME = 'sponsor_role'
-  ) THEN
-    ALTER TABLE sponsor_profiles ADD COLUMN sponsor_role ENUM('owner','admin','member') NOT NULL DEFAULT 'member';
-  END IF;
-
-  -- Add is_active to sponsor_profiles
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sponsor_profiles' AND COLUMN_NAME = 'is_active'
-  ) THEN
-    ALTER TABLE sponsor_profiles ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1;
-  END IF;
-END //
-DELIMITER ;
-
-CALL migrate_sponsor_org_columns();
-DROP PROCEDURE IF EXISTS migrate_sponsor_org_columns;
+-- Safe column additions (MySQL 8.0 ADD COLUMN IF NOT EXISTS)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP NULL;
+ALTER TABLE sponsor_profiles ADD COLUMN IF NOT EXISTS org_id INT NULL;
+ALTER TABLE sponsor_profiles ADD COLUMN IF NOT EXISTS sponsor_role ENUM('owner','admin','member') NOT NULL DEFAULT 'member';
+ALTER TABLE sponsor_profiles ADD COLUMN IF NOT EXISTS is_active TINYINT(1) NOT NULL DEFAULT 1;
 
 -- Auto-create org records from existing company_name values
 -- and link existing sponsors to their org

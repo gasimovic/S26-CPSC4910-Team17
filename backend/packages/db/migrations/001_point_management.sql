@@ -60,21 +60,5 @@ CREATE TABLE IF NOT EXISTS point_expiration_rules (
   CONSTRAINT fk_per_sponsor FOREIGN KEY (sponsor_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Add preferred_language column to users (safe: ignores if already exists)
--- MySQL doesn't have IF NOT EXISTS for ALTER TABLE ADD COLUMN, so wrap in a procedure
-DELIMITER //
-CREATE PROCEDURE add_language_column_if_not_exists()
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'users'
-      AND COLUMN_NAME = 'preferred_language'
-  ) THEN
-    ALTER TABLE users ADD COLUMN preferred_language VARCHAR(10) NULL DEFAULT 'en';
-  END IF;
-END //
-DELIMITER ;
-
-CALL add_language_column_if_not_exists();
-DROP PROCEDURE IF EXISTS add_language_column_if_not_exists;
+-- Add preferred_language column to users (safe: MySQL 8.0 ADD COLUMN IF NOT EXISTS)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(10) NULL DEFAULT 'en';
