@@ -401,7 +401,7 @@ function App() {
 
     const driverPages = hasSponsor
       ? ['dashboard', 'log-trip', 'shop', 'rewards', 'leaderboard', 'achievements', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
-      : ['dashboard', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
+      : ['dashboard', 'shop', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
 
     // 3. RETURN BASED ON ROLE:
     if (role === 'admin') return adminPages;
@@ -4787,6 +4787,9 @@ const AdminUsersPage = () => {
     const [selectedCategory, setSelectedCategory] = useState('')
     const [availableOnly, setAvailableOnly] = useState(false)
     const [selectedItem, setSelectedItem] = useState(null)
+    const [redeemLoading, setRedeemLoading] = useState(false)
+    const [redeemSuccess, setRedeemSuccess] = useState('')
+    const [redeemError, setRedeemError] = useState('')
 
     const fetchCategories = async () => {
       try {
@@ -4840,11 +4843,29 @@ const AdminUsersPage = () => {
 
     const openDetail = async (item) => {
       setSelectedItem(item)
+      setRedeemSuccess('')
+      setRedeemError('')
       try {
         const data = await api(`/catalog/${item.id}`, { method: 'GET' })
         if (data?.item) setSelectedItem(data.item)
       } catch {
         // keep the card-level data already set
+      }
+    }
+
+    const handleRedeem = async (item) => {
+      setRedeemLoading(true)
+      setRedeemSuccess('')
+      setRedeemError('')
+      try {
+        const data = await api(`/catalog/${item.id}/redeem`, { method: 'POST' })
+        setCurrentUser(prev => ({ ...prev, points: data.newBalance }))
+        setRedeemSuccess(`Redeemed! You spent ${item.point_cost} pts. New balance: ${data.newBalance} pts.`)
+        fetchItems(search, selectedCategory, availableOnly)
+      } catch (e) {
+        setRedeemError(e?.message || 'Redemption failed. Please try again.')
+      } finally {
+        setRedeemLoading(false)
       }
     }
 
@@ -4925,7 +4946,22 @@ const AdminUsersPage = () => {
                     </p>
                   )}
                   {selectedItem.is_available && Number(selectedItem.point_cost || 0) <= driverPoints && Number(selectedItem.point_cost || 0) > 0 && (
-                    <p style={{ color: '#059669', fontWeight: 600 }}>You have enough points!</p>
+                    <div style={{ marginTop: 12 }}>
+                      <button
+                        type="button"
+                        className="btn btn-success"
+                        disabled={redeemLoading}
+                        onClick={() => handleRedeem(selectedItem)}
+                      >
+                        {redeemLoading ? 'Redeeming…' : 'Redeem'}
+                      </button>
+                      {redeemSuccess && (
+                        <p style={{ color: '#059669', fontWeight: 600, marginTop: 8 }}>{redeemSuccess}</p>
+                      )}
+                      {redeemError && (
+                        <p style={{ color: '#dc2626', marginTop: 8 }}>{redeemError}</p>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

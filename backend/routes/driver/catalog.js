@@ -105,4 +105,56 @@ router.get('/:id', async (req, res) => {
     }
 });
 
+// POST /api/driver/catalog/:id/redeem
+// Deducts point_cost from the driver's balance and records the redemption in the ledger.
+router.post('/:id/redeem', async (req, res) => {
+    try {
+        const itemId = parseInt(req.params.id, 10);
+        if (!Number.isFinite(itemId)) {
+            return res.status(400).json({ error: 'Invalid item id' });
+        }
+
+        const sponsorId = await getAffiliatedSponsorId(req.user.id);
+        if (!sponsorId) return res.status(404).json({ error: 'Item not found' });
+
+        const rows = await db.query(
+            `SELECT * FROM catalog_items WHERE id = ? AND sponsor_id = ? LIMIT 1`,
+            [itemId, sponsorId]
+        );
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({ error: 'Item not found' });
+        }
+
+        const item = rows[0];
+
+        if (!item.is_available) {
+            return res.status(400).json({ error: 'Item is not available for redemption' });
+        }
+
+        const balanceRows = await db.query(
+            `SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?`,
+            [req.user.id]
+        );
+        const balance = Number(balanceRows[0]?.balance || 0);
+
+        if (balance < item.point_cost) {
+            return res.status(402).json({ error: 'Insufficient points' });
+        }
+
+        await db.exec(
+            `INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)`,
+            [req.user.id, sponsorId, -item.point_cost, `Catalog redemption: ${item.title}`]
+        );
+
+        res.json({
+            success: true,
+            item: { id: item.id, title: item.title, point_cost: item.point_cost },
+            newBalance: balance - item.point_cost
+        });
+    } catch (err) {
+        console.error("POST /catalog/:id/redeem driver error:", err);
+        res.status(500).json({ error: 'Failed to process redemption' });
+    }
+});
+
 module.exports = router;
