@@ -48,7 +48,18 @@ async function runFile(filename) {
   try {
     await conn.beginTransaction();
     for (const stmt of statements) {
-      await conn.query(stmt);
+      try {
+        await conn.query(stmt);
+      } catch (err) {
+        const isAddColumn = /^ALTER\s+TABLE[\s\S]*?ADD\s+COLUMN/i.test(stmt);
+        const isDuplicateColumn = err && err.code === "ER_DUP_FIELDNAME";
+        if (isAddColumn && isDuplicateColumn) {
+          // Keep migrations idempotent across MySQL variants that do not support
+          // ADD COLUMN IF NOT EXISTS.
+          continue;
+        }
+        throw err;
+      }
     }
     await conn.query(
       "INSERT INTO schema_migrations (filename) VALUES (?)",

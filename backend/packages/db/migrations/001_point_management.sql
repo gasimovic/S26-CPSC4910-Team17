@@ -60,5 +60,6 @@ CREATE TABLE IF NOT EXISTS point_expiration_rules (
   CONSTRAINT fk_per_sponsor FOREIGN KEY (sponsor_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Add preferred_language column to users (safe: MySQL 8.0 ADD COLUMN IF NOT EXISTS)
-ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(10) NULL DEFAULT 'en';
+-- Add preferred_language column to users.
+-- Idempotency is handled by migrate.js ignoring duplicate-column errors.
+ALTER TABLE users ADD COLUMN preferred_language VARCHAR(10) NULL DEFAULT 'en';

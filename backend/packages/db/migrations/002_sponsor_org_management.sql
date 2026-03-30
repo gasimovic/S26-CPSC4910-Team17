@@ -33,11 +33,12 @@ CREATE TABLE IF NOT EXISTS sponsor_action_log (
   CONSTRAINT fk_sal_target  FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Safe column additions (MySQL 8.0 ADD COLUMN IF NOT EXISTS)
-ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP NULL;
-ALTER TABLE sponsor_profiles ADD COLUMN IF NOT EXISTS org_id INT NULL;
-ALTER TABLE sponsor_profiles ADD COLUMN IF NOT EXISTS sponsor_role ENUM('owner','admin','member') NOT NULL DEFAULT 'member';
-ALTER TABLE sponsor_profiles ADD COLUMN IF NOT EXISTS is_active TINYINT(1) NOT NULL DEFAULT 1;
+-- Safe column additions.
+-- Idempotency is handled by migrate.js ignoring duplicate-column errors.
+ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP NULL;
+ALTER TABLE sponsor_profiles ADD COLUMN org_id INT NULL;
+ALTER TABLE sponsor_profiles ADD COLUMN sponsor_role ENUM('owner','admin','member') NOT NULL DEFAULT 'member';
+ALTER TABLE sponsor_profiles ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1;
 
 -- Auto-create org records from existing company_name values
 -- and link existing sponsors to their org

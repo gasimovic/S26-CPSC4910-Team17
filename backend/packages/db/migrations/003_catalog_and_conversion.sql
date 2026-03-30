@@ -14,6 +14,6 @@ CREATE TABLE IF NOT EXISTS sponsor_conversion_rates (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- -- Extend catalog_items ------------------------------------------------------
--- MySQL 8.0 supports ADD COLUMN IF NOT EXISTS natively.
-ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS category VARCHAR(100) NULL;
-ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS is_available TINYINT(1) NOT NULL DEFAULT 1;
+-- Idempotency is handled by migrate.js ignoring duplicate-column errors.
+ALTER TABLE catalog_items ADD COLUMN category VARCHAR(100) NULL;
+ALTER TABLE catalog_items ADD COLUMN is_available TINYINT(1) NOT NULL DEFAULT 1;
