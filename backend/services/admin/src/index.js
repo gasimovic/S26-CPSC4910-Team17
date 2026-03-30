@@ -128,8 +128,10 @@ app.post("/auth/login", async (req, res) => {
     const ok = await verifyPassword(parsed.data.password, user.password_hash);
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
  
-    // Record last login — fire-and-forget, ignore if column missing
-    exec("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]).catch(() => {});
+    exec(
+     'INSERT INTO login_attempts (email, success, ip_address, user_agent, failure_reason) VALUES (?, ?, ?, ?, ?)',
+     [email, ok ? 1 : 0, req.ip || null, (req.headers['user-agent'] || '').slice(0, 500), ok ? null : 'invalid_password']
+     ).catch(() => {});
  
     const token = signToken({ sub: user.id, role: user.role });
     res.cookie(COOKIE_NAME, token, {
@@ -658,23 +660,6 @@ app.post('/users/create', requireAuth, async (req, res) => {
     if (err?.code === 'ER_DUP_ENTRY' || String(err?.message || '').includes('Duplicate')) {
       return res.status(409).json({ error: 'Email already in use' });
     }
-    console.error(err);
-    return res.status(500).json({ error: 'Server error' });
-  }
-});
- 
-// ─── #37: Deactivate / Reactivate ────────────────────────────────────────────
- 
-app.put('/users/:id/deactivate', requireAuth, async (req, res) => {
-  const userId = Number(req.params.id);
-  if (!Number.isFinite(userId)) return res.status(400).json({ error: 'Invalid user id' });
-  if (userId === req.user.id) return res.status(400).json({ error: 'Cannot deactivate your own account' });
-  try {
-    const check = await query('SELECT id FROM users WHERE id = ? LIMIT 1', [userId]);
-    if (!check?.length) return res.status(404).json({ error: 'User not found' });
-    await exec('UPDATE users SET is_active = 0 WHERE id = ?', [userId]);
-    return res.json({ ok: true });
-  } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Server error' });
   }
@@ -1331,7 +1316,248 @@ app.get('/system/maintenance/active', async (_req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// SPRINT ADDITIONS: User Stories #24, #28-#35
+// Append these routes to the bottom of your admin server file (before app.listen)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── #24 / #35: System Configuration + Changelog ──────────────────────────────
+
+// GET /system/config  — list all config entries
+app.get('/system/config', requireAuth, async (_req, res) => {
+  try {
+    const rows = await query(
+      `SELECT id, config_key, config_value, description, updated_by, updated_at, created_at
+       FROM system_config ORDER BY config_key ASC`
+    );
+    return res.json({ config: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ config: [] });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /system/config  — create a config entry
+app.post('/system/config', requireAuth, async (req, res) => {
+  const schema = z.object({
+    config_key:  z.string().min(1).max(100).regex(/^[a-z0-9_.]+$/i),
+    config_value: z.string().max(2000),
+    description: z.string().max(500).optional().default(''),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    const r = await exec(
+      `INSERT INTO system_config (config_key, config_value, description, updated_by) VALUES (?, ?, ?, ?)`,
+      [parsed.data.config_key, parsed.data.config_value, parsed.data.description, req.user.id]
+    );
+    return res.status(201).json({ ok: true, id: r.insertId });
+  } catch (err) {
+    if (err?.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Config key already exists' });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /system/config/:key  — update a config value (records changelog)
+app.put('/system/config/:key', requireAuth, async (req, res) => {
+  const schema = z.object({
+    config_value: z.string().max(2000),
+    description: z.string().max(500).optional(),
+    change_reason: z.string().max(500).optional().default(''),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    // Fetch old value for changelog
+    const existing = await query(
+      'SELECT id, config_value FROM system_config WHERE config_key = ? LIMIT 1',
+      [req.params.key]
+    );
+    if (!existing?.length) return res.status(404).json({ error: 'Config key not found' });
+
+    const oldValue = existing[0].config_value;
+
+    // Update the value
+    const updates = ['config_value = ?', 'updated_by = ?', 'updated_at = NOW()'];
+    const vals = [parsed.data.config_value, req.user.id];
+    if (parsed.data.description !== undefined) { updates.push('description = ?'); vals.push(parsed.data.description); }
+    vals.push(req.params.key);
+    await exec(`UPDATE system_config SET ${updates.join(', ')} WHERE config_key = ?`, vals);
+
+    // Record changelog
+    try {
+      await exec(
+        `INSERT INTO system_config_changelog (config_key, old_value, new_value, changed_by, change_reason)
+         VALUES (?, ?, ?, ?, ?)`,
+        [req.params.key, oldValue, parsed.data.config_value, req.user.id, parsed.data.change_reason || null]
+      );
+    } catch { /* changelog table may not exist yet */ }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE /system/config/:key
+app.delete('/system/config/:key', requireAuth, async (req, res) => {
+  try {
+    const existing = await query('SELECT id FROM system_config WHERE config_key = ? LIMIT 1', [req.params.key]);
+    if (!existing?.length) return res.status(404).json({ error: 'Config key not found' });
+    await exec('DELETE FROM system_config WHERE config_key = ?', [req.params.key]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /system/config/changelog  — #35: view config change history
+app.get('/system/config/changelog', requireAuth, async (req, res) => {
+  const { config_key, limit = 200 } = req.query;
+  const conditions = [];
+  const params = [];
+  if (config_key) { conditions.push('c.config_key = ?'); params.push(config_key); }
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+  params.push(Math.min(Number(limit) || 200, 1000));
+
+  try {
+    const rows = await query(
+      `SELECT c.id, c.config_key, c.old_value, c.new_value, c.change_reason,
+              c.changed_at, c.changed_by,
+              COALESCE(ap.display_name, CONCAT(COALESCE(ap.first_name,''), ' ', COALESCE(ap.last_name,'')), u.email) AS changed_by_name
+       FROM system_config_changelog c
+       LEFT JOIN users u ON c.changed_by = u.id
+       LEFT JOIN admin_profiles ap ON c.changed_by = ap.user_id
+       ${where}
+       ORDER BY c.changed_at DESC
+       LIMIT ?`,
+      params
+    );
+    return res.json({ changelog: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ changelog: [] });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
+// GET /system/audit-logs  — system-wide point transactions / audit trail
+//   Filters: date_from, date_to, sponsor_id, driver_id, reviewed (true/false/all)
+app.get('/system/audit-logs', requireAuth, async (req, res) => {
+  const { date_from, date_to, sponsor_id, driver_id, reviewed, limit = 500 } = req.query;
+  const conditions = [];
+  const params = [];
+
+  if (date_from)  { conditions.push('dpl.created_at >= ?');  params.push(date_from); }
+  if (date_to)    { conditions.push('dpl.created_at <= ?');  params.push(date_to + ' 23:59:59'); }
+  if (sponsor_id) { conditions.push('dpl.sponsor_id = ?');   params.push(Number(sponsor_id)); }
+  if (driver_id)  { conditions.push('dpl.driver_id = ?');    params.push(Number(driver_id)); }
+  if (reviewed === 'true')  conditions.push('dpl.reviewed_at IS NOT NULL');
+  if (reviewed === 'false') conditions.push('dpl.reviewed_at IS NULL');
+
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+  params.push(Math.min(Number(limit) || 500, 2000));
+
+  try {
+    const rows = await query(
+      `SELECT dpl.id, dpl.driver_id, dpl.sponsor_id, dpl.delta, dpl.reason,
+              dpl.created_at,
+              dpl.reviewed_at, dpl.reviewed_by,
+              u_driver.email AS driver_email,
+              TRIM(CONCAT(COALESCE(dp.first_name,''), ' ', COALESCE(dp.last_name,''))) AS driver_name,
+              sp.company_name AS sponsor_company,
+              u_sponsor.email AS sponsor_email,
+              COALESCE(ap.display_name, CONCAT(COALESCE(ap.first_name,''), ' ', COALESCE(ap.last_name,'')), u_rev.email) AS reviewed_by_name
+       FROM driver_points_ledger dpl
+       JOIN users u_driver ON dpl.driver_id = u_driver.id
+       LEFT JOIN driver_profiles dp ON dpl.driver_id = dp.user_id
+       LEFT JOIN users u_sponsor ON dpl.sponsor_id = u_sponsor.id
+       LEFT JOIN sponsor_profiles sp ON dpl.sponsor_id = sp.user_id
+       LEFT JOIN users u_rev ON dpl.reviewed_by = u_rev.id
+       LEFT JOIN admin_profiles ap ON dpl.reviewed_by = ap.user_id
+       ${where}
+       ORDER BY dpl.created_at DESC
+       LIMIT ?`,
+      params
+    );
+    return res.json({ logs: rows || [], count: rows?.length || 0 });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /system/audit-logs/:id/review  — #33: mark an entry as reviewed
+app.put('/system/audit-logs/:id/review', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  try {
+    const rows = await query('SELECT id, reviewed_at FROM driver_points_ledger WHERE id = ? LIMIT 1', [id]);
+    if (!rows?.length) return res.status(404).json({ error: 'Log entry not found' });
+
+    // Toggle: if already reviewed, un-review; otherwise mark reviewed
+    const alreadyReviewed = !!rows[0].reviewed_at;
+    if (alreadyReviewed) {
+      await exec('UPDATE driver_points_ledger SET reviewed_at = NULL, reviewed_by = NULL WHERE id = ?', [id]);
+    } else {
+      await exec('UPDATE driver_points_ledger SET reviewed_at = NOW(), reviewed_by = ? WHERE id = ?', [req.user.id, id]);
+    }
+    return res.json({ ok: true, reviewed: !alreadyReviewed });
+  } catch (err) {
+    // If reviewed_at column doesn't exist yet, return gracefully
+    if (String(err?.message || '').includes('reviewed')) {
+      return res.json({ ok: false, error: 'reviewed_at column not yet added to driver_points_ledger' });
+    }
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
+// ── #31, #32: Login Attempt Logs ──────────────────────────────────────────────
+
+// GET /system/login-attempts  — all or failed only
+//   Filters: failed_only (bool), email, date_from, date_to
+app.get('/system/login-attempts', requireAuth, async (req, res) => {
+  const { failed_only, email, date_from, date_to, limit = 500 } = req.query;
+  const conditions = [];
+  const params = [];
+
+  if (failed_only === 'true') conditions.push('la.success = 0');
+  if (email)      { conditions.push('la.email LIKE ?'); params.push(`%${email}%`); }
+  if (date_from)  { conditions.push('la.attempted_at >= ?'); params.push(date_from); }
+  if (date_to)    { conditions.push('la.attempted_at <= ?'); params.push(date_to + ' 23:59:59'); }
+
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+  params.push(Math.min(Number(limit) || 500, 2000));
+
+  try {
+    const rows = await query(
+      `SELECT la.id, la.email, la.success, la.ip_address, la.user_agent,
+              la.attempted_at, la.failure_reason,
+              u.id AS user_id, u.role
+       FROM login_attempts la
+       LEFT JOIN users u ON la.email = u.email
+       ${where}
+       ORDER BY la.attempted_at DESC
+       LIMIT ?`,
+      params
+    );
+    return res.json({ attempts: rows || [], count: rows?.length || 0 });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ attempts: [], count: 0 });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`[admin] listening on :${PORT}`);

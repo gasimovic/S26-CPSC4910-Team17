@@ -2834,6 +2834,12 @@ function App() {
 // ============ SYSTEM MONITORING PAGE (admin) ============
 // Covers: uptime (#3144), API metrics (#3145), background jobs (#3146),
 // retry jobs (#3147), maintenance windows (#3148), feature flags (#3149)
+// ═══════════════════════════════════════════════════════════════════════════
+// UPDATED SystemMonitoringPage
+// Replace the existing SystemMonitoringPage component in App.jsx with this.
+// Adds: Audit Logs (#28-34), Login Attempts (#31-32), System Config (#24/#35)
+// ═══════════════════════════════════════════════════════════════════════════
+
 const SystemMonitoringPage = () => {
   const ADMIN_BASE = (import.meta.env.VITE_ADMIN_API_BASE || '/api/admin').replace(/\/$/, '')
   const [activeTab, setActiveTab] = useState('overview')
@@ -2841,21 +2847,48 @@ const SystemMonitoringPage = () => {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
-  // Overview state
+  // ── Overview ──────────────────────────────────────────────────────────────
   const [stats, setStats] = useState(null)
   const [metrics, setMetrics] = useState(null)
 
-  // Jobs state
+  // ── Jobs ──────────────────────────────────────────────────────────────────
   const [jobs, setJobs] = useState([])
 
-  // Maintenance state
+  // ── Maintenance ───────────────────────────────────────────────────────────
   const [mWindows, setMWindows] = useState([])
   const [newMaint, setNewMaint] = useState({ title: '', description: '', starts_at: '', ends_at: '' })
 
-  // Feature flags state
+  // ── Feature Flags ─────────────────────────────────────────────────────────
   const [features, setFeatures] = useState([])
   const [newFeature, setNewFeature] = useState({ feature_key: '', label: '', description: '', is_enabled: false })
 
+  // ── Audit Logs (#28-30, #33-34) ───────────────────────────────────────────
+  const [auditLogs, setAuditLogs] = useState([])
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditFilters, setAuditFilters] = useState({ date_from: '', date_to: '', sponsor_id: '', driver_id: '', reviewed: 'all' })
+  const [sponsors, setSponsors] = useState([])
+  const [reviewingId, setReviewingId] = useState(null)
+
+  // ── Login Attempts (#31-32) ───────────────────────────────────────────────
+  const [loginAttempts, setLoginAttempts] = useState([])
+  const [loginLoading, setLoginLoading] = useState(false)
+  const [loginFilters, setLoginFilters] = useState({ failed_only: false, email: '', date_from: '', date_to: '' })
+
+  // ── System Config (#24) ───────────────────────────────────────────────────
+  const [configItems, setConfigItems] = useState([])
+  const [configLoading, setConfigLoading] = useState(false)
+  const [editingConfigKey, setEditingConfigKey] = useState(null)
+  const [editConfigValue, setEditConfigValue] = useState('')
+  const [editConfigReason, setEditConfigReason] = useState('')
+  const [newConfig, setNewConfig] = useState({ config_key: '', config_value: '', description: '' })
+  const [showNewConfig, setShowNewConfig] = useState(false)
+
+  // ── Config Changelog (#35) ────────────────────────────────────────────────
+  const [configChangelog, setConfigChangelog] = useState([])
+  const [changelogLoading, setChangelogLoading] = useState(false)
+  const [changelogKeyFilter, setChangelogKeyFilter] = useState('')
+
+  // ── Shared API helper ─────────────────────────────────────────────────────
   const adminApi = async (path, options = {}) => {
     const safePath = path.startsWith('/') ? path : `/${path}`
     const res = await fetch(`${ADMIN_BASE}${safePath}`, {
@@ -2868,13 +2901,11 @@ const SystemMonitoringPage = () => {
     return data
   }
 
+  // ── Overview loaders ──────────────────────────────────────────────────────
   const loadOverview = async () => {
     setLoading(true); setError('')
     try {
-      const [s, m] = await Promise.all([
-        adminApi('/system/stats'),
-        adminApi('/system/metrics'),
-      ])
+      const [s, m] = await Promise.all([adminApi('/system/stats'), adminApi('/system/metrics')])
       setStats(s); setMetrics(m)
     } catch (e) { setError(e.message) }
     setLoading(false)
@@ -2882,77 +2913,56 @@ const SystemMonitoringPage = () => {
 
   const loadJobs = async () => {
     setLoading(true); setError('')
-    try {
-      const d = await adminApi('/system/jobs')
-      setJobs(d.jobs || [])
-    } catch (e) { setError(e.message) }
+    try { const d = await adminApi('/system/jobs'); setJobs(d.jobs || []) }
+    catch (e) { setError(e.message) }
     setLoading(false)
   }
 
   const retryJob = async (jobId) => {
     setError(''); setSuccess('')
-    try {
-      await adminApi(`/system/jobs/${jobId}/retry`, { method: 'POST' })
-      setSuccess('Job retried successfully')
-      loadJobs()
-    } catch (e) { setError(e.message) }
+    try { await adminApi(`/system/jobs/${jobId}/retry`, { method: 'POST' }); setSuccess('Job retried.'); loadJobs() }
+    catch (e) { setError(e.message) }
   }
 
   const loadMaintenance = async () => {
     setLoading(true); setError('')
-    try {
-      const d = await adminApi('/system/maintenance')
-      setMWindows(d.windows || [])
-    } catch (e) { setError(e.message) }
+    try { const d = await adminApi('/system/maintenance'); setMWindows(d.windows || []) }
+    catch (e) { setError(e.message) }
     setLoading(false)
   }
 
   const createMaintenance = async () => {
-    if (!newMaint.title || !newMaint.starts_at || !newMaint.ends_at) {
-      setError('Title, start time, and end time are required'); return
-    }
+    if (!newMaint.title || !newMaint.starts_at || !newMaint.ends_at) { setError('Title, start, and end required'); return }
     setError(''); setSuccess('')
     try {
       await adminApi('/system/maintenance', { method: 'POST', body: JSON.stringify(newMaint) })
-      setNewMaint({ title: '', description: '', starts_at: '', ends_at: '' })
-      setSuccess('Maintenance window created')
-      loadMaintenance()
+      setNewMaint({ title: '', description: '', starts_at: '', ends_at: '' }); setSuccess('Window created.'); loadMaintenance()
     } catch (e) { setError(e.message) }
   }
 
-  const toggleMaintenance = async (id, currentActive) => {
-    try {
-      await adminApi(`/system/maintenance/${id}`, { method: 'PUT', body: JSON.stringify({ is_active: !currentActive }) })
-      loadMaintenance()
-    } catch (e) { setError(e.message) }
+  const toggleMaintenance = async (id, cur) => {
+    try { await adminApi(`/system/maintenance/${id}`, { method: 'PUT', body: JSON.stringify({ is_active: !cur }) }); loadMaintenance() }
+    catch (e) { setError(e.message) }
   }
 
   const deleteMaintenance = async (id) => {
-    try {
-      await adminApi(`/system/maintenance/${id}`, { method: 'DELETE' })
-      loadMaintenance()
-    } catch (e) { setError(e.message) }
+    try { await adminApi(`/system/maintenance/${id}`, { method: 'DELETE' }); loadMaintenance() }
+    catch (e) { setError(e.message) }
   }
 
   const loadFeatures = async () => {
     setLoading(true); setError('')
-    try {
-      const d = await adminApi('/system/features')
-      setFeatures(d.features || [])
-    } catch (e) { setError(e.message) }
+    try { const d = await adminApi('/system/features'); setFeatures(d.features || []) }
+    catch (e) { setError(e.message) }
     setLoading(false)
   }
 
   const createFeature = async () => {
-    if (!newFeature.feature_key || !newFeature.label) {
-      setError('Feature key and label are required'); return
-    }
+    if (!newFeature.feature_key || !newFeature.label) { setError('Key and label required'); return }
     setError(''); setSuccess('')
     try {
       await adminApi('/system/features', { method: 'POST', body: JSON.stringify(newFeature) })
-      setNewFeature({ feature_key: '', label: '', description: '', is_enabled: false })
-      setSuccess('Feature flag created')
-      loadFeatures()
+      setNewFeature({ feature_key: '', label: '', description: '', is_enabled: false }); setSuccess('Flag created.'); loadFeatures()
     } catch (e) { setError(e.message) }
   }
 
@@ -2964,37 +2974,192 @@ const SystemMonitoringPage = () => {
   }
 
   const deleteFeature = async (id) => {
+    try { await adminApi(`/system/features/${id}`, { method: 'DELETE' }); setFeatures(prev => prev.filter(f => f.id !== id)) }
+    catch (e) { setError(e.message) }
+  }
+
+  // ── Audit Log loaders / actions ───────────────────────────────────────────
+  const loadAuditLogs = async (filters = auditFilters) => {
+    setAuditLoading(true); setError('')
     try {
-      await adminApi(`/system/features/${id}`, { method: 'DELETE' })
-      setFeatures(prev => prev.filter(f => f.id !== id))
+      const params = new URLSearchParams()
+      if (filters.date_from)  params.set('date_from', filters.date_from)
+      if (filters.date_to)    params.set('date_to', filters.date_to)
+      if (filters.sponsor_id) params.set('sponsor_id', filters.sponsor_id)
+      if (filters.driver_id)  params.set('driver_id', filters.driver_id)
+      if (filters.reviewed !== 'all') params.set('reviewed', filters.reviewed)
+      const d = await adminApi(`/system/audit-logs${params.toString() ? '?' + params : ''}`)
+      setAuditLogs(d.logs || [])
+    } catch (e) { setError(e.message) }
+    setAuditLoading(false)
+  }
+
+  const loadSponsors = async () => {
+    try {
+      const d = await adminApi('/users?role=sponsor')
+      setSponsors(Array.isArray(d?.users) ? d.users : [])
+    } catch { /* ignore */ }
+  }
+
+  // #33: Mark reviewed / un-review
+  const toggleReview = async (logId) => {
+    setReviewingId(logId); setError(''); setSuccess('')
+    try {
+      const d = await adminApi(`/system/audit-logs/${logId}/review`, { method: 'PUT' })
+      setAuditLogs(prev => prev.map(l => l.id === logId
+        ? { ...l, reviewed_at: d.reviewed ? new Date().toISOString() : null }
+        : l
+      ))
+      setSuccess(d.reviewed ? 'Marked as reviewed.' : 'Review mark removed.')
+    } catch (e) { setError(e.message) }
+    setReviewingId(null)
+  }
+
+  // #34: Export audit logs as CSV (browser-side, "fancy" formatting)
+  const exportAuditCSV = () => {
+    if (!auditLogs.length) return
+    const headerRow = [
+      'ID', 'Date', 'Driver', 'Driver Email', 'Sponsor', 'Delta', 'Reason', 'Reviewed At', 'Reviewed By'
+    ]
+    const rows = auditLogs.map(l => [
+      l.id,
+      l.created_at ? new Date(l.created_at).toLocaleString() : '',
+      (l.driver_name || '').trim() || '',
+      l.driver_email || '',
+      l.sponsor_company || (l.sponsor_id == null ? 'Admin' : `#${l.sponsor_id}`),
+      l.delta,
+      `"${(l.reason || '').replace(/"/g, '""')}"`,
+      l.reviewed_at ? new Date(l.reviewed_at).toLocaleString() : '',
+      l.reviewed_by_name || (l.reviewed_by ? `#${l.reviewed_by}` : ''),
+    ])
+    const csv = [headerRow, ...rows].map(r => r.join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // ── Login Attempts loaders ────────────────────────────────────────────────
+  const loadLoginAttempts = async (filters = loginFilters) => {
+    setLoginLoading(true); setError('')
+    try {
+      const params = new URLSearchParams()
+      if (filters.failed_only) params.set('failed_only', 'true')
+      if (filters.email)     params.set('email', filters.email)
+      if (filters.date_from) params.set('date_from', filters.date_from)
+      if (filters.date_to)   params.set('date_to', filters.date_to)
+      const d = await adminApi(`/system/login-attempts${params.toString() ? '?' + params : ''}`)
+      setLoginAttempts(d.attempts || [])
+    } catch (e) { setError(e.message) }
+    setLoginLoading(false)
+  }
+
+  const exportLoginCSV = () => {
+    if (!loginAttempts.length) return
+    const csv = [
+      ['ID', 'Date', 'Email', 'Success', 'IP', 'Failure Reason', 'User Agent'],
+      ...loginAttempts.map(a => [
+        a.id,
+        a.attempted_at ? new Date(a.attempted_at).toLocaleString() : '',
+        a.email || '',
+        a.success ? 'Yes' : 'No',
+        a.ip_address || '',
+        a.failure_reason || '',
+        `"${(a.user_agent || '').replace(/"/g, '""').slice(0, 100)}"`,
+      ])
+    ].map(r => r.join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `login-attempts-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // ── Config loaders / actions ──────────────────────────────────────────────
+  const loadConfig = async () => {
+    setConfigLoading(true); setError('')
+    try { const d = await adminApi('/system/config'); setConfigItems(d.config || []) }
+    catch (e) { setError(e.message) }
+    setConfigLoading(false)
+  }
+
+  const saveConfig = async (key) => {
+    setError(''); setSuccess('')
+    try {
+      await adminApi(`/system/config/${key}`, {
+        method: 'PUT',
+        body: JSON.stringify({ config_value: editConfigValue, change_reason: editConfigReason })
+      })
+      setSuccess(`Saved "${key}".`); setEditingConfigKey(null); setEditConfigReason('')
+      await loadConfig()
     } catch (e) { setError(e.message) }
   }
 
+  const createConfig = async () => {
+    if (!newConfig.config_key || !newConfig.config_value) { setError('Key and value required'); return }
+    setError(''); setSuccess('')
+    try {
+      await adminApi('/system/config', { method: 'POST', body: JSON.stringify(newConfig) })
+      setSuccess('Config entry created.'); setShowNewConfig(false); setNewConfig({ config_key: '', config_value: '', description: '' })
+      await loadConfig()
+    } catch (e) { setError(e.message) }
+  }
+
+  const deleteConfig = async (key) => {
+    if (!window.confirm(`Delete config key "${key}"?`)) return
+    setError(''); setSuccess('')
+    try { await adminApi(`/system/config/${key}`, { method: 'DELETE' }); setSuccess('Deleted.'); await loadConfig() }
+    catch (e) { setError(e.message) }
+  }
+
+  // ── Config Changelog loaders ──────────────────────────────────────────────
+  const loadChangelog = async () => {
+    setChangelogLoading(true); setError('')
+    try {
+      const params = changelogKeyFilter ? `?config_key=${encodeURIComponent(changelogKeyFilter)}` : ''
+      const d = await adminApi(`/system/config/changelog${params}`)
+      setConfigChangelog(d.changelog || [])
+    } catch (e) { setError(e.message) }
+    setChangelogLoading(false)
+  }
+
+  // ── Tab effect ────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (activeTab === 'overview') loadOverview()
-    else if (activeTab === 'jobs') loadJobs()
+    setError(''); setSuccess('')
+    if (activeTab === 'overview')       loadOverview()
+    else if (activeTab === 'jobs')      loadJobs()
     else if (activeTab === 'maintenance') loadMaintenance()
-    else if (activeTab === 'features') loadFeatures()
+    else if (activeTab === 'features')  loadFeatures()
+    else if (activeTab === 'audit')     { loadAuditLogs(); loadSponsors() }
+    else if (activeTab === 'login')     loadLoginAttempts()
+    else if (activeTab === 'config')    loadConfig()
+    else if (activeTab === 'changelog') loadChangelog()
   }, [activeTab])
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
   const formatUptime = (s) => {
     if (!s && s !== 0) return '-'
     const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60)
     return [d && `${d}d`, h && `${h}h`, `${m}m`].filter(Boolean).join(' ')
   }
-
   const formatBytes = (b) => {
     if (!b) return '-'
     if (b < 1024) return `${b} B`
     if (b < 1048576) return `${(b / 1024).toFixed(1)} KB`
     return `${(b / 1048576).toFixed(1)} MB`
   }
+  const fmtDate = (ts) => ts ? new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
 
   const tabs = [
-    { key: 'overview', label: 'Overview' },
-    { key: 'jobs', label: 'Background Jobs' },
+    { key: 'overview',    label: 'Overview' },
+    { key: 'jobs',        label: 'Background Jobs' },
     { key: 'maintenance', label: 'Maintenance' },
-    { key: 'features', label: 'Feature Flags' },
+    { key: 'features',    label: 'Feature Flags' },
+    { key: 'audit',       label: '📋 Audit Logs' },
+    { key: 'login',       label: '🔐 Login Attempts' },
+    { key: 'config',      label: '⚙️ System Config' },
+    { key: 'changelog',   label: '📜 Config Changelog' },
   ]
 
   return (
@@ -3002,46 +3167,38 @@ const SystemMonitoringPage = () => {
       <Navigation />
       <main className="app-main">
         <h1 className="page-title">System Monitoring</h1>
-        <p className="page-subtitle">Infrastructure health, metrics, and configuration</p>
+        <p className="page-subtitle">Infrastructure health, audit logs, and configuration</p>
 
-        {error && <div className="alert alert-danger">{error}</div>}
-        {success && <div className="alert alert-success">{success}</div>}
+        {error   && <div className="alert alert-danger" style={{ color: '#dc2626', marginBottom: 8, padding: '8px 12px', background: '#fef2f2', borderRadius: 6, border: '1px solid #fecaca' }}>{error}</div>}
+        {success && <div className="alert alert-success" style={{ color: '#16a34a', marginBottom: 8, padding: '8px 12px', background: '#f0fdf4', borderRadius: 6, border: '1px solid #bbf7d0' }}>{success}</div>}
 
-        <div className="tab-bar" style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
           {tabs.map(t => (
             <button key={t.key} type="button"
               className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => { setActiveTab(t.key); setError(''); setSuccess('') }}>
+              onClick={() => setActiveTab(t.key)}>
               {t.label}
             </button>
           ))}
         </div>
 
-        {/* ── Overview Tab (#3144, #3145) ── */}
+        {/* ── Overview ── */}
         {activeTab === 'overview' && (
           <div>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
-              <div className="card" style={{ flex: '1 1 200px', minWidth: 200 }}>
-                <h3 style={{ margin: '0 0 8px', fontSize: '0.9em', color: '#6b7280' }}>Uptime</h3>
-                <div style={{ fontSize: '1.5em', fontWeight: 700 }}>{stats ? formatUptime(stats.uptime_seconds) : '-'}</div>
-              </div>
-              <div className="card" style={{ flex: '1 1 200px', minWidth: 200 }}>
-                <h3 style={{ margin: '0 0 8px', fontSize: '0.9em', color: '#6b7280' }}>Database</h3>
-                <div style={{ fontSize: '1.5em', fontWeight: 700, color: stats?.db_connected ? '#16a34a' : '#dc2626' }}>
-                  {stats ? (stats.db_connected ? 'Connected' : 'Disconnected') : '-'}
+              {[
+                { label: 'Uptime', value: stats ? formatUptime(stats.uptime_seconds) : '-' },
+                { label: 'Database', value: stats ? (stats.db_connected ? 'Connected' : 'Disconnected') : '-', color: stats?.db_connected ? '#16a34a' : '#dc2626' },
+                { label: 'Total Users', value: stats?.total_users ?? '-' },
+                { label: 'Memory (RSS)', value: stats ? formatBytes(stats.memory?.rss) : '-' },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="card" style={{ flex: '1 1 180px' }}>
+                  <h3 style={{ margin: '0 0 8px', fontSize: '0.9em', color: '#6b7280' }}>{label}</h3>
+                  <div style={{ fontSize: '1.5em', fontWeight: 700, color: color || undefined }}>{value}</div>
                 </div>
-              </div>
-              <div className="card" style={{ flex: '1 1 200px', minWidth: 200 }}>
-                <h3 style={{ margin: '0 0 8px', fontSize: '0.9em', color: '#6b7280' }}>Total Users</h3>
-                <div style={{ fontSize: '1.5em', fontWeight: 700 }}>{stats?.total_users ?? '-'}</div>
-              </div>
-              <div className="card" style={{ flex: '1 1 200px', minWidth: 200 }}>
-                <h3 style={{ margin: '0 0 8px', fontSize: '0.9em', color: '#6b7280' }}>Memory (RSS)</h3>
-                <div style={{ fontSize: '1.5em', fontWeight: 700 }}>{stats ? formatBytes(stats.memory?.rss) : '-'}</div>
-              </div>
+              ))}
             </div>
 
-            {/* API Metrics */}
             <div className="card" style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <h2 className="section-title" style={{ margin: 0 }}>API Usage Metrics</h2>
@@ -3049,9 +3206,8 @@ const SystemMonitoringPage = () => {
               </div>
               {metrics && (
                 <>
-                  <p style={{ margin: '0 0 12px', color: '#6b7280' }}>
-                    Total requests since boot: <strong>{metrics.total_requests}</strong> &middot;
-                    Tracking since: {metrics.since ? new Date(metrics.since).toLocaleString() : '-'}
+                  <p style={{ margin: '0 0 12px', color: '#6b7280', fontSize: '0.875em' }}>
+                    Total requests: <strong>{metrics.total_requests}</strong> · Since: {metrics.since ? new Date(metrics.since).toLocaleString() : '-'}
                   </p>
                   {metrics.top_endpoints?.length > 0 && (
                     <div className="table-wrap">
@@ -3059,7 +3215,10 @@ const SystemMonitoringPage = () => {
                         <thead><tr><th>Endpoint</th><th style={{ textAlign: 'right' }}>Hits</th></tr></thead>
                         <tbody>
                           {metrics.top_endpoints.map((e, i) => (
-                            <tr key={i}><td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{e.endpoint}</td><td style={{ textAlign: 'right' }}>{e.count}</td></tr>
+                            <tr key={i}>
+                              <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{e.endpoint}</td>
+                              <td style={{ textAlign: 'right' }}>{e.count}</td>
+                            </tr>
                           ))}
                         </tbody>
                       </table>
@@ -3067,29 +3226,25 @@ const SystemMonitoringPage = () => {
                   )}
                   {metrics.requests_per_minute?.length > 0 && (
                     <div style={{ marginTop: 16 }}>
-                      <h3 style={{ fontSize: '0.95em', marginBottom: 8 }}>Requests Per Minute (last hour)</h3>
-                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 80, overflow: 'hidden' }}>
+                      <h3 style={{ fontSize: '0.9em', marginBottom: 8, color: '#374151' }}>Requests per Minute (last hour)</h3>
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 80 }}>
                         {metrics.requests_per_minute.slice(-60).map((m, i) => {
                           const max = Math.max(...metrics.requests_per_minute.slice(-60).map(x => x.count), 1)
                           const h = Math.max(4, (m.count / max) * 72)
-                          return <div key={i} title={`${m.minute}: ${m.count} req`} style={{
-                            flex: '1 1 0', background: '#3b82f6', borderRadius: '2px 2px 0 0', height: h, minWidth: 3,
-                          }} />
+                          return <div key={i} title={`${m.minute}: ${m.count}`} style={{ flex: '1 1 0', background: '#3b82f6', borderRadius: '2px 2px 0 0', height: h, minWidth: 3 }} />
                         })}
                       </div>
                     </div>
                   )}
                 </>
               )}
-              {!metrics && !loading && <p>No metrics available</p>}
             </div>
 
-            {/* System info */}
             <div className="card">
               <h2 className="section-title" style={{ margin: '0 0 12px' }}>System Info</h2>
               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 16px', fontSize: '0.9em' }}>
                 <span style={{ color: '#6b7280' }}>Node.js</span><span>{stats?.node_version || '-'}</span>
-                <span style={{ color: '#6b7280' }}>Started At</span><span>{stats?.started_at ? new Date(stats.started_at).toLocaleString() : '-'}</span>
+                <span style={{ color: '#6b7280' }}>Started</span><span>{stats?.started_at ? new Date(stats.started_at).toLocaleString() : '-'}</span>
                 <span style={{ color: '#6b7280' }}>Heap Used</span><span>{stats ? formatBytes(stats.memory?.heapUsed) : '-'}</span>
                 <span style={{ color: '#6b7280' }}>Heap Total</span><span>{stats ? formatBytes(stats.memory?.heapTotal) : '-'}</span>
               </div>
@@ -3097,31 +3252,18 @@ const SystemMonitoringPage = () => {
           </div>
         )}
 
-        {/* ── Background Jobs Tab (#3146, #3147) ── */}
+        {/* ── Background Jobs ── */}
         {activeTab === 'jobs' && (
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h2 className="section-title" style={{ margin: 0 }}>Scheduled Point Awards</h2>
               <button className="btn btn-primary" type="button" onClick={loadJobs}>Refresh</button>
             </div>
-            {jobs.length === 0 ? (
-              <p style={{ color: '#6b7280' }}>No background jobs found</p>
-            ) : (
+            {jobs.length === 0 ? <p style={{ color: '#6b7280' }}>No background jobs found.</p> : (
               <div className="table-wrap">
                 <table className="table">
                   <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Driver</th>
-                      <th>Sponsor</th>
-                      <th>Points</th>
-                      <th>Frequency</th>
-                      <th>Status</th>
-                      <th>Last Run</th>
-                      <th>Runs</th>
-                      <th>Error</th>
-                      <th>Actions</th>
-                    </tr>
+                    <tr><th>ID</th><th>Driver</th><th>Sponsor</th><th>Points</th><th>Frequency</th><th>Status</th><th>Last Run</th><th>Runs</th><th>Error</th><th>Actions</th></tr>
                   </thead>
                   <tbody>
                     {jobs.map(j => {
@@ -3130,25 +3272,13 @@ const SystemMonitoringPage = () => {
                       const statusColor = j.is_paused ? '#f59e0b' : hasError ? '#dc2626' : '#16a34a'
                       return (
                         <tr key={j.id}>
-                          <td>{j.id}</td>
-                          <td>{j.driver_id || 'All'}</td>
-                          <td>{j.sponsor_id}</td>
-                          <td>{j.points}</td>
-                          <td>{j.frequency}{j.is_recurring ? ' (recurring)' : ''}</td>
+                          <td>{j.id}</td><td>{j.driver_id || 'All'}</td><td>{j.sponsor_id}</td>
+                          <td>{j.points}</td><td>{j.frequency}{j.is_recurring ? ' (rec)' : ''}</td>
                           <td><span style={{ color: statusColor, fontWeight: 600 }}>{status}</span></td>
-                          <td style={{ fontSize: '0.85em' }}>{j.last_run_at ? new Date(j.last_run_at).toLocaleString() : '-'}</td>
+                          <td style={{ fontSize: '0.82em' }}>{j.last_run_at ? new Date(j.last_run_at).toLocaleString() : '-'}</td>
                           <td>{j.run_count || 0}</td>
-                          <td style={{ fontSize: '0.8em', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', color: '#dc2626' }}>
-                            {j.last_error || '-'}
-                          </td>
-                          <td>
-                            {(hasError || j.is_paused) && (
-                              <button className="btn btn-primary" type="button" style={{ fontSize: '0.8em', padding: '4px 10px' }}
-                                onClick={() => retryJob(j.id)}>
-                                Retry
-                              </button>
-                            )}
-                          </td>
+                          <td style={{ fontSize: '0.78em', maxWidth: 180, color: '#dc2626' }}>{j.last_error || '-'}</td>
+                          <td>{(hasError || j.is_paused) && <button className="btn btn-primary" type="button" style={{ fontSize: '0.78em', padding: '3px 8px' }} onClick={() => retryJob(j.id)}>Retry</button>}</td>
                         </tr>
                       )
                     })}
@@ -3159,70 +3289,43 @@ const SystemMonitoringPage = () => {
           </div>
         )}
 
-        {/* ── Maintenance Tab (#3148) ── */}
+        {/* ── Maintenance ── */}
         {activeTab === 'maintenance' && (
           <div>
             <div className="card" style={{ marginBottom: 16 }}>
               <h2 className="section-title" style={{ margin: '0 0 12px' }}>Schedule Maintenance Window</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                <div>
-                  <label className="form-label">Title</label>
-                  <input className="form-input" value={newMaint.title} onChange={e => setNewMaint(p => ({ ...p, title: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="form-label">Description (optional)</label>
-                  <input className="form-input" value={newMaint.description} onChange={e => setNewMaint(p => ({ ...p, description: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="form-label">Start Time</label>
-                  <input type="datetime-local" className="form-input" value={newMaint.starts_at} onChange={e => setNewMaint(p => ({ ...p, starts_at: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="form-label">End Time</label>
-                  <input type="datetime-local" className="form-input" value={newMaint.ends_at} onChange={e => setNewMaint(p => ({ ...p, ends_at: e.target.value }))} />
-                </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div><label className="form-label">Title</label><input className="form-input" value={newMaint.title} onChange={e => setNewMaint(p => ({ ...p, title: e.target.value }))} /></div>
+                <div><label className="form-label">Description</label><input className="form-input" value={newMaint.description} onChange={e => setNewMaint(p => ({ ...p, description: e.target.value }))} /></div>
+                <div><label className="form-label">Start</label><input type="datetime-local" className="form-input" value={newMaint.starts_at} onChange={e => setNewMaint(p => ({ ...p, starts_at: e.target.value }))} /></div>
+                <div><label className="form-label">End</label><input type="datetime-local" className="form-input" value={newMaint.ends_at} onChange={e => setNewMaint(p => ({ ...p, ends_at: e.target.value }))} /></div>
               </div>
               <button className="btn btn-success" type="button" onClick={createMaintenance}>Create Window</button>
             </div>
-
             <div className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <h2 className="section-title" style={{ margin: 0 }}>Scheduled Windows</h2>
                 <button className="btn btn-primary" type="button" onClick={loadMaintenance}>Refresh</button>
               </div>
-              {mWindows.length === 0 ? (
-                <p style={{ color: '#6b7280' }}>No maintenance windows scheduled</p>
-              ) : (
+              {mWindows.length === 0 ? <p style={{ color: '#6b7280' }}>No maintenance windows.</p> : (
                 <div className="table-wrap">
                   <table className="table">
                     <thead><tr><th>Title</th><th>Description</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th></tr></thead>
                     <tbody>
                       {mWindows.map(w => {
-                        const now = new Date()
-                        const start = new Date(w.starts_at)
-                        const end = new Date(w.ends_at)
+                        const now = new Date(), start = new Date(w.starts_at), end = new Date(w.ends_at)
                         const isLive = w.is_active && now >= start && now <= end
                         const isPast = now > end
                         return (
                           <tr key={w.id}>
                             <td style={{ fontWeight: 600 }}>{w.title}</td>
-                            <td style={{ fontSize: '0.85em', maxWidth: 200 }}>{w.description || '-'}</td>
-                            <td style={{ fontSize: '0.85em', whiteSpace: 'nowrap' }}>{start.toLocaleString()}</td>
-                            <td style={{ fontSize: '0.85em', whiteSpace: 'nowrap' }}>{end.toLocaleString()}</td>
-                            <td>
-                              <span style={{ color: isLive ? '#dc2626' : isPast ? '#6b7280' : w.is_active ? '#16a34a' : '#f59e0b', fontWeight: 600 }}>
-                                {isLive ? 'LIVE' : isPast ? 'Past' : w.is_active ? 'Scheduled' : 'Disabled'}
-                              </span>
-                            </td>
-                            <td style={{ display: 'flex', gap: 6 }}>
-                              <button className="btn btn-ghost" type="button" style={{ fontSize: '0.8em', padding: '4px 8px' }}
-                                onClick={() => toggleMaintenance(w.id, !!w.is_active)}>
-                                {w.is_active ? 'Disable' : 'Enable'}
-                              </button>
-                              <button className="btn btn-danger" type="button" style={{ fontSize: '0.8em', padding: '4px 8px' }}
-                                onClick={() => deleteMaintenance(w.id)}>
-                                Delete
-                              </button>
+                            <td style={{ fontSize: '0.85em' }}>{w.description || '-'}</td>
+                            <td style={{ fontSize: '0.85em' }}>{start.toLocaleString()}</td>
+                            <td style={{ fontSize: '0.85em' }}>{end.toLocaleString()}</td>
+                            <td><span style={{ color: isLive ? '#dc2626' : isPast ? '#6b7280' : w.is_active ? '#16a34a' : '#f59e0b', fontWeight: 600 }}>{isLive ? 'LIVE' : isPast ? 'Past' : w.is_active ? 'Scheduled' : 'Disabled'}</span></td>
+                            <td style={{ display: 'flex', gap: 4 }}>
+                              <button className="btn btn-ghost" type="button" style={{ fontSize: '0.78em', padding: '3px 8px' }} onClick={() => toggleMaintenance(w.id, !!w.is_active)}>{w.is_active ? 'Disable' : 'Enable'}</button>
+                              <button className="btn btn-danger" type="button" style={{ fontSize: '0.78em', padding: '3px 8px' }} onClick={() => deleteMaintenance(w.id)}>Delete</button>
                             </td>
                           </tr>
                         )
@@ -3235,46 +3338,25 @@ const SystemMonitoringPage = () => {
           </div>
         )}
 
-        {/* ── Feature Flags Tab (#3149) ── */}
+        {/* ── Feature Flags ── */}
         {activeTab === 'features' && (
           <div>
             <div className="card" style={{ marginBottom: 16 }}>
               <h2 className="section-title" style={{ margin: '0 0 12px' }}>Create Feature Flag</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                <div>
-                  <label className="form-label">Key (lowercase, underscores)</label>
-                  <input className="form-input" placeholder="e.g. new_feature" value={newFeature.feature_key}
-                    onChange={e => setNewFeature(p => ({ ...p, feature_key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))} />
-                </div>
-                <div>
-                  <label className="form-label">Label</label>
-                  <input className="form-input" placeholder="Human-readable name" value={newFeature.label}
-                    onChange={e => setNewFeature(p => ({ ...p, label: e.target.value }))} />
-                </div>
-                <div style={{ gridColumn: '1 / -1' }}>
-                  <label className="form-label">Description (optional)</label>
-                  <input className="form-input" value={newFeature.description}
-                    onChange={e => setNewFeature(p => ({ ...p, description: e.target.value }))} />
-                </div>
-                <div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={newFeature.is_enabled}
-                      onChange={e => setNewFeature(p => ({ ...p, is_enabled: e.target.checked }))} />
-                    Enabled by default
-                  </label>
-                </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div><label className="form-label">Key (lowercase_underscores)</label><input className="form-input" placeholder="e.g. new_feature" value={newFeature.feature_key} onChange={e => setNewFeature(p => ({ ...p, feature_key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))} /></div>
+                <div><label className="form-label">Label</label><input className="form-input" placeholder="Human-readable name" value={newFeature.label} onChange={e => setNewFeature(p => ({ ...p, label: e.target.value }))} /></div>
+                <div style={{ gridColumn: '1/-1' }}><label className="form-label">Description</label><input className="form-input" value={newFeature.description} onChange={e => setNewFeature(p => ({ ...p, description: e.target.value }))} /></div>
+                <div><label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.875em' }}><input type="checkbox" checked={newFeature.is_enabled} onChange={e => setNewFeature(p => ({ ...p, is_enabled: e.target.checked }))} />Enabled by default</label></div>
               </div>
               <button className="btn btn-success" type="button" onClick={createFeature}>Create Flag</button>
             </div>
-
             <div className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <h2 className="section-title" style={{ margin: 0 }}>Feature Flags</h2>
                 <button className="btn btn-primary" type="button" onClick={loadFeatures}>Refresh</button>
               </div>
-              {features.length === 0 ? (
-                <p style={{ color: '#6b7280' }}>No feature flags configured</p>
-              ) : (
+              {features.length === 0 ? <p style={{ color: '#6b7280' }}>No feature flags.</p> : (
                 <div className="table-wrap">
                   <table className="table">
                     <thead><tr><th>Key</th><th>Label</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead>
@@ -3283,23 +3365,11 @@ const SystemMonitoringPage = () => {
                         <tr key={f.id}>
                           <td style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{f.feature_key}</td>
                           <td style={{ fontWeight: 600 }}>{f.label}</td>
-                          <td style={{ fontSize: '0.85em', maxWidth: 250 }}>{f.description || '-'}</td>
-                          <td>
-                            <span style={{ color: f.is_enabled ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
-                              {f.is_enabled ? 'ON' : 'OFF'}
-                            </span>
-                          </td>
-                          <td style={{ display: 'flex', gap: 6 }}>
-                            <button className={`btn ${f.is_enabled ? 'btn-ghost' : 'btn-success'}`} type="button"
-                              style={{ fontSize: '0.8em', padding: '4px 10px' }}
-                              onClick={() => toggleFeature(f.id)}>
-                              {f.is_enabled ? 'Disable' : 'Enable'}
-                            </button>
-                            <button className="btn btn-danger" type="button"
-                              style={{ fontSize: '0.8em', padding: '4px 10px' }}
-                              onClick={() => deleteFeature(f.id)}>
-                              Delete
-                            </button>
+                          <td style={{ fontSize: '0.85em', maxWidth: 220 }}>{f.description || '-'}</td>
+                          <td><span style={{ color: f.is_enabled ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{f.is_enabled ? 'ON' : 'OFF'}</span></td>
+                          <td style={{ display: 'flex', gap: 4 }}>
+                            <button className={`btn ${f.is_enabled ? 'btn-ghost' : 'btn-success'}`} type="button" style={{ fontSize: '0.78em', padding: '3px 8px' }} onClick={() => toggleFeature(f.id)}>{f.is_enabled ? 'Disable' : 'Enable'}</button>
+                            <button className="btn btn-danger" type="button" style={{ fontSize: '0.78em', padding: '3px 8px' }} onClick={() => deleteFeature(f.id)}>Delete</button>
                           </td>
                         </tr>
                       ))}
@@ -3308,6 +3378,327 @@ const SystemMonitoringPage = () => {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* ── Audit Logs (#28, #29, #30, #33, #34) ── */}
+        {activeTab === 'audit' && (
+          <div>
+            <div className="card" style={{ marginBottom: 14 }}>
+              <h2 className="section-title" style={{ marginTop: 0 }}>Filters</h2>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                {/* Date filters — #29 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <label style={{ fontSize: '0.72em', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>From</label>
+                  <input type="date" className="form-input" value={auditFilters.date_from} onChange={e => setAuditFilters(p => ({ ...p, date_from: e.target.value }))} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <label style={{ fontSize: '0.72em', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>To</label>
+                  <input type="date" className="form-input" value={auditFilters.date_to} onChange={e => setAuditFilters(p => ({ ...p, date_to: e.target.value }))} />
+                </div>
+                {/* Sponsor filter — #30 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <label style={{ fontSize: '0.72em', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Sponsor</label>
+                  <select className="form-input" style={{ minWidth: 160 }} value={auditFilters.sponsor_id} onChange={e => setAuditFilters(p => ({ ...p, sponsor_id: e.target.value }))}>
+                    <option value="">All Sponsors</option>
+                    {sponsors.filter(s => s.company_name).map(s => <option key={s.id} value={s.id}>{s.company_name}</option>)}
+                    <option value="null">Admin (no sponsor)</option>
+                  </select>
+                </div>
+                {/* Driver filter */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <label style={{ fontSize: '0.72em', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Driver ID</label>
+                  <input type="number" className="form-input" style={{ width: 100 }} placeholder="Driver ID" value={auditFilters.driver_id} onChange={e => setAuditFilters(p => ({ ...p, driver_id: e.target.value }))} />
+                </div>
+                {/* Review filter — #33 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <label style={{ fontSize: '0.72em', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Review Status</label>
+                  <select className="form-input" value={auditFilters.reviewed} onChange={e => setAuditFilters(p => ({ ...p, reviewed: e.target.value }))}>
+                    <option value="all">All</option>
+                    <option value="false">Unreviewed</option>
+                    <option value="true">Reviewed</option>
+                  </select>
+                </div>
+                <button className="btn btn-primary" type="button" onClick={() => loadAuditLogs(auditFilters)} disabled={auditLoading}>{auditLoading ? 'Loading…' : '🔍 Apply'}</button>
+                <button className="btn btn-secondary" type="button" onClick={() => { const f = { date_from: '', date_to: '', sponsor_id: '', driver_id: '', reviewed: 'all' }; setAuditFilters(f); loadAuditLogs(f) }}>Clear</button>
+                {/* #34: Export */}
+                <button className="btn btn-success" type="button" onClick={exportAuditCSV} disabled={!auditLogs.length} style={{ marginLeft: 'auto' }}>⬇ Export CSV</button>
+              </div>
+            </div>
+
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <h2 className="section-title" style={{ margin: 0 }}>
+                  Audit Log{auditLogs.length > 0 ? ` (${auditLogs.length} entries)` : ''}
+                </h2>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <span style={{ fontSize: '0.8em', color: '#6b7280', alignSelf: 'center' }}>
+                    {auditLogs.filter(l => l.reviewed_at).length} reviewed
+                  </span>
+                  <button className="btn btn-primary" type="button" onClick={() => loadAuditLogs(auditFilters)}>Refresh</button>
+                </div>
+              </div>
+              {auditLoading ? <p style={{ color: '#6b7280' }}>Loading…</p>
+                : auditLogs.length === 0 ? <p style={{ color: '#6b7280', fontStyle: 'italic' }}>Apply filters to load audit logs.</p>
+                : (
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Driver</th>
+                          <th>Sponsor</th>
+                          <th className="text-right">Δ Points</th>
+                          <th>Reason</th>
+                          <th style={{ width: 130 }}>Reviewed</th>
+                          <th style={{ width: 90 }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditLogs.map(l => {
+                          const isReviewed = !!l.reviewed_at
+                          const delta = Number(l.delta)
+                          return (
+                            <tr key={l.id} style={{ opacity: isReviewed ? 0.7 : 1 }}>
+                              <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap', color: '#6b7280' }}>{fmtDate(l.created_at)}</td>
+                              <td>
+                                <div style={{ lineHeight: 1.3 }}>
+                                  <strong style={{ fontSize: '0.88em' }}>{(l.driver_name || '').trim() || '—'}</strong>
+                                  <br /><span style={{ fontSize: '0.75em', color: '#6b7280' }}>{l.driver_email}</span>
+                                </div>
+                              </td>
+                              <td style={{ fontSize: '0.85em' }}>{l.sponsor_company || (l.sponsor_id == null ? <em style={{ color: '#9ca3af' }}>Admin</em> : `#${l.sponsor_id}`)}</td>
+                              <td className="text-right" style={{ fontWeight: 700, color: delta >= 0 ? '#16a34a' : '#dc2626' }}>{delta >= 0 ? `+${delta}` : delta}</td>
+                              <td style={{ fontSize: '0.85em', maxWidth: 200 }}>{l.reason || '—'}</td>
+                              <td>
+                                {isReviewed ? (
+                                  <div style={{ lineHeight: 1.3 }}>
+                                    <span style={{ fontSize: '0.75em', color: '#16a34a', fontWeight: 600 }}>✓ Reviewed</span>
+                                    <br /><span style={{ fontSize: '0.7em', color: '#9ca3af' }}>{fmtDate(l.reviewed_at)}</span>
+                                    {l.reviewed_by_name && <><br /><span style={{ fontSize: '0.7em', color: '#9ca3af' }}>{l.reviewed_by_name}</span></>}
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: '0.75em', color: '#9ca3af' }}>Unreviewed</span>
+                                )}
+                              </td>
+                              <td>
+                                {/* #33: Mark reviewed */}
+                                <button
+                                  className={isReviewed ? 'btn btn-ghost' : 'btn btn-success'}
+                                  type="button"
+                                  style={{ fontSize: '0.72em', padding: '3px 8px' }}
+                                  disabled={reviewingId === l.id}
+                                  onClick={() => toggleReview(l.id)}
+                                >
+                                  {reviewingId === l.id ? '…' : isReviewed ? 'Un-review' : '✓ Review'}
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Login Attempts (#31, #32) ── */}
+        {activeTab === 'login' && (
+          <div>
+            <div className="card" style={{ marginBottom: 14 }}>
+              <h2 className="section-title" style={{ marginTop: 0 }}>Filters</h2>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <label style={{ fontSize: '0.72em', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Email</label>
+                  <input className="form-input" placeholder="Search email…" value={loginFilters.email} onChange={e => setLoginFilters(p => ({ ...p, email: e.target.value }))} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <label style={{ fontSize: '0.72em', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>From</label>
+                  <input type="date" className="form-input" value={loginFilters.date_from} onChange={e => setLoginFilters(p => ({ ...p, date_from: e.target.value }))} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <label style={{ fontSize: '0.72em', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>To</label>
+                  <input type="date" className="form-input" value={loginFilters.date_to} onChange={e => setLoginFilters(p => ({ ...p, date_to: e.target.value }))} />
+                </div>
+                {/* #32: Failed only filter */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.875em', cursor: 'pointer', paddingBottom: 2 }}>
+                  <input type="checkbox" checked={loginFilters.failed_only} onChange={e => setLoginFilters(p => ({ ...p, failed_only: e.target.checked }))} />
+                  Failed attempts only
+                </label>
+                <button className="btn btn-primary" type="button" onClick={() => loadLoginAttempts(loginFilters)} disabled={loginLoading}>{loginLoading ? 'Loading…' : '🔍 Apply'}</button>
+                <button className="btn btn-secondary" type="button" onClick={() => { const f = { failed_only: false, email: '', date_from: '', date_to: '' }; setLoginFilters(f); loadLoginAttempts(f) }}>Clear</button>
+                <button className="btn btn-success" type="button" onClick={exportLoginCSV} disabled={!loginAttempts.length} style={{ marginLeft: 'auto' }}>⬇ Export CSV</button>
+              </div>
+            </div>
+
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <h2 className="section-title" style={{ margin: 0 }}>
+                  Login Attempts{loginAttempts.length > 0 ? ` (${loginAttempts.length})` : ''}
+                  {loginAttempts.length > 0 && (
+                    <span style={{ marginLeft: 12, fontSize: '0.75em', fontWeight: 400, color: '#dc2626' }}>
+                      {loginAttempts.filter(a => !a.success).length} failed
+                    </span>
+                  )}
+                </h2>
+                <button className="btn btn-primary" type="button" onClick={() => loadLoginAttempts(loginFilters)}>Refresh</button>
+              </div>
+              {loginLoading ? <p style={{ color: '#6b7280' }}>Loading…</p>
+                : loginAttempts.length === 0 ? <p style={{ color: '#6b7280', fontStyle: 'italic' }}>Apply filters to load login attempts.</p>
+                : (
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead>
+                        <tr><th>Date</th><th>Email</th><th>Result</th><th>IP Address</th><th>Failure Reason</th><th>Role</th></tr>
+                      </thead>
+                      <tbody>
+                        {loginAttempts.map(a => (
+                          <tr key={a.id} style={{ background: !a.success ? '#fff7f7' : undefined }}>
+                            <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap', color: '#6b7280' }}>{fmtDate(a.attempted_at)}</td>
+                            <td style={{ fontSize: '0.88em' }}>{a.email}</td>
+                            <td>
+                              <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: '0.78em', fontWeight: 700, background: a.success ? '#d1fae5' : '#fee2e2', color: a.success ? '#065f46' : '#991b1b' }}>
+                                {a.success ? '✓ Success' : '✕ Failed'}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: '0.82em', fontFamily: 'monospace', color: '#6b7280' }}>{a.ip_address || '—'}</td>
+                            <td style={{ fontSize: '0.82em', color: '#dc2626' }}>{a.failure_reason || '—'}</td>
+                            <td style={{ fontSize: '0.82em', color: '#6b7280' }}>{a.role || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+            </div>
+          </div>
+        )}
+
+        {/* ── System Config (#24) ── */}
+        {activeTab === 'config' && (
+          <div>
+            <div className="card" style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <h2 className="section-title" style={{ margin: 0 }}>System Configuration Values</h2>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-success" type="button" onClick={() => setShowNewConfig(v => !v)}>{showNewConfig ? 'Cancel' : '+ Add Config'}</button>
+                  <button className="btn btn-primary" type="button" onClick={loadConfig}>Refresh</button>
+                </div>
+              </div>
+
+              {showNewConfig && (
+                <div style={{ padding: '12px 16px', background: '#f0fdf4', borderRadius: 8, marginBottom: 14, border: '1px solid #bbf7d0' }}>
+                  <h3 style={{ margin: '0 0 10px', fontSize: '0.9em', fontWeight: 700 }}>New Config Entry</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                    <div><label className="form-label">Key (e.g. max_points_per_trip)</label><input className="form-input" placeholder="config_key" value={newConfig.config_key} onChange={e => setNewConfig(p => ({ ...p, config_key: e.target.value }))} /></div>
+                    <div><label className="form-label">Value</label><input className="form-input" placeholder="value" value={newConfig.config_value} onChange={e => setNewConfig(p => ({ ...p, config_value: e.target.value }))} /></div>
+                    <div style={{ gridColumn: '1/-1' }}><label className="form-label">Description</label><input className="form-input" placeholder="What this value controls" value={newConfig.description} onChange={e => setNewConfig(p => ({ ...p, description: e.target.value }))} /></div>
+                  </div>
+                  <button className="btn btn-success" type="button" onClick={createConfig}>Create</button>
+                </div>
+              )}
+
+              {configLoading ? <p style={{ color: '#6b7280' }}>Loading…</p>
+                : configItems.length === 0 ? <p style={{ color: '#6b7280', fontStyle: 'italic' }}>No config entries yet. Add one above.</p>
+                : (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {configItems.map(c => {
+                      const isEditing = editingConfigKey === c.config_key
+                      return (
+                        <div key={c.id} style={{ padding: '14px 18px', border: '1px solid var(--border)', borderRadius: 8, background: isEditing ? '#fffbeb' : '#fff' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 12, flexWrap: 'wrap' }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+                                <code style={{ fontFamily: 'monospace', fontSize: '0.9em', fontWeight: 700, color: '#1e40af', background: '#eff6ff', padding: '2px 8px', borderRadius: 4 }}>{c.config_key}</code>
+                                {c.description && <span style={{ fontSize: '0.78em', color: '#6b7280' }}>{c.description}</span>}
+                              </div>
+
+                              {isEditing ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                                  <input className="form-input" value={editConfigValue} onChange={e => setEditConfigValue(e.target.value)} autoFocus />
+                                  <input className="form-input" placeholder="Reason for change (optional)" value={editConfigReason} onChange={e => setEditConfigReason(e.target.value)} />
+                                  <div style={{ display: 'flex', gap: 6 }}>
+                                    <button className="btn btn-success" type="button" style={{ fontSize: '0.82em' }} onClick={() => saveConfig(c.config_key)}>Save</button>
+                                    <button className="btn btn-ghost" type="button" style={{ fontSize: '0.82em' }} onClick={() => setEditingConfigKey(null)}>Cancel</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div style={{ marginTop: 4, fontFamily: 'monospace', fontSize: '0.95em', color: '#374151', background: '#f9fafb', padding: '6px 10px', borderRadius: 4, display: 'inline-block', maxWidth: '100%', wordBreak: 'break-all' }}>
+                                  {c.config_value || <em style={{ color: '#9ca3af' }}>(empty)</em>}
+                                </div>
+                              )}
+
+                              <p style={{ margin: '6px 0 0', fontSize: '0.72em', color: '#9ca3af' }}>
+                                Last updated: {c.updated_at ? new Date(c.updated_at).toLocaleString() : 'never'}
+                              </p>
+                            </div>
+
+                            {!isEditing && (
+                              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                                <button className="btn btn-primary" type="button" style={{ fontSize: '0.78em', padding: '4px 10px' }}
+                                  onClick={() => { setEditingConfigKey(c.config_key); setEditConfigValue(c.config_value); setEditConfigReason('') }}>
+                                  Edit
+                                </button>
+                                <button className="btn btn-danger" type="button" style={{ fontSize: '0.78em', padding: '4px 10px' }}
+                                  onClick={() => deleteConfig(c.config_key)}>
+                                  Delete
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Config Changelog (#35) ── */}
+        {activeTab === 'changelog' && (
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Configuration Change History</h2>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input className="form-input" placeholder="Filter by config key…" style={{ width: 200 }} value={changelogKeyFilter} onChange={e => setChangelogKeyFilter(e.target.value)} />
+                <button className="btn btn-primary" type="button" onClick={loadChangelog} disabled={changelogLoading}>{changelogLoading ? 'Loading…' : '🔍 Load'}</button>
+              </div>
+            </div>
+
+            {changelogLoading ? <p style={{ color: '#6b7280' }}>Loading…</p>
+              : configChangelog.length === 0 ? <p style={{ color: '#6b7280', fontStyle: 'italic' }}>No config changes recorded yet.</p>
+              : (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr><th>Date</th><th>Key</th><th>Old Value</th><th>New Value</th><th>Changed By</th><th>Reason</th></tr>
+                    </thead>
+                    <tbody>
+                      {configChangelog.map(c => (
+                        <tr key={c.id}>
+                          <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap', color: '#6b7280' }}>{fmtDate(c.changed_at)}</td>
+                          <td><code style={{ fontFamily: 'monospace', fontSize: '0.85em', color: '#1e40af', background: '#eff6ff', padding: '1px 6px', borderRadius: 3 }}>{c.config_key}</code></td>
+                          <td style={{ maxWidth: 160 }}>
+                            <span style={{ fontFamily: 'monospace', fontSize: '0.82em', color: '#dc2626', background: '#fef2f2', padding: '1px 6px', borderRadius: 3, wordBreak: 'break-all' }}>
+                              {c.old_value ?? <em style={{ color: '#9ca3af' }}>—</em>}
+                            </span>
+                          </td>
+                          <td style={{ maxWidth: 160 }}>
+                            <span style={{ fontFamily: 'monospace', fontSize: '0.82em', color: '#16a34a', background: '#f0fdf4', padding: '1px 6px', borderRadius: 3, wordBreak: 'break-all' }}>
+                              {c.new_value ?? <em style={{ color: '#9ca3af' }}>—</em>}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '0.85em' }}>{c.changed_by_name || `#${c.changed_by}` || '—'}</td>
+                          <td style={{ fontSize: '0.82em', color: '#6b7280' }}>{c.change_reason || <em style={{ color: '#9ca3af' }}>—</em>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
           </div>
         )}
       </main>
