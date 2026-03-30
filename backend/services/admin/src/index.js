@@ -1442,9 +1442,11 @@ app.get('/system/config/changelog', requireAuth, async (req, res) => {
     );
     return res.json({ changelog: rows || [] });
   } catch (err) {
-    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ changelog: [] });
-    console.error(err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('config/changelog error:', err);
+    return res.status(500).json({
+      error: err?.message || 'Server error',
+      code: err?.code || null
+    });
   }
 });
 
@@ -1533,9 +1535,9 @@ app.get('/system/login-attempts', requireAuth, async (req, res) => {
   const params = [];
 
   if (failed_only === 'true') conditions.push('la.success = 0');
-  if (email)      { conditions.push('la.email LIKE ?'); params.push(`%${email}%`); }
-  if (date_from)  { conditions.push('la.attempted_at >= ?'); params.push(date_from); }
-  if (date_to)    { conditions.push('la.attempted_at <= ?'); params.push(date_to + ' 23:59:59'); }
+  if (email)     { conditions.push('la.email LIKE ?'); params.push(`%${email}%`); }
+  if (date_from) { conditions.push('la.attempted_at >= ?'); params.push(date_from); }
+  if (date_to)   { conditions.push('la.attempted_at <= ?'); params.push(date_to + ' 23:59:59'); }
 
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   params.push(Math.min(Number(limit) || 500, 2000));
@@ -1554,9 +1556,11 @@ app.get('/system/login-attempts', requireAuth, async (req, res) => {
     );
     return res.json({ attempts: rows || [], count: rows?.length || 0 });
   } catch (err) {
-    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ attempts: [], count: 0 });
-    console.error(err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('login-attempts error:', err);
+    return res.status(500).json({
+      error: err?.message || 'Server error',
+      code: err?.code || null
+    });
   }
 });
 
