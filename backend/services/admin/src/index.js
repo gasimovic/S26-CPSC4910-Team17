@@ -1423,9 +1423,11 @@ app.get('/system/config/changelog', requireAuth, async (req, res) => {
   const { config_key, limit = 200 } = req.query;
   const conditions = [];
   const params = [];
+
   if (config_key) { conditions.push('c.config_key = ?'); params.push(config_key); }
+
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-  params.push(Math.min(Number(limit) || 200, 1000));
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 200, 1000));
 
   try {
     const rows = await query(
@@ -1437,16 +1439,14 @@ app.get('/system/config/changelog', requireAuth, async (req, res) => {
        LEFT JOIN admin_profiles ap ON c.changed_by = ap.user_id
        ${where}
        ORDER BY c.changed_at DESC
-       LIMIT ?`,
+       LIMIT ${safeLimit}`,
       params
     );
     return res.json({ changelog: rows || [] });
   } catch (err) {
-    console.error('config/changelog error:', err);
-    return res.status(500).json({
-      error: err?.message || 'Server error',
-      code: err?.code || null
-    });
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ changelog: [] });
+    console.error('config-changelog error:', err);
+    return res.status(500).json({ error: err?.message || 'Server error' });
   }
 });
 
@@ -1466,7 +1466,7 @@ app.get('/system/audit-logs', requireAuth, async (req, res) => {
   if (reviewed === 'false') conditions.push('dpl.reviewed_at IS NULL');
 
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-  params.push(Math.min(Number(limit) || 500, 2000));
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 500, 2000));
 
   try {
     const rows = await query(
@@ -1487,13 +1487,13 @@ app.get('/system/audit-logs', requireAuth, async (req, res) => {
        LEFT JOIN admin_profiles ap ON dpl.reviewed_by = ap.user_id
        ${where}
        ORDER BY dpl.created_at DESC
-       LIMIT ?`,
+       LIMIT ${safeLimit}`,
       params
     );
     return res.json({ logs: rows || [], count: rows?.length || 0 });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('audit-logs error:', err);
+    return res.status(500).json({ error: err?.message || 'Server error' });
   }
 });
 
@@ -1540,7 +1540,7 @@ app.get('/system/login-attempts', requireAuth, async (req, res) => {
   if (date_to)   { conditions.push('la.attempted_at <= ?'); params.push(date_to + ' 23:59:59'); }
 
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-  params.push(Math.min(Number(limit) || 500, 2000));
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 500, 2000));
 
   try {
     const rows = await query(
@@ -1551,16 +1551,14 @@ app.get('/system/login-attempts', requireAuth, async (req, res) => {
        LEFT JOIN users u ON la.email = u.email
        ${where}
        ORDER BY la.attempted_at DESC
-       LIMIT ?`,
+       LIMIT ${safeLimit}`,
       params
     );
     return res.json({ attempts: rows || [], count: rows?.length || 0 });
   } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ attempts: [], count: 0 });
     console.error('login-attempts error:', err);
-    return res.status(500).json({
-      error: err?.message || 'Server error',
-      code: err?.code || null
-    });
+    return res.status(500).json({ error: err?.message || 'Server error' });
   }
 });
 
