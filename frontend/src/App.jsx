@@ -3156,10 +3156,10 @@ const SystemMonitoringPage = () => {
     { key: 'jobs',        label: 'Background Jobs' },
     { key: 'maintenance', label: 'Maintenance' },
     { key: 'features',    label: 'Feature Flags' },
-    { key: 'audit',       label: '📋 Audit Logs' },
-    { key: 'login',       label: '🔐 Login Attempts' },
-    { key: 'config',      label: '⚙️ System Config' },
-    { key: 'changelog',   label: '📜 Config Changelog' },
+    { key: 'audit',       label: 'Audit Logs' },
+    { key: 'login',       label: 'Login Attempts' },
+    { key: 'config',      label: 'System Config' },
+    { key: 'changelog',   label: 'Config Changelog' },
   ]
 
   return (

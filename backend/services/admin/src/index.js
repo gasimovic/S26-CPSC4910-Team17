@@ -126,12 +126,13 @@ app.post("/auth/login", async (req, res) => {
     }
  
     const ok = await verifyPassword(parsed.data.password, user.password_hash);
+
+    await exec(
+      'INSERT INTO login_attempts (email, success, ip_address, user_agent, failure_reason) VALUES (?, ?, ?, ?, ?)',
+      [email, ok ? 1 : 0, req.ip || null, (req.headers['user-agent'] || '').slice(0, 500), ok ? null : 'invalid_password']
+    ).catch(() => {});
+
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
- 
-    exec(
-     'INSERT INTO login_attempts (email, success, ip_address, user_agent, failure_reason) VALUES (?, ?, ?, ?, ?)',
-     [email, ok ? 1 : 0, req.ip || null, (req.headers['user-agent'] || '').slice(0, 500), ok ? null : 'invalid_password']
-     ).catch(() => {});
  
     const token = signToken({ sub: user.id, role: user.role });
     res.cookie(COOKIE_NAME, token, {
