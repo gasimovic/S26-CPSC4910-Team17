@@ -40,6 +40,8 @@ function App() {
         return '/catalog'
       case 'shop':
         return '/shop'
+      case 'cart':
+        return '/cart'
       case 'messages':
         return '/messages'
       case 'rewards':
@@ -86,6 +88,7 @@ function App() {
     if (path === '/drivers') return 'drivers'
     if (path === '/catalog') return 'catalog'
     if (path === '/shop') return 'shop'
+    if (path === '/cart') return 'cart'
     if (path === '/messages') return 'messages'
     if (path === '/rewards') return 'rewards'
     if (path === '/leaderboard') return 'leaderboard'
@@ -422,8 +425,8 @@ function App() {
     ];
 
     const driverPages = hasSponsor
-      ? ['dashboard', 'log-trip', 'shop', 'rewards', 'leaderboard', 'achievements', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
-      : ['dashboard', 'shop', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
+      ? ['dashboard', 'log-trip', 'shop', 'cart', 'rewards', 'leaderboard', 'achievements', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
+      : ['dashboard', 'shop', 'cart', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
 
     // 3. RETURN BASED ON ROLE:
     if (role === 'admin') return adminPages;
@@ -1135,6 +1138,11 @@ function App() {
           {/* Points are only meaningful for drivers; keep UI clean for sponsors/admin */}
           {isDriver ? <span className="nav-pts">{currentUser?.points ?? 0} pts</span> : null}
           <span className="nav-conversion">10 pts = $1 USD</span>
+          {isDriver && allowed.includes('cart') && (
+            <button type="button" onClick={() => setCurrentPage('cart')} className="nav-link">
+              Cart
+            </button>
+          )}
 
           <button
             type="button"
@@ -5460,6 +5468,22 @@ const AdminUsersPage = () => {
     )
   }
 
+  // ============ CART PAGE (driver) ============
+  const CartPage = () => {
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Cart</h1>
+          <p className="page-subtitle">Your saved items for checkout (coming soon)</p>
+          <div className="card">
+            <p className="activity-empty">Your cart is empty.</p>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
   // ============ REWARDS PAGE ============
   const RewardsPage = () => {
     const [rewardItems, setRewardItems] = useState([])
@@ -7893,6 +7917,7 @@ const AdminUsersPage = () => {
       {/* Driver Pages */}
       {isLoggedIn && currentPage === 'log-trip' && <LogTripPage />}
       {isLoggedIn && currentPage === 'shop' && <DriverShopPage />}
+      {isLoggedIn && currentPage === 'cart' && <CartPage />}
       {isLoggedIn && currentPage === 'rewards' && <RewardsPage />}
       {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
       {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}
