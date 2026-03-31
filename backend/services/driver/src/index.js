@@ -122,11 +122,17 @@ app.post("/auth/login", async (req, res) => {
     );
 
     if (!rows || rows.length === 0) {
+      exec('INSERT INTO login_attempts (email, success, ip_address, user_agent, failure_reason) VALUES (?, 0, ?, ?, ?)',
+        [email, req.ip || null, (req.headers['user-agent'] || '').slice(0, 500), 'user_not_found']).catch(() => {});
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
     const user = rows[0];
     const ok = await verifyPassword(password, user.password_hash);
+
+    exec('INSERT INTO login_attempts (email, success, ip_address, user_agent, failure_reason) VALUES (?, ?, ?, ?, ?)',
+      [email, ok ? 1 : 0, req.ip || null, (req.headers['user-agent'] || '').slice(0, 500), ok ? null : 'invalid_password']).catch(() => {});
+
     if (!ok) {
       return res.status(401).json({ error: "Invalid credentials" });
     }

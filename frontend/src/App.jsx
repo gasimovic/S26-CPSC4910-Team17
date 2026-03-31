@@ -7,6 +7,7 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [maintenanceBanner, setMaintenanceBanner] = useState(null)
   const [pendingRole, setPendingRole] = useState('driver') // chosen role for new accounts (driver | sponsor)
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
@@ -348,6 +349,27 @@ function App() {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  // Check for active maintenance windows (no auth required)
+  useEffect(() => {
+    const ADMIN_BASE = (import.meta.env.VITE_ADMIN_API_BASE || '/api/admin').replace(/\/$/, '')
+    const checkMaint = async () => {
+      try {
+        const res = await fetch(`${ADMIN_BASE}/system/maintenance/active`, { credentials: 'include' })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.windows?.length) {
+            setMaintenanceBanner(data.windows[0])
+          } else {
+            setMaintenanceBanner(null)
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    checkMaint()
+    const iv = setInterval(checkMaint, 5 * 60 * 1000) // re-check every 5 min
+    return () => clearInterval(iv)
   }, [])
 
   const profileLooksEmpty = (u) => {
@@ -996,6 +1018,14 @@ function App() {
     const isAdmin = role === 'admin'
 
     return (
+      <>
+      {maintenanceBanner && (
+        <div style={{ background: '#fbbf24', color: '#78350f', textAlign: 'center', padding: '8px 16px', fontSize: '14px', fontWeight: 600 }}>
+          Scheduled Maintenance: {maintenanceBanner.title}
+          {maintenanceBanner.starts_at && ` — ${new Date(maintenanceBanner.starts_at).toLocaleString()}`}
+          {maintenanceBanner.ends_at && ` to ${new Date(maintenanceBanner.ends_at).toLocaleString()}`}
+        </div>
+      )}
       <nav className="nav">
         <div className="nav-brand">SafeMiles</div>
         <div className="nav-links">
@@ -1115,6 +1145,7 @@ function App() {
           </button>
         </div>
       </nav>
+      </>
     )
   }
 

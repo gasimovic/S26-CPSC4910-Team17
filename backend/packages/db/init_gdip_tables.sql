@@ -342,3 +342,40 @@ CREATE TABLE IF NOT EXISTS feature_flags (
   created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_ff_updater FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- System configuration key-value store (#3001, #3052)
+CREATE TABLE IF NOT EXISTS system_config (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  config_key   VARCHAR(100) NOT NULL UNIQUE,
+  config_value TEXT NOT NULL,
+  description  VARCHAR(500) DEFAULT '',
+  updated_by   INT NULL,
+  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_sc_updater FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- System config changelog (#3052)
+CREATE TABLE IF NOT EXISTS system_config_changelog (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  config_key    VARCHAR(100) NOT NULL,
+  old_value     TEXT NULL,
+  new_value     TEXT NULL,
+  changed_by    INT NULL,
+  change_reason VARCHAR(500) NULL,
+  changed_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_scc_changer FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Login attempts log (#3048, #3049)
+CREATE TABLE IF NOT EXISTS login_attempts (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  email          VARCHAR(255) NOT NULL,
+  success        TINYINT(1) NOT NULL DEFAULT 0,
+  ip_address     VARCHAR(45) NULL,
+  user_agent     VARCHAR(500) NULL,
+  failure_reason VARCHAR(100) NULL,
+  attempted_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_la_email (email),
+  INDEX idx_la_time  (attempted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
