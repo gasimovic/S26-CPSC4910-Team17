@@ -55,6 +55,29 @@ function App() {
     setCart((prev) => prev.filter((x) => String(x.id) !== String(itemId)))
   }
 
+  const setCartQty = (itemId, qty) => {
+    const q = Math.max(1, Math.min(99, Number(qty) || 1))
+    setCart((prev) =>
+      prev.map((x) => (String(x.id) === String(itemId) ? { ...x, qty: q } : x))
+    )
+  }
+
+  const incrementCartQty = (itemId) => {
+    setCart((prev) =>
+      prev.map((x) =>
+        String(x.id) === String(itemId) ? { ...x, qty: Math.min(99, Number(x.qty || 1) + 1) } : x
+      )
+    )
+  }
+
+  const decrementCartQty = (itemId) => {
+    setCart((prev) =>
+      prev.map((x) =>
+        String(x.id) === String(itemId) ? { ...x, qty: Math.max(1, Number(x.qty || 1) - 1) } : x
+      )
+    )
+  }
+
   const clearCart = () => setCart([])
 
   // Tracks when navigation came from the browser's back/forward
@@ -1064,6 +1087,10 @@ function App() {
     const isDriver = role === 'driver'
     const isSponsor = role === 'sponsor'
     const isAdmin = role === 'admin'
+    const cartCount = useMemo(
+      () => (Array.isArray(cart) ? cart.reduce((sum, x) => sum + Number(x.qty || 1), 0) : 0),
+      [cart]
+    )
 
     return (
       <>
@@ -1185,7 +1212,7 @@ function App() {
           <span className="nav-conversion">10 pts = $1 USD</span>
           {isDriver && allowed.includes('cart') && (
             <button type="button" onClick={() => setCurrentPage('cart')} className="nav-link">
-              Cart
+              Cart{cartCount > 0 ? ` (${cartCount})` : ''}
             </button>
           )}
 
@@ -5501,6 +5528,10 @@ const AdminUsersPage = () => {
     const isDriver = role === 'driver'
     const totalItems = cart.reduce((sum, x) => sum + Number(x.qty || 1), 0)
     const totalPoints = cart.reduce((sum, x) => sum + (Number(x.point_cost || 0) * Number(x.qty || 1)), 0)
+    const balance = Number(currentUser?.points ?? 0)
+    const pointsRemaining = balance - totalPoints
+    const hasUnavailable = cart.some((x) => x.is_available === 0 || x.is_available === false)
+    const canCheckout = !hasUnavailable && totalPoints > 0 && balance >= totalPoints
     return (
       <div>
         <Navigation />
@@ -5521,6 +5552,24 @@ const AdminUsersPage = () => {
                 </p>
               </div>
 
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+                <div className="cart-pill">
+                  Balance: <strong>{balance.toLocaleString()}</strong> pts
+                </div>
+                <div className="cart-pill">
+                  Remaining after checkout:{' '}
+                  <strong style={{ color: pointsRemaining >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                    {pointsRemaining.toLocaleString()}
+                  </strong>{' '}
+                  pts
+                </div>
+                {hasUnavailable && (
+                  <div className="cart-pill" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>
+                    Some items are unavailable
+                  </div>
+                )}
+              </div>
+
               <div className="table-wrap">
                 <table className="table">
                   <thead>
@@ -5534,7 +5583,7 @@ const AdminUsersPage = () => {
                   </thead>
                   <tbody>
                     {cart.map((x) => (
-                      <tr key={String(x.id)}>
+                      <tr key={String(x.id)} style={{ opacity: (x.is_available === 0 || x.is_available === false) ? 0.6 : 1 }}>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             {x.image_url ? (
@@ -5543,11 +5592,28 @@ const AdminUsersPage = () => {
                             <div style={{ lineHeight: 1.25 }}>
                               <strong style={{ fontSize: '0.9em' }}>{x.title}</strong>
                               <div style={{ fontSize: '0.8em', color: '#6b7280' }}>#{x.id}</div>
+                              {(x.is_available === 0 || x.is_available === false) && (
+                                <div style={{ fontSize: '0.8em', color: 'var(--danger)', marginTop: 2 }}>Unavailable</div>
+                              )}
                             </div>
                           </div>
                         </td>
                         <td className="text-right">{Number(x.point_cost || 0).toLocaleString()}</td>
-                        <td className="text-right">{Number(x.qty || 1)}</td>
+                        <td className="text-right">
+                          <div className="cart-qty">
+                            <button type="button" className="btn btn-ghost" onClick={() => decrementCartQty(x.id)} aria-label="Decrease quantity">−</button>
+                            <input
+                              className="form-input"
+                              style={{ width: 64, textAlign: 'center' }}
+                              type="number"
+                              min={1}
+                              max={99}
+                              value={Number(x.qty || 1)}
+                              onChange={(e) => setCartQty(x.id, e.target.value)}
+                            />
+                            <button type="button" className="btn btn-ghost" onClick={() => incrementCartQty(x.id)} aria-label="Increase quantity">+</button>
+                          </div>
+                        </td>
                         <td className="text-right">{(Number(x.point_cost || 0) * Number(x.qty || 1)).toLocaleString()}</td>
                         <td>
                           <button type="button" className="btn btn-secondary" style={{ color:'#dc2626', borderColor:'#dc2626' }} onClick={() => removeFromCart(x.id)}>
@@ -5561,9 +5627,36 @@ const AdminUsersPage = () => {
               </div>
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12, flexWrap: 'wrap' }}>
-                <button type="button" className="btn btn-ghost" onClick={clearCart}>Clear cart</button>
-                <button type="button" className="btn btn-success" disabled title="Checkout flow not implemented yet">
-                  Checkout (coming soon)
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    if (!window.confirm('Clear all items from your cart?')) return
+                    clearCart()
+                  }}
+                >
+                  Clear cart
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  disabled={!canCheckout}
+                  title={
+                    hasUnavailable
+                      ? 'Remove unavailable items before checkout.'
+                      : totalPoints <= 0
+                        ? 'Cart total must be greater than 0.'
+                        : balance < totalPoints
+                          ? 'You do not have enough points for this cart.'
+                          : 'Checkout flow not implemented yet.'
+                  }
+                  onClick={() => {
+                    // Placeholder for future checkout
+                    // eslint-disable-next-line no-alert
+                    window.alert('Checkout is coming soon. For now, items stay in your cart.')
+                  }}
+                >
+                  Checkout
                 </button>
               </div>
             </div>
