@@ -12,6 +12,51 @@ function App() {
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
 
+  // Driver cart (client-side for now)
+  const [cart, setCart] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem('gdip_cart_v1')
+      const parsed = raw ? JSON.parse(raw) : []
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  })
+
+  useEffect(() => {
+    try { window.localStorage.setItem('gdip_cart_v1', JSON.stringify(cart)) } catch { /* ignore */ }
+  }, [cart])
+
+  const addToCart = (item) => {
+    if (!item?.id) return
+    setCart((prev) => {
+      const idx = prev.findIndex((x) => String(x.id) === String(item.id))
+      if (idx >= 0) {
+        const copy = [...prev]
+        copy[idx] = { ...copy[idx], qty: Number(copy[idx].qty || 1) + 1 }
+        return copy
+      }
+      return [
+        ...prev,
+        {
+          id: item.id,
+          title: item.title,
+          image_url: item.image_url || null,
+          point_cost: Number(item.point_cost || 0),
+          sponsor_id: item.sponsor_id ?? null,
+          is_available: item.is_available ?? 1,
+          qty: 1,
+        }
+      ]
+    })
+  }
+
+  const removeFromCart = (itemId) => {
+    setCart((prev) => prev.filter((x) => String(x.id) !== String(itemId)))
+  }
+
+  const clearCart = () => setCart([])
+
   // Tracks when navigation came from the browser's back/forward
   // buttons so we don't immediately push another history entry.
   const historyNavRef = useRef(false)
@@ -5233,9 +5278,7 @@ const AdminUsersPage = () => {
     const [selectedCategory, setSelectedCategory] = useState('')
     const [availableOnly, setAvailableOnly] = useState(false)
     const [selectedItem, setSelectedItem] = useState(null)
-    const [redeemLoading, setRedeemLoading] = useState(false)
-    const [redeemSuccess, setRedeemSuccess] = useState('')
-    const [redeemError, setRedeemError] = useState('')
+    const [cartMsg, setCartMsg] = useState('')
 
     const fetchCategories = async () => {
       try {
@@ -5289,8 +5332,7 @@ const AdminUsersPage = () => {
 
     const openDetail = async (item) => {
       setSelectedItem(item)
-      setRedeemSuccess('')
-      setRedeemError('')
+      setCartMsg('')
       try {
         const data = await api(`/catalog/${item.id}`, { method: 'GET' })
         if (data?.item) setSelectedItem(data.item)
@@ -5299,20 +5341,9 @@ const AdminUsersPage = () => {
       }
     }
 
-    const handleRedeem = async (item) => {
-      setRedeemLoading(true)
-      setRedeemSuccess('')
-      setRedeemError('')
-      try {
-        const data = await api(`/catalog/${item.id}/redeem`, { method: 'POST' })
-        setCurrentUser(prev => ({ ...prev, points: data.newBalance }))
-        setRedeemSuccess(`Redeemed! You spent ${item.point_cost} pts. New balance: ${data.newBalance} pts.`)
-        fetchItems(search, selectedCategory, availableOnly)
-      } catch (e) {
-        setRedeemError(e?.message || 'Redemption failed. Please try again.')
-      } finally {
-        setRedeemLoading(false)
-      }
+    const handleAddToCart = (item) => {
+      addToCart(item)
+      setCartMsg(`Added to cart: ${item.title}`)
     }
 
     const driverPoints = Number(currentUser?.points ?? 0)
@@ -5396,16 +5427,12 @@ const AdminUsersPage = () => {
                       <button
                         type="button"
                         className="btn btn-success"
-                        disabled={redeemLoading}
-                        onClick={() => handleRedeem(selectedItem)}
+                        onClick={() => handleAddToCart(selectedItem)}
                       >
-                        {redeemLoading ? 'Redeeming…' : 'Redeem'}
+                        Add to cart
                       </button>
-                      {redeemSuccess && (
-                        <p style={{ color: '#059669', fontWeight: 600, marginTop: 8 }}>{redeemSuccess}</p>
-                      )}
-                      {redeemError && (
-                        <p style={{ color: '#dc2626', marginTop: 8 }}>{redeemError}</p>
+                      {cartMsg && (
+                        <p style={{ color: '#059669', fontWeight: 600, marginTop: 8 }}>{cartMsg}</p>
                       )}
                     </div>
                   )}
@@ -5470,15 +5497,77 @@ const AdminUsersPage = () => {
 
   // ============ CART PAGE (driver) ============
   const CartPage = () => {
+    const role = ((currentUser?.role || inferRoleFromBase(apiBase) || 'driver') + '').toLowerCase().trim()
+    const isDriver = role === 'driver'
+    const totalItems = cart.reduce((sum, x) => sum + Number(x.qty || 1), 0)
+    const totalPoints = cart.reduce((sum, x) => sum + (Number(x.point_cost || 0) * Number(x.qty || 1)), 0)
     return (
       <div>
         <Navigation />
         <main className="app-main">
           <h1 className="page-title">Cart</h1>
-          <p className="page-subtitle">Your saved items for checkout (coming soon)</p>
-          <div className="card">
-            <p className="activity-empty">Your cart is empty.</p>
-          </div>
+          <p className="page-subtitle">Items you plan to redeem.</p>
+
+          {!isDriver ? (
+            <div className="card"><p className="activity-empty">Cart is available for drivers only.</p></div>
+          ) : cart.length === 0 ? (
+            <div className="card"><p className="activity-empty">Your cart is empty.</p></div>
+          ) : (
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                <p style={{ margin: 0, fontWeight: 700 }}>Cart summary</p>
+                <p style={{ margin: 0, color: 'var(--text-muted)' }}>
+                  {totalItems} item(s) · <strong>{totalPoints.toLocaleString()}</strong> pts total
+                </p>
+              </div>
+
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th className="text-right">Points</th>
+                      <th className="text-right">Qty</th>
+                      <th className="text-right">Subtotal</th>
+                      <th style={{ width: 110 }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cart.map((x) => (
+                      <tr key={String(x.id)}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            {x.image_url ? (
+                              <img src={x.image_url} alt={x.title} style={{ width: 44, height: 44, objectFit: 'contain', borderRadius: 6, background: '#f9fafb' }} />
+                            ) : null}
+                            <div style={{ lineHeight: 1.25 }}>
+                              <strong style={{ fontSize: '0.9em' }}>{x.title}</strong>
+                              <div style={{ fontSize: '0.8em', color: '#6b7280' }}>#{x.id}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="text-right">{Number(x.point_cost || 0).toLocaleString()}</td>
+                        <td className="text-right">{Number(x.qty || 1)}</td>
+                        <td className="text-right">{(Number(x.point_cost || 0) * Number(x.qty || 1)).toLocaleString()}</td>
+                        <td>
+                          <button type="button" className="btn btn-secondary" style={{ color:'#dc2626', borderColor:'#dc2626' }} onClick={() => removeFromCart(x.id)}>
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12, flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-ghost" onClick={clearCart}>Clear cart</button>
+                <button type="button" className="btn btn-success" disabled title="Checkout flow not implemented yet">
+                  Checkout (coming soon)
+                </button>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     )
