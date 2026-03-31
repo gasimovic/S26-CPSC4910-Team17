@@ -2,39 +2,62 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../packages/db/src/index');
 
-// -- Shared helper: resolve affiliated sponsor for a driver --------------------
-// Returns sponsor_id (number) or null.
-async function getAffiliatedSponsorId(driverId) {
-    const rows = await db.query(`
-        SELECT u.id as sponsor_id
-        FROM users u
-        JOIN sponsor_profiles sp ON u.id = sp.user_id
-        JOIN driver_profiles dp ON dp.sponsor_org = sp.company_name
-        WHERE dp.user_id = ? AND u.role = 'sponsor'
+// -- Shared helpers: resolve affiliated sponsor org(s) and sponsor ids ----------
+// Drivers can be affiliated either by sponsor_org OR by accepted applications.
+// We treat the catalog as an *organization* catalog: items created by any sponsor
+// account under the same company_name are visible to affiliated drivers.
+async function getAffiliatedCompanyNames(driverId) {
+    const rows = await db.query(
+        `
+        SELECT DISTINCT TRIM(dp.sponsor_org) AS company_name
+        FROM driver_profiles dp
+        WHERE dp.user_id = ? AND dp.sponsor_org IS NOT NULL AND TRIM(dp.sponsor_org) != ''
 
         UNION
 
-        SELECT sponsor_id FROM applications
-        WHERE driver_id = ? AND status = 'accepted'
+        SELECT DISTINCT TRIM(sp.company_name) AS company_name
+        FROM applications a
+        JOIN sponsor_profiles sp ON a.sponsor_id = sp.user_id
+        WHERE a.driver_id = ? AND a.status = 'accepted'
+          AND sp.company_name IS NOT NULL AND TRIM(sp.company_name) != ''
+        `,
+        [driverId, driverId]
+    );
+    return (rows || []).map(r => r.company_name).filter(Boolean);
+}
 
-        LIMIT 1
-    `, [driverId, driverId]);
-    return rows.length > 0 ? rows[0].sponsor_id : null;
+async function getSponsorIdsForCompanies(companyNames) {
+    const names = (companyNames || []).map(n => String(n).trim()).filter(Boolean);
+    if (names.length === 0) return [];
+    const placeholders = names.map(() => '?').join(',');
+    const rows = await db.query(
+        `SELECT user_id AS sponsor_id
+         FROM sponsor_profiles
+         WHERE TRIM(company_name) IN (${placeholders})`,
+        names
+    );
+    return (rows || []).map(r => Number(r.sponsor_id)).filter(Number.isFinite);
+}
+
+async function getAffiliatedSponsorIds(driverId) {
+    const companies = await getAffiliatedCompanyNames(driverId);
+    return await getSponsorIdsForCompanies(companies);
 }
 
 // GET /api/driver/catalog/categories
 // Must be registered BEFORE /:id so Express does not match 'categories' as a numeric id.
 router.get('/categories', async (req, res) => {
     try {
-        const sponsorId = await getAffiliatedSponsorId(req.user.id);
-        if (!sponsorId) return res.json({ categories: [] });
+        const sponsorIds = await getAffiliatedSponsorIds(req.user.id);
+        if (!sponsorIds.length) return res.json({ categories: [] });
 
         const rows = await db.query(
             `SELECT DISTINCT category
              FROM catalog_items
-             WHERE sponsor_id = ? AND category IS NOT NULL AND category != ''
+             WHERE sponsor_id IN (${sponsorIds.map(() => '?').join(',')})
+               AND category IS NOT NULL AND category != ''
              ORDER BY category ASC`,
-            [sponsorId]
+            sponsorIds
         );
         res.json({ categories: rows.map(r => r.category) });
     } catch (err) {
@@ -47,11 +70,11 @@ router.get('/categories', async (req, res) => {
 // Optional query params: ?search=<text>, ?category=<value>, ?available=1
 router.get('/', async (req, res) => {
     try {
-        const sponsorId = await getAffiliatedSponsorId(req.user.id);
-        if (!sponsorId) return res.json({ items: [] });
+        const sponsorIds = await getAffiliatedSponsorIds(req.user.id);
+        if (!sponsorIds.length) return res.json({ items: [] });
 
-        const conditions = ['sponsor_id = ?'];
-        const params = [sponsorId];
+        const conditions = [`sponsor_id IN (${sponsorIds.map(() => '?').join(',')})`];
+        const params = [...sponsorIds];
 
         if (req.query.search) {
             conditions.push('title LIKE ?');
@@ -86,12 +109,12 @@ router.get('/:id', async (req, res) => {
             return res.status(400).json({ error: 'Invalid item id' });
         }
 
-        const sponsorId = await getAffiliatedSponsorId(req.user.id);
-        if (!sponsorId) return res.status(404).json({ error: 'Item not found' });
+        const sponsorIds = await getAffiliatedSponsorIds(req.user.id);
+        if (!sponsorIds.length) return res.status(404).json({ error: 'Item not found' });
 
         const rows = await db.query(
-            `SELECT * FROM catalog_items WHERE id = ? AND sponsor_id = ? LIMIT 1`,
-            [itemId, sponsorId]
+            `SELECT * FROM catalog_items WHERE id = ? AND sponsor_id IN (${sponsorIds.map(() => '?').join(',')}) LIMIT 1`,
+            [itemId, ...sponsorIds]
         );
 
         if (!rows || rows.length === 0) {
@@ -114,12 +137,12 @@ router.post('/:id/redeem', async (req, res) => {
             return res.status(400).json({ error: 'Invalid item id' });
         }
 
-        const sponsorId = await getAffiliatedSponsorId(req.user.id);
-        if (!sponsorId) return res.status(404).json({ error: 'Item not found' });
+        const sponsorIds = await getAffiliatedSponsorIds(req.user.id);
+        if (!sponsorIds.length) return res.status(404).json({ error: 'Item not found' });
 
         const rows = await db.query(
-            `SELECT * FROM catalog_items WHERE id = ? AND sponsor_id = ? LIMIT 1`,
-            [itemId, sponsorId]
+            `SELECT * FROM catalog_items WHERE id = ? AND sponsor_id IN (${sponsorIds.map(() => '?').join(',')}) LIMIT 1`,
+            [itemId, ...sponsorIds]
         );
         if (!rows || rows.length === 0) {
             return res.status(404).json({ error: 'Item not found' });
@@ -143,7 +166,7 @@ router.post('/:id/redeem', async (req, res) => {
 
         await db.exec(
             `INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)`,
-            [req.user.id, sponsorId, -item.point_cost, `Catalog redemption: ${item.title}`]
+            [req.user.id, item.sponsor_id, -item.point_cost, `Catalog redemption: ${item.title}`]
         );
 
         res.json({
