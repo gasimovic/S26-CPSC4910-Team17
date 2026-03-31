@@ -703,10 +703,19 @@ app.get('/sponsors/:sponsorId/drivers', requireAuth, async (req, res) => {
        FROM users u
        JOIN driver_profiles dp ON u.id = dp.user_id
        LEFT JOIN driver_points_ledger l ON l.driver_id = u.id
-       WHERE u.role = 'driver' AND dp.sponsor_org = ?
+       WHERE u.role = 'driver'
+         AND (
+           dp.sponsor_org = ?
+           OR EXISTS (
+             SELECT 1 FROM applications a
+             WHERE a.driver_id = u.id
+               AND a.sponsor_id = ?
+               AND a.status = 'accepted'
+           )
+         )
        GROUP BY u.id
        ORDER BY name ASC`,
-      [company]
+      [company, sponsorId]
     );
     return res.json({ drivers: drivers || [], company_name: company });
   } catch (err) {

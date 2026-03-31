@@ -4211,14 +4211,30 @@ const AdminUsersPage = () => {
       }
     })
 
-    // Compute driver counts from the driver user list for each organization.
-    drivers.forEach((d) => {
-      const orgName = String(d.sponsor_org || '').trim()
-      if (!orgName) return
-      const key = orgName.toLowerCase()
+    // Compute driver counts:
+    // - drivers affiliated via driver_profiles.sponsor_org
+    // - drivers affiliated via accepted applications (even if sponsor_org isn't set)
+    const driverIdsByOrg = new Map()
+    const addDriverToOrg = (orgName, driverId) => {
+      const name = String(orgName || '').trim()
+      if (!name) return
+      const key = name.toLowerCase()
       const g = grouped.get(key)
-      if (g) g.driver_count += 1
-    })
+      if (!g) return
+      if (!driverIdsByOrg.has(key)) driverIdsByOrg.set(key, new Set())
+      if (Number.isFinite(Number(driverId))) driverIdsByOrg.get(key).add(Number(driverId))
+    }
+
+    drivers.forEach((d) => addDriverToOrg(d.sponsor_org, d.id))
+
+    applications
+      .filter((a) => a?.status === 'accepted')
+      .forEach((a) => addDriverToOrg(a.sponsor_company, a.driver_id))
+
+    for (const [key, set] of driverIdsByOrg.entries()) {
+      const g = grouped.get(key)
+      if (g) g.driver_count = set.size
+    }
 
     const list = Array.from(grouped.values()).sort((a, b) =>
       a.company_name.localeCompare(b.company_name)
@@ -4230,7 +4246,7 @@ const AdminUsersPage = () => {
       String(o.repSponsorId).includes(q) ||
       String(o.company_name || '').toLowerCase().includes(q)
     )
-  }, [sponsors, drivers, searchQuery])
+  }, [sponsors, drivers, applications, searchQuery])
 
   const statusCounts = useMemo(() => {
     const c = { all: applications.length, pending: 0, accepted: 0, rejected: 0, cancelled: 0 }
