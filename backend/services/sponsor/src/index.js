@@ -546,34 +546,61 @@ app.put("/applications/:applicationId", requireAuth, async (req, res) => {
 app.get("/drivers", requireAuth, async (req, res) => {
   try {
     const sponsorCompany = await getSponsorCompanyName(req.user.id);
-    if (!sponsorCompany)
-      return res.status(400).json({ error: "Your organization name is not set. Please update your account details." });
+
+    if (!sponsorCompany) {
+      return res.status(400).json({
+        error: "Your organization name is not set. Please update your account details.",
+      });
+    }
 
     const rows = await query(
-      `SELECT u.id, u.email, dp.first_name, dp.last_name, dp.dob, dp.phone,
-         dp.address_line1, dp.address_line2, dp.city, dp.state, dp.postal_code, dp.country,
-         dp.sponsor_org, COALESCE(SUM(l.delta), 0) AS points_balance
-       FROM users u
-       JOIN driver_profiles dp ON u.id = dp.user_id
-       LEFT JOIN driver_points_ledger l ON l.driver_id = u.id
-       WHERE u.role = 'driver'
-         AND (
-           dp.sponsor_org = ?
-           OR EXISTS (
-             SELECT 1 FROM applications a
-             WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'
-           )
-         )
-       GROUP BY u.id
-       ORDER BY dp.last_name ASC, dp.first_name ASC, u.email ASC`,
+      `
+      SELECT
+        u.id,
+        u.email,
+        COALESCE(u.is_active, 1) AS is_active,
+        u.last_login_at,
+        dp.first_name,
+        dp.last_name,
+        dp.dob,
+        dp.phone,
+        dp.address_line1,
+        dp.address_line2,
+        dp.city,
+        dp.state,
+        dp.postal_code,
+        dp.country,
+        dp.sponsor_org,
+        COALESCE(lp.points_balance, 0) AS points_balance
+      FROM users u
+      JOIN driver_profiles dp
+        ON u.id = dp.user_id
+      LEFT JOIN (
+        SELECT driver_id, SUM(delta) AS points_balance
+        FROM driver_points_ledger
+        GROUP BY driver_id
+      ) lp
+        ON lp.driver_id = u.id
+      WHERE u.role = 'driver'
+        AND (
+          dp.sponsor_org = ?
+          OR EXISTS (
+            SELECT 1
+            FROM applications a
+            WHERE a.driver_id = u.id
+              AND a.sponsor_id = ?
+              AND a.status = 'accepted'
+          )
+        )
+      ORDER BY dp.last_name ASC, dp.first_name ASC, u.email ASC
+      `,
       [sponsorCompany, req.user.id]
     );
-    return res.json({
-      drivers: (rows || []).map(r => ({ ...r, pointsBalance: Number(r.points_balance || 0) })),
-    });
+
+    return res.json(rows);
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Server error" });
+    console.error("GET /drivers failed:", err);
+    return res.status(500).json({ error: "Failed to load drivers." });
   }
 });
 
@@ -1742,6 +1769,120 @@ app.get('/organization/stats', requireAuth, async (req, res) => {
   }
 });
 
+// ── #2969: Drivers near point expiration ─────────────────────────────────────
+// GET /drivers/expiring-soon
+// Returns drivers whose points will expire within `days` days (default 30)
+// based on the sponsor's point_expiration_rules setting.
+ 
+app.get('/drivers/expiring-soon', requireAuth, async (req, res) => {
+  const warningDays = Number(req.query.days || 30)
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id)
+    if (!sponsorCompany)
+      return res.status(400).json({ error: 'Sponsor company_name is not set.' })
+ 
+    // Get expiration rule
+    const ruleRows = await query(
+      'SELECT expiry_days, is_active FROM point_expiration_rules WHERE sponsor_id = ? LIMIT 1',
+      [req.user.id]
+    )
+    const rule = ruleRows?.[0]
+    if (!rule || !rule.is_active) {
+      return res.json({ drivers: [], rule: null, message: 'No active expiration rule set.' })
+    }
+ 
+    const expiryDays = Number(rule.expiry_days)
+ 
+    // Find drivers in this sponsor's program whose OLDEST unredeemed points
+    // were awarded more than (expiryDays - warningDays) days ago
+    const rows = await query(
+      `SELECT u.id, u.email, u.last_login_at,
+         COALESCE(u.is_active, 1) AS is_active,
+         dp.first_name, dp.last_name, dp.sponsor_org,
+         COALESCE(SUM(CASE WHEN l.delta > 0 THEN l.delta ELSE 0 END), 0) AS points_earned,
+         COALESCE(SUM(l.delta), 0) AS points_balance,
+         MIN(l.created_at) AS oldest_point_date,
+         DATEDIFF(NOW(), MIN(l.created_at)) AS days_since_first_point,
+         (? - DATEDIFF(NOW(), MIN(l.created_at))) AS days_until_expiry
+       FROM users u
+       JOIN driver_profiles dp ON u.id = dp.user_id
+       JOIN driver_points_ledger l ON l.driver_id = u.id AND l.sponsor_id = ?
+       WHERE u.role = 'driver'
+         AND (
+           dp.sponsor_org = ?
+           OR EXISTS (
+             SELECT 1 FROM applications a
+             WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'
+           )
+         )
+       GROUP BY u.id
+       HAVING
+         COALESCE(SUM(l.delta), 0) > 0
+         AND DATEDIFF(NOW(), MIN(l.created_at)) >= (? - ?)
+       ORDER BY days_until_expiry ASC`,
+      [expiryDays, req.user.id, sponsorCompany, req.user.id, expiryDays, warningDays]
+    )
+ 
+    return res.json({
+      drivers: (rows || []).map(r => ({
+        ...r,
+        pointsBalance: Number(r.points_balance || 0),
+        daysUntilExpiry: Number(r.days_until_expiry || 0),
+      })),
+      rule: { expiry_days: expiryDays, warning_days: warningDays },
+    })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+ 
+ 
+// ── #2972: Driver login history ───────────────────────────────────────────────
+// GET /drivers/:driverId/login-history
+// Returns login attempts for a specific driver (from login_attempts table)
+ 
+app.get('/drivers/:driverId/login-history', requireAuth, async (req, res) => {
+  const driverId = toInt(req.params.driverId)
+  if (!Number.isFinite(driverId)) return res.status(400).json({ error: 'Invalid driverId' })
+ 
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id)
+    if (!sponsorCompany)
+      return res.status(400).json({ error: 'Sponsor company_name is not set.' })
+ 
+    const driver = await driverBelongsToSponsorOr404(res, req.user.id, sponsorCompany, driverId)
+    if (!driver) return
+ 
+    // Get login attempts for this driver's email
+    const attempts = await query(
+      `SELECT la.id, la.email, la.success, la.ip_address, la.attempted_at, la.failure_reason
+       FROM login_attempts la
+       WHERE la.email = (SELECT email FROM users WHERE id = ? LIMIT 1)
+       ORDER BY la.attempted_at DESC
+       LIMIT 100`,
+      [driverId]
+    )
+ 
+    return res.json({
+      driver: {
+        id: driver.id,
+        email: driver.email,
+        last_login_at: driver.last_login_at,
+        first_name: driver.first_name,
+        last_name: driver.last_name,
+      },
+      attempts: attempts || [],
+    })
+  } catch (err) {
+    // login_attempts table may not exist yet
+    if (err?.code === 'ER_NO_SUCH_TABLE') {
+      return res.json({ driver: null, attempts: [], message: 'Login history not yet enabled.' })
+    }
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
 
 app.listen(PORT, () => {
   console.log(`[sponsor] listening on :${PORT}`);

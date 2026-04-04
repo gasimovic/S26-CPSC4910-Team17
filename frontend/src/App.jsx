@@ -2360,457 +2360,668 @@ function App() {
   }
 
   // ============ DRIVERS PAGE (for sponsors: adjust driver points + view ledger) ============
-  const SponsorDriversPage = () => {
-    const [drivers, setDrivers] = useState([])
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState('')
-    const [success, setSuccess] = useState('')
-    const [query, setQuery] = useState('')
+ 
+// ═══════════════════════════════════════════════════════════════════════════
+// UPDATED SponsorDriversPage
+// Replace the existing SponsorDriversPage in App.jsx with this component.
+//
+// Adds:
+//  #2968 — Filter by active/inactive status
+//  #2969 — Drivers near point expiration tab
+//  #2970 — Export driver data to CSV
+//  #2971 — View inactive drivers (via status filter)
+//  #2972 — Driver login history modal
+//  #2977 — Top performers tab (sorted by points)
+// ═══════════════════════════════════════════════════════════════════════════
 
-    // per-driver edit state
-    const [deltaById, setDeltaById] = useState({})
-    const [reasonById, setReasonById] = useState({})
+const SponsorDriversPage = () => {
+  const [drivers, setDrivers] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
 
-    // ledger state
-    const [selectedDriver, setSelectedDriver] = useState(null)
-    const [ledger, setLedger] = useState([])
-    const [ledgerBalance, setLedgerBalance] = useState(null)
-    const [ledgerLoading, setLedgerLoading] = useState(false)
+  // ── Active tab ──────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState('all')
 
-    // profile/details state
-    const [selectedProfileDriver, setSelectedProfileDriver] = useState(null)
+  // ── Status filter (#2968, #2971) ────────────────────────────────────────
+  const [statusFilter, setStatusFilter] = useState('active') // 'all' | 'active' | 'inactive'
 
-    const removeDriver = async (driver) => {
-      setError('')
-      setSuccess('')
+  // ── Per-driver point adjustment ─────────────────────────────────────────
+  const [deltaById, setDeltaById] = useState({})
+  const [reasonById, setReasonById] = useState({})
 
-      const driverId = driver?.id ?? driver?.user_id
-      if (!driverId) {
-        setError('Missing driver id')
-        return
-      }
+  // ── Ledger ──────────────────────────────────────────────────────────────
+  const [selectedDriver, setSelectedDriver] = useState(null)
+  const [ledger, setLedger] = useState([])
+  const [ledgerBalance, setLedgerBalance] = useState(null)
+  const [ledgerLoading, setLedgerLoading] = useState(false)
 
-      // Basic confirm to avoid accidental removals
-      // eslint-disable-next-line no-alert
-      const confirmed = window.confirm('Remove this driver from your program? This keeps historical points but detaches them from your organization.')
-      if (!confirmed) return
+  // ── Profile panel ────────────────────────────────────────────────────────
+  const [selectedProfileDriver, setSelectedProfileDriver] = useState(null)
 
-      try {
-        await api(`/drivers/${driverId}`, { method: 'DELETE' })
-        setSuccess(`Removed driver ${driverId} from your program.`)
-        await loadDrivers()
+  // ── Login history (#2972) ────────────────────────────────────────────────
+  const [loginHistoryDriver, setLoginHistoryDriver] = useState(null)
+  const [loginHistory, setLoginHistory] = useState([])
+  const [loginHistoryLoading, setLoginHistoryLoading] = useState(false)
 
-        if ((selectedDriver?.id ?? selectedDriver?.user_id) === driverId) {
-          setSelectedDriver(null)
-          setLedger([])
-          setLedgerBalance(null)
-        }
+  // ── Expiring soon (#2969) ────────────────────────────────────────────────
+  const [expiringDrivers, setExpiringDrivers] = useState([])
+  const [expiringRule, setExpiringRule] = useState(null)
+  const [expiringLoading, setExpiringLoading] = useState(false)
+  const [expiringWarningDays, setExpiringWarningDays] = useState(30)
 
-        if ((selectedProfileDriver?.id ?? selectedProfileDriver?.user_id) === driverId) {
-          setSelectedProfileDriver(null)
-        }
-      } catch (e) {
-        setError(e?.message || 'Failed to remove driver')
-        if (e?.responseBody) console.error('Remove driver error response:', e.responseBody)
-      }
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  const fmtDate = (ts) =>
+    ts ? new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+
+  const fmtDateShort = (ts) => (ts ? new Date(ts).toLocaleDateString() : '—')
+
+  // ── Load drivers ─────────────────────────────────────────────────────────
+  const loadDrivers = async () => {
+    setError('')
+    setSuccess('')
+    setLoading(true)
+    try {
+      const data = await api('/drivers', { method: 'GET' })
+      setDrivers(Array.isArray(data?.drivers) ? data.drivers : [])
+    } catch (e) {
+      setError(e?.message || 'Failed to load drivers')
+    } finally {
+      setLoading(false)
     }
+  }
 
-    const loadDrivers = async () => {
-      setError('')
-      setSuccess('')
-      setLoading(true)
-      try {
-        const data = await api('/drivers', { method: 'GET' })
-        setDrivers(Array.isArray(data?.drivers) ? data.drivers : [])
-      } catch (e) {
-        setError(e?.message || 'Failed to load drivers')
-      } finally {
-        setLoading(false)
-      }
+  // ── Load expiring soon (#2969) ────────────────────────────────────────────
+  const loadExpiring = async () => {
+    setExpiringLoading(true)
+    setError('')
+    try {
+      const data = await api(`/drivers/expiring-soon?days=${expiringWarningDays}`, { method: 'GET' })
+      setExpiringDrivers(Array.isArray(data?.drivers) ? data.drivers : [])
+      setExpiringRule(data?.rule || null)
+    } catch (e) {
+      setError(e?.message || 'Failed to load expiring drivers')
+    } finally {
+      setExpiringLoading(false)
     }
+  }
 
-    const openLedger = async (driver) => {
-      const driverId = driver?.id ?? driver?.user_id
-      if (!driverId) return
-
-      setSelectedDriver(driver)
-      setLedger([])
-      setLedgerBalance(null)
-      setLedgerLoading(true)
-
-      try {
-        const data = await api(`/drivers/${driverId}/points`, { method: 'GET' })
-        setLedger(Array.isArray(data?.ledger) ? data.ledger : [])
-        setLedgerBalance(
-          data?.balance ?? data?.pointsBalance ?? data?.points_balance ?? null
-        )
-      } catch (e) {
-        setError(e?.message || 'Failed to load ledger')
-      } finally {
-        setLedgerLoading(false)
-      }
+  // ── Load login history (#2972) ────────────────────────────────────────────
+  const openLoginHistory = async (driver) => {
+    const driverId = driver?.id ?? driver?.user_id
+    if (!driverId) return
+    setLoginHistoryDriver(driver)
+    setLoginHistory([])
+    setLoginHistoryLoading(true)
+    try {
+      const data = await api(`/drivers/${driverId}/login-history`, { method: 'GET' })
+      setLoginHistory(Array.isArray(data?.attempts) ? data.attempts : [])
+    } catch (e) {
+      setError(e?.message || 'Failed to load login history')
+    } finally {
+      setLoginHistoryLoading(false)
     }
+  }
 
-    useEffect(() => {
-      loadDrivers()
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
-
-    const filtered = useMemo(() => {
-      const q = (query || '').trim().toLowerCase()
-      if (!q) return drivers
-      return drivers.filter((d) => {
-        const id = String(d.id ?? d.user_id ?? '')
-        const email = String(d.email ?? '')
-        const name = String(d.name ?? d.driver_name ?? '')
-        return (
-          id.includes(q) ||
-          email.toLowerCase().includes(q) ||
-          name.toLowerCase().includes(q)
-        )
-      })
-    }, [drivers, query])
-
-    const adjustPoints = async (driver) => {
-      setError('')
-      setSuccess('')
-
-      const driverId = driver?.id ?? driver?.user_id
-      if (!driverId) {
-        setError('Missing driver id')
-        return
-      }
-
-      const rawDelta = deltaById[driverId]
-      const delta = Number(rawDelta)
-
-      if (!Number.isFinite(delta) || delta === 0) {
-        setError('Enter a non-zero number of points to add (+) or deduct (-).')
-        return
-      }
-
-      const reason = (reasonById[driverId] || '').trim()
-      if (!reason) {
-        setError('Reason is required.')
-        return
-      }
-
-      try {
-        const points = Math.abs(delta)
-
-        if (delta > 0) {
-          await api(`/drivers/${driverId}/points/add`, {
-            method: 'POST',
-            body: JSON.stringify({ points, reason })
-          })
-        } else {
-          await api(`/drivers/${driverId}/points/deduct`, {
-            method: 'POST',
-            body: JSON.stringify({ points, reason })
-          })
-        }
-
-        setSuccess(`Updated points for driver ${driverId}.`)
-        await loadDrivers()
-
-        if ((selectedDriver?.id ?? selectedDriver?.user_id) === driverId) {
-          await openLedger(selectedDriver)
-        }
-
-        setDeltaById((prev) => ({ ...prev, [driverId]: '' }))
-        setReasonById((prev) => ({ ...prev, [driverId]: '' }))
-      } catch (e) {
-        setError(e?.message || 'Failed to update points')
-        if (e?.responseBody) console.error('Adjust points error response:', e.responseBody)
-      }
+  // ── Open ledger ───────────────────────────────────────────────────────────
+  const openLedger = async (driver) => {
+    const driverId = driver?.id ?? driver?.user_id
+    if (!driverId) return
+    setSelectedDriver(driver)
+    setLedger([])
+    setLedgerBalance(null)
+    setLedgerLoading(true)
+    try {
+      const data = await api(`/drivers/${driverId}/points`, { method: 'GET' })
+      setLedger(Array.isArray(data?.ledger) ? data.ledger : [])
+      setLedgerBalance(data?.balance ?? data?.pointsBalance ?? data?.points_balance ?? null)
+    } catch (e) {
+      setError(e?.message || 'Failed to load ledger')
+    } finally {
+      setLedgerLoading(false)
     }
+  }
 
-    return (
-      <div>
-        <Navigation />
-        <main className="app-main">
-          <h1 className="page-title">Drivers</h1>
-          <p className="page-subtitle">Manage points for your drivers</p>
+  // ── Remove driver ─────────────────────────────────────────────────────────
+  const removeDriver = async (driver) => {
+    const driverId = driver?.id ?? driver?.user_id
+    if (!driverId) return
+    if (!window.confirm('Remove this driver from your program?')) return
+    try {
+      await api(`/drivers/${driverId}`, { method: 'DELETE' })
+      setSuccess(`Removed driver ${driverId}.`)
+      await loadDrivers()
+      if ((selectedDriver?.id ?? selectedDriver?.user_id) === driverId) setSelectedDriver(null)
+      if ((selectedProfileDriver?.id ?? selectedProfileDriver?.user_id) === driverId) setSelectedProfileDriver(null)
+    } catch (e) {
+      setError(e?.message || 'Failed to remove driver')
+    }
+  }
 
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input
-                className="form-input"
-                style={{ flex: 1, minWidth: 220 }}
-                placeholder="Search by name, email, or ID"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              <button className="btn btn-primary" type="button" onClick={loadDrivers} disabled={loading}>
-                {loading ? 'Refreshing…' : 'Refresh'}
-              </button>
-            </div>
-          </div>
+  // ── Adjust points ─────────────────────────────────────────────────────────
+  const adjustPoints = async (driver) => {
+    setError('')
+    setSuccess('')
+    const driverId = driver?.id ?? driver?.user_id
+    if (!driverId) { setError('Missing driver id'); return }
+    const rawDelta = deltaById[driverId]
+    const delta = Number(rawDelta)
+    if (!Number.isFinite(delta) || delta === 0) { setError('Enter a non-zero number of points.'); return }
+    const reason = (reasonById[driverId] || '').trim()
+    if (!reason) { setError('Reason is required.'); return }
+    try {
+      const pts = Math.abs(delta)
+      const endpoint = delta > 0 ? `/drivers/${driverId}/points/add` : `/drivers/${driverId}/points/deduct`
+      await api(endpoint, { method: 'POST', body: JSON.stringify({ points: pts, reason }) })
+      setSuccess(`Updated points for driver ${driverId}.`)
+      await loadDrivers()
+      if ((selectedDriver?.id ?? selectedDriver?.user_id) === driverId) await openLedger(selectedDriver)
+      setDeltaById(p => ({ ...p, [driverId]: '' }))
+      setReasonById(p => ({ ...p, [driverId]: '' }))
+    } catch (e) {
+      setError(e?.message || 'Failed to update points')
+    }
+  }
 
-          {error ? <p className="form-footer" style={{ color: 'crimson' }}>{error}</p> : null}
-          {success ? <p className="form-footer" style={{ color: 'green' }}>{success}</p> : null}
+  // ── #2970: Export to CSV ──────────────────────────────────────────────────
+  const exportCSV = (driverList) => {
+    if (!driverList.length) return
+    const headers = ['ID', 'First Name', 'Last Name', 'Email', 'Status', 'Points Balance', 'Sponsor Org', 'Last Login', 'Phone', 'City', 'State']
+    const rows = driverList.map(d => {
+      const id = d.id ?? d.user_id
+      const isActive = d.is_active !== 0 && d.is_active !== false
+      return [
+        id,
+        d.first_name || '',
+        d.last_name || '',
+        d.email || '',
+        isActive ? 'Active' : 'Inactive',
+        Number(d.pointsBalance ?? d.points_balance ?? 0),
+        d.sponsor_org || '',
+        d.last_login_at ? new Date(d.last_login_at).toLocaleString() : '',
+        d.phone || '',
+        d.city || '',
+        d.state || '',
+      ]
+    })
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `drivers-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Driver</th>
-                  <th>Email</th>
-                  <th className="text-right">Points</th>
-                  <th style={{ width: 260 }}>Adjust</th>
-                  <th style={{ width: 260 }}>Reason (required)</th>
-                  <th style={{ width: 140 }}>Action</th>
-                  <th style={{ width: 110 }}>Ledger</th>
-                  <th style={{ width: 120 }}>Remove</th>
+  useEffect(() => {
+    loadDrivers()
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'expiring') loadExpiring()
+  }, [activeTab, expiringWarningDays])
+
+  // ── Computed driver lists ─────────────────────────────────────────────────
+
+  // Base filtered list (search + status)
+  const filteredBase = useMemo(() => {
+    let list = drivers
+    // Status filter (#2968, #2971)
+    if (statusFilter === 'active') list = list.filter(d => d.is_active !== 0 && d.is_active !== false)
+    if (statusFilter === 'inactive') list = list.filter(d => d.is_active === 0 || d.is_active === false)
+    // Search
+    const q = (searchQuery || '').trim().toLowerCase()
+    if (!q) return list
+    return list.filter(d => {
+      const id = String(d.id ?? d.user_id ?? '')
+      const email = String(d.email ?? '').toLowerCase()
+      const name = [d.first_name, d.last_name].filter(Boolean).join(' ').toLowerCase()
+      return id.includes(q) || email.includes(q) || name.includes(q)
+    })
+  }, [drivers, statusFilter, searchQuery])
+
+  // #2977: Top performers — sorted by points balance descending
+  const topPerformers = useMemo(() => {
+    return [...drivers]
+      .filter(d => d.is_active !== 0 && d.is_active !== false)
+      .sort((a, b) => Number(b.pointsBalance ?? b.points_balance ?? 0) - Number(a.pointsBalance ?? a.points_balance ?? 0))
+      .slice(0, 20)
+  }, [drivers])
+
+  // Stats
+  const totalActive = drivers.filter(d => d.is_active !== 0 && d.is_active !== false).length
+  const totalInactive = drivers.filter(d => d.is_active === 0 || d.is_active === false).length
+  const totalPoints = drivers.reduce((s, d) => s + Number(d.pointsBalance ?? d.points_balance ?? 0), 0)
+
+  // ── Shared driver table ───────────────────────────────────────────────────
+  const DriverTable = ({ list, showRank = false }) => (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            {showRank && <th style={{ width: 48 }}>#</th>}
+            <th>Driver</th>
+            <th>Email</th>
+            <th>Status</th>
+            <th>Last Login</th>
+            <th className="text-right">Points</th>
+            <th style={{ width: 220 }}>Adjust</th>
+            <th style={{ width: 200 }}>Reason</th>
+            <th style={{ width: 80 }}>Apply</th>
+            <th style={{ width: 72 }}>Ledger</th>
+            <th style={{ width: 72 }}>History</th>
+            <th style={{ width: 84 }}>Details</th>
+            <th style={{ width: 80 }}>Remove</th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading && list.length === 0 ? (
+            <tr><td colSpan={showRank ? 13 : 12} className="table-empty">Loading…</td></tr>
+          ) : list.length === 0 ? (
+            <tr><td colSpan={showRank ? 13 : 12} className="table-empty">No drivers found</td></tr>
+          ) : (
+            list.map((d, idx) => {
+              const id = d.id ?? d.user_id
+              const name = [d.first_name, d.last_name].filter(Boolean).join(' ') || `Driver ${id}`
+              const email = d.email || '-'
+              const points = Number(d.pointsBalance ?? d.points_balance ?? 0)
+              const isActive = d.is_active !== 0 && d.is_active !== false
+
+              return (
+                <tr key={String(id)} style={{ opacity: isActive ? 1 : 0.6 }}>
+                  {showRank && (
+                    <td style={{ fontWeight: 700, color: idx === 0 ? '#d97706' : idx === 1 ? '#6b7280' : idx === 2 ? '#92400e' : '#374151', fontSize: idx < 3 ? '1em' : '0.85em' }}>
+                      {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                    </td>
+                  )}
+                  <td>
+                    <button type="button" onClick={() => setSelectedProfileDriver(d)} style={{ padding: 0, border: 'none', background: 'none', color: '#2563eb', cursor: 'pointer', textAlign: 'left', fontWeight: 500 }}>
+                      {name}
+                    </button>
+                  </td>
+                  <td style={{ fontSize: '0.88em', color: '#6b7280' }}>{email}</td>
+                  <td>
+                    <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: '0.75em', fontWeight: 600, background: isActive ? '#d1fae5' : '#fee2e2', color: isActive ? '#065f46' : '#991b1b' }}>
+                      {isActive ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td style={{ fontSize: '0.82em', color: '#6b7280', whiteSpace: 'nowrap' }}>{fmtDateShort(d.last_login_at)}</td>
+                  <td className="text-right" style={{ fontWeight: 600 }}>{points.toLocaleString()}</td>
+                  <td>
+                    <input className="form-input" type="number" placeholder="e.g. 50 or -20" value={deltaById[id] ?? ''} onChange={e => setDeltaById(p => ({ ...p, [id]: e.target.value }))} />
+                  </td>
+                  <td>
+                    <input className="form-input" type="text" placeholder="Why are you changing points?" value={reasonById[id] ?? ''} onChange={e => setReasonById(p => ({ ...p, [id]: e.target.value }))} />
+                  </td>
+                  <td>
+                    <button className="btn btn-success" type="button" style={{ fontSize: '0.8em', padding: '4px 10px' }} onClick={() => adjustPoints({ ...d, id })}>Apply</button>
+                  </td>
+                  <td>
+                    <button className="btn btn-primary" type="button" style={{ fontSize: '0.8em', padding: '4px 8px' }} onClick={() => openLedger(d)}>View</button>
+                  </td>
+                  <td>
+                    {/* #2972: Login history */}
+                    <button className="btn btn-ghost" type="button" style={{ fontSize: '0.8em', padding: '4px 8px' }} onClick={() => openLoginHistory(d)}>Logins</button>
+                  </td>
+                  <td>
+                    <button className="btn btn-primary" type="button" style={{ fontSize: '0.8em', padding: '4px 8px' }} onClick={() => setSelectedProfileDriver(d)}>Info</button>
+                  </td>
+                  <td>
+                    <button className="btn btn-secondary" type="button" style={{ fontSize: '0.8em', padding: '4px 8px' }} onClick={() => removeDriver({ ...d, id })}>Remove</button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {loading && drivers.length === 0 ? (
-                  <tr><td colSpan="8" className="table-empty">Loading…</td></tr>
-                ) : filtered.length === 0 ? (
-                  <tr><td colSpan="8" className="table-empty">No drivers found</td></tr>
-                ) : (
-                  filtered.map((d) => {
-                    const id = d.id ?? d.user_id
-                    const name =
-                      d.name ||
-                      d.driver_name ||
-                      [d.first_name, d.last_name].filter(Boolean).join(' ') ||
-                      `Driver ${id}`
-                    const email = d.email || d.driver_email || '-'
-                    const points = Number(d.pointsBalance ?? d.points_balance ?? d.points ?? d.total_points ?? 0)
+              )
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
 
-                    return (
-                      <tr key={String(id)}>
-                        <td>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedProfileDriver(d)}
-                            style={{
-                              padding: 0,
-                              border: 'none',
-                              background: 'none',
-                              color: '#2563eb',
-                              cursor: 'pointer',
-                              textAlign: 'left'
-                            }}
-                          >
-                            {name}
-                          </button>
-                        </td>
-                        <td>{email}</td>
-                        <td className="text-right">{points}</td>
-                        <td>
-                          <input
-                            className="form-input"
-                            type="number"
-                            placeholder="e.g. 50 or -20"
-                            value={deltaById[id] ?? ''}
-                            onChange={(e) => setDeltaById((prev) => ({ ...prev, [id]: e.target.value }))}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            className="form-input"
-                            type="text"
-                            placeholder="Why are you changing points?"
-                            value={reasonById[id] ?? ''}
-                            onChange={(e) => setReasonById((prev) => ({ ...prev, [id]: e.target.value }))}
-                          />
-                        </td>
-                        <td>
-                          <button
-                            className="btn btn-success"
-                            type="button"
-                            onClick={() => adjustPoints({ ...d, id })}
-                          >
-                            Apply
-                          </button>
-                        </td>
-                        <td>
-                          <button
-                            className="btn btn-primary"
-                            type="button"
-                            onClick={() => openLedger(d)}
-                          >
-                            View
-                          </button>
-                        </td>
-                        <td>
-                          <button
-                            className="btn btn-secondary"
-                            type="button"
-                            onClick={() => removeDriver({ ...d, id })}
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
+  const tabs = [
+    { key: 'all', label: 'All Drivers' },
+    { key: 'top', label: 'Top Performers' },
+    { key: 'expiring', label: 'Expiring Soon' },
+  ]
+
+  return (
+    <div>
+      <Navigation />
+      <main className="app-main">
+        <h1 className="page-title">Drivers</h1>
+        <p className="page-subtitle">Manage points, view activity, and export driver data</p>
+
+        {/* ── Stats bar ── */}
+        <div className="stats-grid" style={{ marginBottom: 16 }}>
+          <div className="stat-card">
+            <p className="stat-label">Total Drivers</p>
+            <p className="stat-value stat-value-blue">{drivers.length}</p>
           </div>
+          <div className="stat-card">
+            <p className="stat-label">Active</p>
+            <p className="stat-value stat-value-green">{totalActive}</p>
+          </div>
+          <div className="stat-card">
+            <p className="stat-label">Inactive</p>
+            <p className="stat-value" style={{ color: '#dc2626' }}>{totalInactive}</p>
+          </div>
+          <div className="stat-card">
+            <p className="stat-label">Total Points Balance</p>
+            <p className="stat-value stat-value-amber">{totalPoints.toLocaleString()}</p>
+          </div>
+        </div>
 
-          {selectedDriver ? (
-            <div className="card" style={{ marginTop: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 12, flexWrap: 'wrap' }}>
-                <div>
-                  <h2 className="section-title" style={{ marginTop: 0 }}>Points ledger</h2>
-                  <p className="page-subtitle" style={{ marginTop: 4 }}>
-                    {(selectedDriver.name ||
-                      selectedDriver.driver_name ||
-                      selectedDriver.email ||
-                      `Driver ${(selectedDriver.id ?? selectedDriver.user_id)}`)}
-                    {ledgerBalance !== null ? ` · Balance: ${ledgerBalance}` : ''}
-                  </p>
-                </div>
-                <button className="btn btn-primary" type="button" onClick={() => setSelectedDriver(null)}>
-                  Close
+        {/* ── Controls ── */}
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              className="form-input"
+              style={{ flex: 1, minWidth: 200 }}
+              placeholder="Search by name, email, or ID"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+
+            {/* #2968 / #2971: Status filter */}
+            <select
+              className="form-input"
+              style={{ width: 150 }}
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+            >
+              <option value="all">All statuses</option>
+              <option value="active">Active only</option>
+              <option value="inactive">Inactive only</option>
+            </select>
+
+            <button className="btn btn-primary" type="button" onClick={loadDrivers} disabled={loading}>
+              {loading ? 'Refreshing…' : '↺ Refresh'}
+            </button>
+
+            {/* #2970: Export CSV */}
+            <button
+              className="btn btn-success"
+              type="button"
+              onClick={() => exportCSV(activeTab === 'top' ? topPerformers : filteredBase)}
+              disabled={filteredBase.length === 0}
+            >
+              ⬇ Export CSV
+            </button>
+          </div>
+        </div>
+
+        {error && <p className="form-footer" style={{ color: 'crimson', marginBottom: 8 }}>{error}</p>}
+        {success && <p className="form-footer" style={{ color: '#16a34a', marginBottom: 8 }}>{success}</p>}
+
+        {/* ── Tabs ── */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 0, flexWrap: 'wrap' }}>
+          {tabs.map(t => (
+            <button
+              key={t.key}
+              type="button"
+              className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}
+              onClick={() => setActiveTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="card" style={{ borderTopLeftRadius: 0, marginTop: 0 }}>
+
+          {/* ── All Drivers tab ── */}
+          {activeTab === 'all' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <p style={{ margin: 0, fontSize: '0.875em', color: '#6b7280' }}>
+                  Showing <strong>{filteredBase.length}</strong> driver{filteredBase.length !== 1 ? 's' : ''}
+                  {statusFilter !== 'all' && ` (${statusFilter})`}
+                </p>
+              </div>
+              <DriverTable list={filteredBase} />
+            </div>
+          )}
+
+          {/* ── Top Performers tab (#2977) ── */}
+          {activeTab === 'top' && (
+            <div>
+              <p style={{ margin: '0 0 12px', fontSize: '0.875em', color: '#6b7280' }}>
+                Top 20 active drivers ranked by current points balance.
+              </p>
+              <DriverTable list={topPerformers} showRank />
+            </div>
+          )}
+
+          {/* ── Expiring Soon tab (#2969) ── */}
+          {activeTab === 'expiring' && (
+            <div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+                <p style={{ margin: 0, fontSize: '0.875em', color: '#6b7280' }}>
+                  Warn when points expire within:
+                </p>
+                <select
+                  className="form-input"
+                  style={{ width: 140 }}
+                  value={expiringWarningDays}
+                  onChange={e => setExpiringWarningDays(Number(e.target.value))}
+                >
+                  <option value={7}>7 days</option>
+                  <option value={14}>14 days</option>
+                  <option value={30}>30 days</option>
+                  <option value={60}>60 days</option>
+                </select>
+                <button className="btn btn-primary" type="button" onClick={loadExpiring} disabled={expiringLoading}>
+                  {expiringLoading ? 'Loading…' : '↺ Refresh'}
                 </button>
               </div>
 
-              {ledgerLoading ? (
-                <p>Loading ledger…</p>
-              ) : ledger.length === 0 ? (
-                <p className="activity-empty">No ledger entries yet</p>
+              {expiringRule ? (
+                <div style={{ padding: '10px 14px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', marginBottom: 14, fontSize: '0.875em' }}>
+                  ⚠ Your expiration rule: points expire after <strong>{expiringRule.expiry_days} days</strong>.
+                  Showing drivers whose oldest points may expire within <strong>{expiringRule.warning_days} days</strong>.
+                </div>
+              ) : !expiringLoading && (
+                <div style={{ padding: '10px 14px', borderRadius: 8, background: '#f0f9ff', border: '1px solid #bae6fd', marginBottom: 14, fontSize: '0.875em', color: '#0369a1' }}>
+                  ℹ No active point expiration rule configured. Set one in <strong>Point Management → Expiration Rules</strong>.
+                </div>
+              )}
+
+              {expiringLoading ? (
+                <p style={{ color: '#6b7280' }}>Loading…</p>
+              ) : expiringDrivers.length === 0 ? (
+                <p className="activity-empty">No drivers have points expiring within {expiringWarningDays} days.</p>
               ) : (
                 <div className="table-wrap">
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Date</th>
-                        <th className="text-right">Delta</th>
-                        <th>Reason</th>
+                        <th>Driver</th>
+                        <th>Email</th>
+                        <th className="text-right">Balance</th>
+                        <th>Oldest Points</th>
+                        <th>Days Until Expiry</th>
+                        <th style={{ width: 80 }}>Ledger</th>
                       </tr>
                     </thead>
                     <tbody>
+                      {expiringDrivers.map(d => {
+                        const id = d.id ?? d.user_id
+                        const name = [d.first_name, d.last_name].filter(Boolean).join(' ') || `Driver ${id}`
+                        const days = Number(d.daysUntilExpiry || 0)
+                        const urgency = days <= 7 ? '#dc2626' : days <= 14 ? '#d97706' : '#374151'
+                        return (
+                          <tr key={String(id)}>
+                            <td style={{ fontWeight: 500 }}>{name}</td>
+                            <td style={{ fontSize: '0.88em', color: '#6b7280' }}>{d.email}</td>
+                            <td className="text-right" style={{ fontWeight: 600 }}>{Number(d.pointsBalance || 0).toLocaleString()}</td>
+                            <td style={{ fontSize: '0.85em', color: '#6b7280' }}>{d.oldest_point_date ? new Date(d.oldest_point_date).toLocaleDateString() : '—'}</td>
+                            <td>
+                              <span style={{ fontWeight: 700, color: urgency, background: days <= 7 ? '#fef2f2' : days <= 14 ? '#fffbeb' : '#f9fafb', padding: '2px 10px', borderRadius: 999, fontSize: '0.85em' }}>
+                                {days <= 0 ? 'Expired' : `${days}d`}
+                              </span>
+                            </td>
+                            <td>
+                              <button className="btn btn-primary" type="button" style={{ fontSize: '0.8em', padding: '4px 8px' }} onClick={() => openLedger(d)}>View</button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Ledger panel ── */}
+        {selectedDriver && (
+          <div className="card" style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <h2 className="section-title" style={{ marginTop: 0 }}>Points ledger</h2>
+                <p className="page-subtitle" style={{ marginTop: 4 }}>
+                  {[selectedDriver.first_name, selectedDriver.last_name].filter(Boolean).join(' ') || selectedDriver.email}
+                  {ledgerBalance !== null && ` · Balance: ${Number(ledgerBalance).toLocaleString()}`}
+                </p>
+              </div>
+              <button className="btn btn-primary" type="button" onClick={() => setSelectedDriver(null)}>Close</button>
+            </div>
+            {ledgerLoading ? <p>Loading ledger…</p>
+              : ledger.length === 0 ? <p className="activity-empty">No ledger entries yet</p>
+              : (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead><tr><th>Date</th><th>Sponsor</th><th className="text-right">Delta</th><th>Reason</th></tr></thead>
+                    <tbody>
                       {ledger.map((row, idx) => (
                         <tr key={row.id ?? idx}>
-                          <td>{row.created_at ? new Date(row.created_at).toLocaleString() : '-'}</td>
-                          <td className="text-right">{row.delta ?? 0}</td>
-                          <td>{row.reason ?? ''}</td>
+                          <td style={{ fontSize: '0.82em' }}>{fmtDate(row.created_at)}</td>
+                          <td style={{ fontSize: '0.85em' }}>{row.sponsor_company || (row.sponsor_id == null ? <em style={{ color: '#9ca3af' }}>Admin</em> : `#${row.sponsor_id}`)}</td>
+                          <td className="text-right" style={{ fontWeight: 700, color: Number(row.delta) >= 0 ? '#16a34a' : '#dc2626' }}>{Number(row.delta) >= 0 ? `+${row.delta}` : row.delta}</td>
+                          <td style={{ fontSize: '0.85em' }}>{row.reason || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               )}
-            </div>
-          ) : null}
+          </div>
+        )}
 
-          {selectedProfileDriver && (
-            <div className="card" style={{ marginTop: 16 }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'start',
-                gap: 12,
-                flexWrap: 'wrap'
-              }}>
+        {/* ── Login history modal (#2972) ── */}
+        {loginHistoryDriver && (
+          <div className="modal-backdrop">
+            <div className="modal-card" style={{ maxWidth: 680 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 12 }}>
                 <div>
-                  <h2 className="section-title" style={{ marginTop: 0 }}>Driver details</h2>
-                  <p className="page-subtitle" style={{ marginTop: 4 }}>
-                    {(() => {
-                      const id = selectedProfileDriver.id ?? selectedProfileDriver.user_id
-                      const name =
-                        selectedProfileDriver.name ||
-                        selectedProfileDriver.driver_name ||
-                        [selectedProfileDriver.first_name, selectedProfileDriver.last_name].filter(Boolean).join(' ') ||
-                        `Driver ${id}`
-                      const email = selectedProfileDriver.email || selectedProfileDriver.driver_email || '-'
-                      return `${name} · ${email}`
-                    })()}
+                  <h2 className="page-title" style={{ marginBottom: 2 }}>Login History</h2>
+                  <p className="page-subtitle" style={{ margin: 0 }}>
+                    {[loginHistoryDriver.first_name, loginHistoryDriver.last_name].filter(Boolean).join(' ') || loginHistoryDriver.email}
                   </p>
                 </div>
-                <button
-                  className="btn btn-primary"
-                  type="button"
-                  onClick={() => setSelectedProfileDriver(null)}
-                >
-                  Close
-                </button>
+                <button className="btn btn-ghost" type="button" onClick={() => setLoginHistoryDriver(null)}>✕ Close</button>
               </div>
 
-              {(() => {
-                const d = selectedProfileDriver
-                const id = d.id ?? d.user_id
-                const name =
-                  d.name ||
-                  d.driver_name ||
-                  [d.first_name, d.last_name].filter(Boolean).join(' ') ||
-                  `Driver ${id}`
-                const email = d.email || d.driver_email || '-'
-                const points = Number(d.pointsBalance ?? d.points_balance ?? d.points ?? d.total_points ?? ledgerBalance ?? 0)
-
-                const fields = [
-                  { label: 'User ID', value: id },
-                  { label: 'Email', value: email },
-                  { label: 'Full Name', value: name },
-                  { label: 'DOB', value: d.dob },
-                  { label: 'Phone', value: d.phone },
-                  { label: 'Address', value: d.address_line1 },
-                  { label: 'City', value: d.city },
-                  { label: 'State', value: d.state },
-                  { label: 'Postal Code', value: d.postal_code },
-                  { label: 'Country', value: d.country },
-                  { label: 'Sponsor Org', value: d.sponsor_org },
-                  { label: 'Points Balance', value: points.toLocaleString() },
-                ]
-
-                return (
-                  <div style={{ marginTop: 16 }}>
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                      gap: 10
-                    }}>
-                      {fields.map(({ label, value }) => (
-                        <div
-                          key={label}
-                          style={{
-                            padding: '10px 14px',
-                            borderRadius: 6,
-                            background: '#fff',
-                            border: '1px solid var(--border)'
-                          }}
-                        >
-                          <p style={{
-                            margin: '0 0 2px',
-                            fontSize: '0.72em',
-                            fontWeight: 700,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.07em',
-                            color: '#9ca3af'
-                          }}>
-                            {label}
-                          </p>
-                          <p style={{
-                            margin: 0,
-                            fontSize: '0.875em',
-                            fontWeight: 500,
-                            color: '#374151',
-                            wordBreak: 'break-all'
-                          }}>
-                            {String(value ?? '—')}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
+              {loginHistoryLoading ? (
+                <p style={{ color: '#6b7280' }}>Loading…</p>
+              ) : loginHistory.length === 0 ? (
+                <p className="activity-empty">No login history available. (Requires login_attempts table.)</p>
+              ) : (
+                <>
+                  <div style={{ marginBottom: 10, fontSize: '0.85em', color: '#6b7280' }}>
+                    Last {loginHistory.length} attempt{loginHistory.length !== 1 ? 's' : ''} ·{' '}
+                    <span style={{ color: '#16a34a', fontWeight: 600 }}>{loginHistory.filter(a => a.success).length} successful</span>{' '}·{' '}
+                    <span style={{ color: '#dc2626', fontWeight: 600 }}>{loginHistory.filter(a => !a.success).length} failed</span>
                   </div>
-                )
-              })()}
+                  <div className="table-wrap" style={{ maxHeight: 380, overflowY: 'auto' }}>
+                    <table className="table">
+                      <thead>
+                        <tr><th>Date</th><th>Result</th><th>IP Address</th><th>Failure Reason</th></tr>
+                      </thead>
+                      <tbody>
+                        {loginHistory.map(a => (
+                          <tr key={a.id} style={{ background: !a.success ? '#fff7f7' : undefined }}>
+                            <td style={{ fontSize: '0.82em', whiteSpace: 'nowrap', color: '#6b7280' }}>{fmtDate(a.attempted_at)}</td>
+                            <td>
+                              <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: '0.78em', fontWeight: 700, background: a.success ? '#d1fae5' : '#fee2e2', color: a.success ? '#065f46' : '#991b1b' }}>
+                                {a.success ? '✓ Success' : '✕ Failed'}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: '0.82em', fontFamily: 'monospace', color: '#6b7280' }}>{a.ip_address || '—'}</td>
+                            <td style={{ fontSize: '0.82em', color: '#dc2626' }}>{a.failure_reason || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
-          )}
+          </div>
+        )}
 
-          <p className="form-footer" style={{ marginTop: 12 }}>
-            Tip: use positive numbers to add points and negative numbers to deduct points. A reason is required.
-          </p>
-        </main>
-      </div>
-    )
-  }
+        {/* ── Profile panel ── */}
+        {selectedProfileDriver && (
+          <div className="card" style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <h2 className="section-title" style={{ marginTop: 0 }}>Driver details</h2>
+                <p className="page-subtitle" style={{ marginTop: 4 }}>
+                  {[selectedProfileDriver.first_name, selectedProfileDriver.last_name].filter(Boolean).join(' ') || selectedProfileDriver.email}
+                </p>
+              </div>
+              <button className="btn btn-primary" type="button" onClick={() => setSelectedProfileDriver(null)}>Close</button>
+            </div>
+            {(() => {
+              const d = selectedProfileDriver
+              const id = d.id ?? d.user_id
+              const points = Number(d.pointsBalance ?? d.points_balance ?? 0)
+              const isActive = d.is_active !== 0 && d.is_active !== false
+              const fields = [
+                { label: 'User ID', value: id },
+                { label: 'Email', value: d.email },
+                { label: 'Full Name', value: [d.first_name, d.last_name].filter(Boolean).join(' ') || '—' },
+                { label: 'Status', value: isActive ? 'Active' : 'Inactive' },
+                { label: 'DOB', value: d.dob || '—' },
+                { label: 'Phone', value: d.phone || '—' },
+                { label: 'Address', value: d.address_line1 || '—' },
+                { label: 'City', value: d.city || '—' },
+                { label: 'State', value: d.state || '—' },
+                { label: 'Postal Code', value: d.postal_code || '—' },
+                { label: 'Country', value: d.country || '—' },
+                { label: 'Sponsor Org', value: d.sponsor_org || '—' },
+                { label: 'Points Balance', value: points.toLocaleString() },
+                { label: 'Last Login', value: fmtDate(d.last_login_at) },
+              ]
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginTop: 12 }}>
+                  {fields.map(({ label, value }) => (
+                    <div key={label} style={{ padding: '10px 14px', borderRadius: 6, background: '#fff', border: '1px solid var(--border)' }}>
+                      <p style={{ margin: '0 0 2px', fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af' }}>{label}</p>
+                      <p style={{ margin: 0, fontSize: '0.875em', fontWeight: 500, color: '#374151', wordBreak: 'break-all' }}>{String(value ?? '—')}</p>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+            <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+              <button className="btn btn-primary" type="button" onClick={() => openLedger(selectedProfileDriver)}>View Ledger</button>
+              <button className="btn btn-ghost" type="button" onClick={() => openLoginHistory(selectedProfileDriver)}>Login History</button>
+            </div>
+          </div>
+        )}
+
+        <p className="form-footer" style={{ marginTop: 12 }}>
+          Tip: use positive numbers to add points and negative numbers to deduct. A reason is required.
+        </p>
+      </main>
+    </div>
+  )
+}
 
   // ============ DASHBOARD PAGE ============
   const DashboardPage = () => {
@@ -8037,47 +8248,6 @@ const AdminUsersPage = () => {
     )
   }
 
-
-  // ─────────────────────────────────────────────
-  // INTEGRATION INSTRUCTIONS (3 small changes)
-  // ─────────────────────────────────────────────
-  //
-  // 1. getAllowedPages() — add 'about' to every role's array, e.g.:
-  //
-  //    if (role === 'driver') {
-  //      return [...existingPages, 'about']
-  //    }
-  //    // repeat for sponsor, admin, and the default fallback
-  //
-  //
-  // 2. Navigation component — add an "About" nav-link visible to all roles:
-  //
-  //    {allowed.includes('about') && (
-  //      <button type="button" onClick={() => setCurrentPage('about')} className="nav-link">
-  //        About
-  //      </button>
-  //    )}
-  //
-  //
-  // 3. Main render block — add the route:
-  //
-  //    {isLoggedIn && currentPage === 'about' && <AboutPage />}
-  //
-  // ─────────────────────────────────────────────
-  // BACKEND REQUIREMENT
-  // ─────────────────────────────────────────────
-  // The page calls GET /health on the active service.
-  // A minimal response that covers all status fields looks like:
-  //
-  //   {
-  //     "status": "ok",
-  //     "db": { "status": "connected", "type": "mysql" },
-  //     "uptime": 3600
-  //   }
-  //
-  // If your /health already returns something different, the component
-  // will still try to infer status from common field names automatically.
-  // ─────────────────────────────────────────────
 
   // ============ MAIN RENDER ============
   return (
