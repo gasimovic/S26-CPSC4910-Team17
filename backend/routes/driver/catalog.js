@@ -89,7 +89,7 @@ router.get('/', async (req, res) => {
         }
 
         const items = await db.query(
-            `SELECT * FROM catalog_items WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC`,
+            `SELECT id, sponsor_id, external_item_id, title, description, image_url, point_cost, category, is_available, created_at FROM catalog_items WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC`,
             params
         );
 
@@ -113,7 +113,7 @@ router.get('/:id', async (req, res) => {
         if (!sponsorIds.length) return res.status(404).json({ error: 'Item not found' });
 
         const rows = await db.query(
-            `SELECT * FROM catalog_items WHERE id = ? AND sponsor_id IN (${sponsorIds.map(() => '?').join(',')}) LIMIT 1`,
+            `SELECT id, sponsor_id, external_item_id, title, description, image_url, point_cost, category, is_available, created_at FROM catalog_items WHERE id = ? AND sponsor_id IN (${sponsorIds.map(() => '?').join(',')}) LIMIT 1`,
             [itemId, ...sponsorIds]
         );
 

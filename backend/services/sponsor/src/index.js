@@ -1139,7 +1139,26 @@ app.put("/conversion-rate", requireAuth, async (req, res) => {
       "SELECT * FROM sponsor_conversion_rates WHERE sponsor_id = ? LIMIT 1",
       [req.user.id]
     );
-    return res.json({ ok: true, rate: rows[0] });
+    // Best-effort recalculation of existing catalog items: update point_cost for all items
+    // belonging to this sponsor that have a positive price. If this fails, return the failure
+    // as a non-fatal field rather than rolling back the rate change.
+    let updatedItems = 0;
+    let recalcError = null;
+    try {
+      const updateResult = await exec(
+        `UPDATE catalog_items
+         SET point_cost = CEIL(price / ?)
+         WHERE sponsor_id = ? AND price > 0`,
+        [parsed.data.dollarsPerPoint, req.user.id]
+      );
+      updatedItems = updateResult.affectedRows;
+    } catch (recalcErr) {
+      console.error("Catalog recalculation failed after rate save:", recalcErr);
+      recalcError = recalcErr.message || "Unknown error";
+    }
+    const response = { ok: true, rate: rows[0], updatedItems };
+    if (recalcError) response.recalcError = recalcError;
+    return res.json(response);
   } catch (err) { console.error(err); return res.status(500).json({ error: "Server error" }); }
 });
 

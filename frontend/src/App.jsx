@@ -11,6 +11,7 @@ function App() {
   const [pendingRole, setPendingRole] = useState('driver') // chosen role for new accounts (driver | sponsor)
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
+  const [pointMgmtInitialTab, setPointMgmtInitialTab] = useState(null)
 
   // Driver cart (client-side for now)
   const [cart, setCart] = useState(() => {
@@ -1754,7 +1755,7 @@ function App() {
   // pause (#2857), cancel (#2869), calendar view (#2870), point expiration (#2858),
   // analytics (#2862, #2863, #2864)
   const PointManagementPage = () => {
-    const [activeTab, setActiveTab] = useState('analytics')
+    const [activeTab, setActiveTab] = useState(pointMgmtInitialTab || 'analytics')
     const [drivers, setDrivers] = useState([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
@@ -1781,6 +1782,7 @@ function App() {
     // Conversion rate state
     const [conversionRate, setConversionRate] = useState(null)
     const [conversionInput, setConversionInput] = useState('')
+    const [conversionSaving, setConversionSaving] = useState(false)
 
     // Calendar view state
     const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -1839,6 +1841,7 @@ function App() {
     }
 
     useEffect(() => {
+      if (pointMgmtInitialTab) setPointMgmtInitialTab(null)
       setLoading(true)
       Promise.all([loadDrivers(), loadAwards(), loadExpiration(), loadAnalytics(), loadConversionRate()])
         .finally(() => setLoading(false))
@@ -1963,14 +1966,33 @@ function App() {
         setError('Enter a positive dollar amount (e.g. 0.01 means $0.01 per point).')
         return
       }
+      const oldRate = conversionRate
+        ? `$${Number(conversionRate.dollars_per_point).toFixed(4)}`
+        : null
+      const newRate = `$${val.toFixed(4)}`
+      const confirmMsg = oldRate
+        ? `Change conversion rate from ${oldRate} to ${newRate} per point?\n\nAll existing catalog items will have their point costs recalculated immediately.`
+        : `Set conversion rate to ${newRate} per point?\n\nAll existing catalog items with a price will have their point costs calculated immediately.`
+      if (!window.confirm(confirmMsg)) return
+      setConversionSaving(true)
       try {
-        await api('/conversion-rate', {
+        const data = await api('/conversion-rate', {
           method: 'PUT',
           body: JSON.stringify({ dollarsPerPoint: val })
         })
-        setSuccess('Conversion rate saved.')
+        const count = data?.updatedItems ?? 0
+        const recalcErr = data?.recalcError
+        if (recalcErr) {
+          setSuccess(`Saved ${newRate} per point. Note: catalog recalculation failed — ${recalcErr}`)
+        } else {
+          setSuccess(`Saved ${newRate} per point. ${count} catalog item${count !== 1 ? 's' : ''} updated.`)
+        }
         await loadConversionRate()
-      } catch (e) { setError(e?.message || 'Failed to save conversion rate') }
+      } catch (e) {
+        setError(e?.message || 'Failed to save conversion rate')
+      } finally {
+        setConversionSaving(false)
+      }
     }
 
     // ── Calendar helpers ──
@@ -2325,35 +2347,57 @@ function App() {
           )}
 
           {/* -- Conversion Rate Tab -- */}
-          {activeTab === 'conversion' && (
-            <div className="card">
-              <h2 className="section-title" style={{ marginTop: 0 }}>Dollar-to-Point Conversion Rate</h2>
-              <p className="page-subtitle" style={{ marginBottom: 12 }}>
-                Set how many dollars equal one point in your program. This is a reference value -
-                existing catalog item point costs are not automatically changed.
-              </p>
-              {conversionRate && (
-                <p style={{ marginBottom: 12, fontSize: '0.875em', color: '#6b7280' }}>
-                  Current rate: <strong>${Number(conversionRate.dollars_per_point).toFixed(4)}</strong> per point
+          {activeTab === 'conversion' && (() => {
+            const previewVal = parseFloat(conversionInput)
+            const previewValid = Number.isFinite(previewVal) && previewVal > 0
+            const samplePrices = [1, 5, 10, 25, 50]
+            return (
+              <div className="card">
+                <h2 className="section-title" style={{ marginTop: 0 }}>Dollar-to-Point Conversion Rate</h2>
+                <p className="page-subtitle" style={{ marginBottom: 12 }}>
+                  Set how many dollars equal one point in your program. When saved, all existing catalog items with a price will have their point costs recalculated automatically.
                 </p>
-              )}
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <input
-                  className="form-input"
-                  style={{ width: 180 }}
-                  type="number"
-                  min="0.0001"
-                  step="0.01"
-                  placeholder="$ per point (e.g. 0.01)"
-                  value={conversionInput}
-                  onChange={e => setConversionInput(e.target.value)}
-                />
-                <button className="btn btn-success" type="button" onClick={saveConversionRate}>
-                  Save Rate
-                </button>
+                {conversionRate && (
+                  <p style={{ marginBottom: 12, fontSize: '0.875em', color: '#6b7280' }}>
+                    Current rate: <strong>${Number(conversionRate.dollars_per_point).toFixed(4)}</strong> per point
+                  </p>
+                )}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+                  <input
+                    className="form-input"
+                    style={{ width: 180 }}
+                    type="number"
+                    min="0.0001"
+                    step="0.01"
+                    placeholder="$ per point (e.g. 0.01)"
+                    value={conversionInput}
+                    onChange={e => setConversionInput(e.target.value)}
+                    disabled={conversionSaving}
+                  />
+                  <button
+                    className="btn btn-success"
+                    type="button"
+                    onClick={saveConversionRate}
+                    disabled={conversionSaving}
+                  >
+                    {conversionSaving ? 'Saving…' : 'Save Rate'}
+                  </button>
+                </div>
+                {previewValid && (
+                  <div style={{ marginTop: 0, padding: '10px 14px', borderRadius: 8, background: '#f0f9ff', border: '1px solid #bae6fd' }}>
+                    <p style={{ margin: '0 0 6px 0', fontSize: '0.8em', fontWeight: 600, color: '#0369a1' }}>Point cost preview at ${previewVal.toFixed(4)}/pt:</p>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      {samplePrices.map(p => (
+                        <span key={p} style={{ fontSize: '0.8em', color: '#0c4a6e' }}>
+                          ${p}.00 → <strong>{Math.ceil(p / previewVal)} pts</strong>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            )
+          })()}
         </main>
       </div>
     )
@@ -5647,7 +5691,7 @@ const AdminUsersPage = () => {
                     </span>
                   )}
                   <p style={{ color: '#6b7280', margin: '8px 0' }}>
-                    {selectedItem.description || `Retail value: $${Number(selectedItem.price || 0).toFixed(2)}`}
+                    {selectedItem.description || 'No description available.'}
                   </p>
                   <p style={{ fontWeight: 700, fontSize: '1.1em', margin: '8px 0' }}>
                     {Number(selectedItem.point_cost || 0)} pts
@@ -5937,7 +5981,7 @@ const AdminUsersPage = () => {
                     <h3 className="reward-title">{item.title}</h3>
                     <p className="reward-pts">{pointCost} pts</p>
                     <p style={{ marginBottom: 12, color: '#6b7280' }}>
-                      {item.description || `Retail value: $${Number(item.price || 0).toFixed(2)}`}
+                      {item.description || 'No description available.'}
                     </p>
                     <button
                       type="button"
@@ -7224,10 +7268,8 @@ const AdminUsersPage = () => {
     const [catalogError, setCatalogError] = useState('')
     // '' = no search yet, otherwise = the search term used
     const [resultsLabel, setResultsLabel] = useState('')
-
-    // We need a state to temporarily store the cost the user types in for each item
-    // Key: itemId, Value: point cost string
-    const [draftCosts, setDraftCosts] = useState({})
+    const [sponsorRate, setSponsorRate] = useState(null)
+    const [rateLoading, setRateLoading] = useState(true)
 
     const formatPrice = (value) => {
       const n = Number(value)
@@ -7250,8 +7292,21 @@ const AdminUsersPage = () => {
       }
     }
 
+    const loadSponsorRate = async () => {
+      setRateLoading(true)
+      try {
+        const data = await api('/conversion-rate', { method: 'GET' })
+        setSponsorRate(data?.rate || null)
+      } catch {
+        setSponsorRate(null)
+      } finally {
+        setRateLoading(false)
+      }
+    }
+
     useEffect(() => {
       fetchShopItems()
+      loadSponsorRate()
     }, [])
 
     const handleSearch = async (e) => {
@@ -7274,20 +7329,15 @@ const AdminUsersPage = () => {
       }
     }
 
-    const handleCostChange = (itemId, val) => {
-      setDraftCosts(prev => ({ ...prev, [itemId]: val }))
-    }
-
     const handleAddToShop = async (item) => {
-      const pointCost = parseInt(draftCosts[item.itemId], 10)
-
       if (shopItems.some(shopItem => String(shopItem.external_item_id) === String(item.itemId))) {
         alert('This item is already in your catalog.')
         return
       }
 
-      if (!pointCost || pointCost <= 0) {
-        alert("Please enter a valid point cost before adding to the shop.")
+      const itemPrice = parseFloat(item.price?.value || 0)
+      if (!itemPrice || itemPrice <= 0) {
+        alert('This item has no price. Only priced items can be added automatically.')
         return
       }
 
@@ -7299,17 +7349,15 @@ const AdminUsersPage = () => {
             title: item.title,
             description: item.description,
             imageUrl: item.image,
-            price: parseFloat(item.price?.value || 0),
-            pointCost: pointCost, // Sending the manual cost to the backend
+            price: itemPrice,
             category: item.category || null,
           })
         })
         fetchShopItems()
-        setDraftCosts(prev => ({ ...prev, [item.itemId]: '' })) // Clear input after saving
         alert('Added to shop!')
       } catch (err) {
         console.error('Failed to add to shop', err)
-        alert('Failed to add item to shop.')
+        alert(err.message || 'Failed to add item to shop.')
       }
     }
 
@@ -7330,6 +7378,23 @@ const AdminUsersPage = () => {
         <main className="app-main">
           <h1 className="page-title">Catalog</h1>
           <p className="page-subtitle">Search the product catalog and add items to your sponsor rewards catalog.</p>
+
+          {!rateLoading && (
+            <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, background: sponsorRate ? '#f0fdf4' : '#fef3c7', border: `1px solid ${sponsorRate ? '#86efac' : '#fcd34d'}` }}>
+              {sponsorRate
+                ? <p style={{ margin: 0, fontSize: '0.875em', color: '#166534' }}>Points are computed automatically: <strong>${Number(sponsorRate.dollars_per_point).toFixed(4)} per point</strong>. Retail price ÷ this rate, rounded up.</p>
+                : <p style={{ margin: 0, fontSize: '0.875em', color: '#92400e' }}>⚠ No conversion rate set. Set one before adding items.</p>
+              }
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ fontSize: '0.8em', padding: '4px 12px', whiteSpace: 'nowrap' }}
+                onClick={() => { setPointMgmtInitialTab('conversion'); setCurrentPage('point-management') }}
+              >
+                {sponsorRate ? 'Change Rate' : 'Set Rate Now'}
+              </button>
+            </div>
+          )}
 
           <div className="catalog-layout">
             <section className="card catalog-panel">
@@ -7378,13 +7443,6 @@ const AdminUsersPage = () => {
                       <p className="catalog-item-price">Retail: ${item.price?.value ?? '-'}</p>
 
                       <div className="catalog-item-actions">
-                        <input
-                          type="number"
-                          className="form-input catalog-cost-input"
-                          placeholder="Points"
-                          value={draftCosts[item.itemId] || ''}
-                          onChange={(e) => handleCostChange(item.itemId, e.target.value)}
-                        />
                         <button
                           type="button"
                           className="btn btn-success"

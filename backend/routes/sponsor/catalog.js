@@ -32,7 +32,6 @@ router.post('/', async (req, res) => {
         const image_url = req.body.imageUrl || req.body.image_url || null;
         const rawPrice = req.body.price;
         const price = (rawPrice !== undefined && rawPrice !== null && rawPrice !== '') ? parseFloat(rawPrice) : null;
-        const point_cost = parseInt(req.body.pointCost || req.body.point_cost, 10);
         const category = req.body.category || null;
         const is_available = (req.body.isAvailable !== undefined)
             ? (req.body.isAvailable ? 1 : 0)
@@ -44,8 +43,25 @@ router.post('/', async (req, res) => {
         if (price === null || !Number.isFinite(price) || price < 0) {
             return res.status(400).json({ error: 'price must be a non-negative number' });
         }
-        if (!Number.isFinite(point_cost) || point_cost <= 0) {
-            return res.status(400).json({ error: 'pointCost must be a positive integer' });
+
+        if (price === 0) {
+            return res.status(400).json({ error: 'Price must be greater than 0 to calculate points automatically.' });
+        }
+
+        const rateRows = await query(
+            `SELECT dollars_per_point FROM sponsor_conversion_rates WHERE sponsor_id = ? LIMIT 1`,
+            [sponsorId]
+        );
+        if (!rateRows || rateRows.length === 0) {
+            return res.status(400).json({ error: 'No conversion rate configured. Set one in Point Management before adding catalog items.' });
+        }
+        const dollarsPerPoint = parseFloat(rateRows[0].dollars_per_point);
+        if (!Number.isFinite(dollarsPerPoint) || dollarsPerPoint <= 0) {
+            return res.status(400).json({ error: 'Invalid conversion rate on file. Update it in Point Management.' });
+        }
+        const point_cost = Math.ceil(price / dollarsPerPoint);
+        if (point_cost < 1) {
+            return res.status(400).json({ error: 'Computed point cost is less than 1. Reduce the conversion rate or use a higher price.' });
         }
 
         if (external_item_id) {
