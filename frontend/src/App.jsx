@@ -2479,7 +2479,9 @@ const SponsorDriversPage = () => {
     setLoading(true)
     try {
       const data = await api('/drivers', { method: 'GET' })
-      setDrivers(Array.isArray(data?.drivers) ? data.drivers : [])
+      // Backends are inconsistent: sponsor service returns an array, admin/driver may wrap in { drivers }.
+      const list = Array.isArray(data) ? data : (Array.isArray(data?.drivers) ? data.drivers : [])
+      setDrivers(list)
     } catch (e) {
       setError(e?.message || 'Failed to load drivers')
     } finally {
@@ -2493,7 +2495,8 @@ const SponsorDriversPage = () => {
     setError('')
     try {
       const data = await api(`/drivers/expiring-soon?days=${expiringWarningDays}`, { method: 'GET' })
-      setExpiringDrivers(Array.isArray(data?.drivers) ? data.drivers : [])
+      const list = Array.isArray(data) ? data : (Array.isArray(data?.drivers) ? data.drivers : [])
+      setExpiringDrivers(list)
       setExpiringRule(data?.rule || null)
     } catch (e) {
       setError(e?.message || 'Failed to load expiring drivers')
