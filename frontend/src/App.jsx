@@ -8495,114 +8495,116 @@ const AdminUsersPage = () => {
     if (role === 'sponsor') tabs.push('announce')
 
     return (
-      <main style={{ maxWidth: 900, margin: '0 auto', padding: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h1 className="page-title" style={{ margin: 0 }}>Notifications</h1>
-          {unreadCount > 0 && (
-            <span style={{ background: '#dc2626', color: '#fff', borderRadius: 12, padding: '2px 10px', fontSize: '0.8em', fontWeight: 700 }}>
-              {unreadCount} unread
-            </span>
-          )}
-        </div>
+      <div>
+        <Navigation />
+        <main className="app-main" style={{ maxWidth: 900 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h1 className="page-title" style={{ margin: 0 }}>Notifications</h1>
+            {unreadCount > 0 && (
+              <span style={{ background: '#dc2626', color: '#fff', borderRadius: 12, padding: '2px 10px', fontSize: '0.8em', fontWeight: 700 }}>
+                {unreadCount} unread
+              </span>
+            )}
+          </div>
 
-        {error && <div className="status-msg error" style={{ marginBottom: 12 }}>{error}</div>}
-        {success && <div className="status-msg success" style={{ marginBottom: 12 }}>{success}</div>}
-        {isMuted && <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '8px 14px', marginBottom: 12, fontSize: '0.85em' }}>Notifications muted until {new Date(muteSettings.muted_until).toLocaleString()}</div>}
+          {error && <div className="status-msg error" style={{ marginBottom: 12 }}>{error}</div>}
+          {success && <div className="status-msg success" style={{ marginBottom: 12 }}>{success}</div>}
+          {isMuted && <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '8px 14px', marginBottom: 12, fontSize: '0.85em' }}>Notifications muted until {new Date(muteSettings.muted_until).toLocaleString()}</div>}
 
-        <div style={{ borderBottom: '1px solid #e5e7eb', marginBottom: 16, display: 'flex', gap: 4 }}>
-          {tabs.map(t => <button key={t} type="button" style={tabStyle(t)} onClick={() => setActiveTab(t)}>{t === 'history' ? `History (${notifications.length})` : t === 'preferences' ? 'Preferences' : t === 'mute' ? 'Mute / Quiet Hours' : 'Announcements'}</button>)}
-        </div>
+          <div style={{ borderBottom: '1px solid #e5e7eb', marginBottom: 16, display: 'flex', gap: 4 }}>
+            {tabs.map(t => <button key={t} type="button" style={tabStyle(t)} onClick={() => setActiveTab(t)}>{t === 'history' ? `History (${notifications.length})` : t === 'preferences' ? 'Preferences' : t === 'mute' ? 'Mute / Quiet Hours' : 'Announcements'}</button>)}
+          </div>
 
-        {/* ─── HISTORY TAB ────────────────────────────────── */}
-        {activeTab === 'history' && (
-          <div>
-            {/* Filters */}
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-              <select className="form-input" style={{ width: 'auto', fontSize: '0.8em' }} value={filterType} onChange={e => setFilterType(e.target.value)}>
-                <option value="">All types</option>
-                {notifTypes.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
-              </select>
-              <select className="form-input" style={{ width: 'auto', fontSize: '0.8em' }} value={filterRead} onChange={e => setFilterRead(e.target.value)}>
-                <option value="">All</option>
-                <option value="0">Unread</option>
-                <option value="1">Read</option>
-              </select>
-              <input type="date" className="form-input" style={{ width: 'auto', fontSize: '0.8em' }} value={filterFrom} onChange={e => setFilterFrom(e.target.value)} placeholder="From" />
-              <input type="date" className="form-input" style={{ width: 'auto', fontSize: '0.8em' }} value={filterTo} onChange={e => setFilterTo(e.target.value)} placeholder="To" />
-              <button type="button" className="btn btn-primary" style={{ fontSize: '0.8em' }} onClick={fetchNotifications}>Filter</button>
-              {unreadCount > 0 && <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={markAllRead}>Mark all read</button>}
-              <button type="button" className="btn" style={{ fontSize: '0.8em', color: '#dc2626' }} onClick={deleteOld}>Delete old (30d+)</button>
-            </div>
+          {/* ─── HISTORY TAB ────────────────────────────────── */}
+          {activeTab === 'history' && (
+            <div>
+              {/* Filters */}
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+                <select className="form-input" style={{ width: 'auto', fontSize: '0.8em' }} value={filterType} onChange={e => setFilterType(e.target.value)}>
+                  <option value="">All types</option>
+                  {notifTypes.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
+                </select>
+                <select className="form-input" style={{ width: 'auto', fontSize: '0.8em' }} value={filterRead} onChange={e => setFilterRead(e.target.value)}>
+                  <option value="">All</option>
+                  <option value="0">Unread</option>
+                  <option value="1">Read</option>
+                </select>
+                <input type="date" className="form-input" style={{ width: 'auto', fontSize: '0.8em' }} value={filterFrom} onChange={e => setFilterFrom(e.target.value)} placeholder="From" />
+                <input type="date" className="form-input" style={{ width: 'auto', fontSize: '0.8em' }} value={filterTo} onChange={e => setFilterTo(e.target.value)} placeholder="To" />
+                <button type="button" className="btn btn-primary" style={{ fontSize: '0.8em' }} onClick={fetchNotifications}>Filter</button>
+                {unreadCount > 0 && <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={markAllRead}>Mark all read</button>}
+                <button type="button" className="btn" style={{ fontSize: '0.8em', color: '#dc2626' }} onClick={deleteOld}>Delete old (30d+)</button>
+              </div>
 
-            {loading ? <p>Loading...</p> : notifications.length === 0 ? <p style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>No notifications yet.</p> : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {notifications.map(n => (
-                  <div key={n.id} style={{
-                    background: n.is_read ? '#f9fafb' : '#eff6ff', border: `1px solid ${n.is_read ? '#e5e7eb' : '#93c5fd'}`,
-                    borderRadius: 8, padding: '12px 16px', position: 'relative',
-                    borderLeft: n.is_mandatory ? '4px solid #dc2626' : undefined
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div>
-                        <span style={{ fontWeight: 700, fontSize: '0.9em' }}>{n.title}</span>
-                        <span style={{ marginLeft: 8, fontSize: '0.7em', color: '#6b7280', background: '#f3f4f6', borderRadius: 4, padding: '1px 6px' }}>
-                          {(n.type || '').replace(/_/g, ' ')}
+              {loading ? <p>Loading...</p> : notifications.length === 0 ? <p style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>No notifications yet.</p> : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {notifications.map(n => (
+                    <div key={n.id} style={{
+                      background: n.is_read ? '#f9fafb' : '#eff6ff', border: `1px solid ${n.is_read ? '#e5e7eb' : '#93c5fd'}`,
+                      borderRadius: 8, padding: '12px 16px', position: 'relative',
+                      borderLeft: n.is_mandatory ? '4px solid #dc2626' : undefined
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <span style={{ fontWeight: 700, fontSize: '0.9em' }}>{n.title}</span>
+                          <span style={{ marginLeft: 8, fontSize: '0.7em', color: '#6b7280', background: '#f3f4f6', borderRadius: 4, padding: '1px 6px' }}>
+                            {(n.type || '').replace(/_/g, ' ')}
+                          </span>
+                          {n.is_mandatory ? <span style={{ marginLeft: 6, fontSize: '0.65em', color: '#dc2626', fontWeight: 700 }}>MANDATORY</span> : null}
+                        </div>
+                        <span style={{ fontSize: '0.7em', color: '#9ca3af', whiteSpace: 'nowrap' }}>
+                          {n.created_at ? new Date(n.created_at).toLocaleString() : ''}
                         </span>
-                        {n.is_mandatory ? <span style={{ marginLeft: 6, fontSize: '0.65em', color: '#dc2626', fontWeight: 700 }}>MANDATORY</span> : null}
                       </div>
-                      <span style={{ fontSize: '0.7em', color: '#9ca3af', whiteSpace: 'nowrap' }}>
-                        {n.created_at ? new Date(n.created_at).toLocaleString() : ''}
-                      </span>
+                      {n.body && <p style={{ margin: '6px 0 0', fontSize: '0.82em', color: '#374151' }}>{n.body}</p>}
+                      <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                        {!n.is_read && <button type="button" className="btn" style={{ fontSize: '0.72em', padding: '2px 10px' }} onClick={() => markRead(n.id)}>Mark read</button>}
+                        {!n.is_mandatory && <button type="button" style={{ fontSize: '0.72em', padding: '2px 10px', background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer' }} onClick={() => deleteNotification(n.id)}>Delete</button>}
+                      </div>
                     </div>
-                    {n.body && <p style={{ margin: '6px 0 0', fontSize: '0.82em', color: '#374151' }}>{n.body}</p>}
-                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                      {!n.is_read && <button type="button" className="btn" style={{ fontSize: '0.72em', padding: '2px 10px' }} onClick={() => markRead(n.id)}>Mark read</button>}
-                      {!n.is_mandatory && <button type="button" style={{ fontSize: '0.72em', padding: '2px 10px', background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer' }} onClick={() => deleteNotification(n.id)}>Delete</button>}
-                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── PREFERENCES TAB ────────────────────────────── */}
+          {activeTab === 'preferences' && (
+            <div>
+              <p style={{ fontSize: '0.85em', color: '#6b7280', marginBottom: 16 }}>Toggle notification types on or off. Mandatory notifications (like being dropped by a sponsor) cannot be disabled.</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {notifTypes.map(type => (
+                  <div key={type} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+                    <span style={{ fontSize: '0.85em', fontWeight: 600 }}>{type.replace(/_/g, ' ')}</span>
+                    {type === 'sponsor_dropped' ? (
+                      <span style={{ fontSize: '0.75em', color: '#9ca3af' }}>Always on (mandatory)</span>
+                    ) : (
+                      <button type="button" onClick={() => togglePreference(type, isEnabled(type))}
+                        style={{ padding: '4px 14px', borderRadius: 6, border: 'none', fontSize: '0.8em', fontWeight: 600, cursor: 'pointer',
+                          background: isEnabled(type) ? '#dcfce7' : '#fee2e2', color: isEnabled(type) ? '#166534' : '#991b1b' }}>
+                        {isEnabled(type) ? 'Enabled' : 'Disabled'}
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
 
-        {/* ─── PREFERENCES TAB ────────────────────────────── */}
-        {activeTab === 'preferences' && (
-          <div>
-            <p style={{ fontSize: '0.85em', color: '#6b7280', marginBottom: 16 }}>Toggle notification types on or off. Mandatory notifications (like being dropped by a sponsor) cannot be disabled.</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {notifTypes.map(type => (
-                <div key={type} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
-                  <span style={{ fontSize: '0.85em', fontWeight: 600 }}>{type.replace(/_/g, ' ')}</span>
-                  {type === 'sponsor_dropped' ? (
-                    <span style={{ fontSize: '0.75em', color: '#9ca3af' }}>Always on (mandatory)</span>
-                  ) : (
-                    <button type="button" onClick={() => togglePreference(type, isEnabled(type))}
-                      style={{ padding: '4px 14px', borderRadius: 6, border: 'none', fontSize: '0.8em', fontWeight: 600, cursor: 'pointer',
-                        background: isEnabled(type) ? '#dcfce7' : '#fee2e2', color: isEnabled(type) ? '#166534' : '#991b1b' }}>
-                      {isEnabled(type) ? 'Enabled' : 'Disabled'}
-                    </button>
-                  )}
+          {/* ─── MUTE / QUIET HOURS TAB (driver only) ───────── */}
+          {activeTab === 'mute' && role === 'driver' && (
+            <div>
+              <div style={{ background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb', padding: 16, marginBottom: 16 }}>
+                <h3 style={{ margin: '0 0 8px', fontSize: '0.95em' }}>Temporary Mute</h3>
+                <p style={{ fontSize: '0.82em', color: '#6b7280', marginBottom: 10 }}>Mute all non-mandatory notifications for a period of time.</p>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: new Date(Date.now() + 1 * 3600000).toISOString() })}>1 hour</button>
+                  <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: new Date(Date.now() + 4 * 3600000).toISOString() })}>4 hours</button>
+                  <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: new Date(Date.now() + 24 * 3600000).toISOString() })}>24 hours</button>
+                  <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: new Date(Date.now() + 7 * 86400000).toISOString() })}>1 week</button>
+                  {isMuted && <button type="button" className="btn btn-primary" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: null })}>Unmute</button>}
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ─── MUTE / QUIET HOURS TAB (driver only) ───────── */}
-        {activeTab === 'mute' && role === 'driver' && (
-          <div>
-            <div style={{ background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb', padding: 16, marginBottom: 16 }}>
-              <h3 style={{ margin: '0 0 8px', fontSize: '0.95em' }}>Temporary Mute</h3>
-              <p style={{ fontSize: '0.82em', color: '#6b7280', marginBottom: 10 }}>Mute all non-mandatory notifications for a period of time.</p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: new Date(Date.now() + 1 * 3600000).toISOString() })}>1 hour</button>
-                <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: new Date(Date.now() + 4 * 3600000).toISOString() })}>4 hours</button>
-                <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: new Date(Date.now() + 24 * 3600000).toISOString() })}>24 hours</button>
-                <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: new Date(Date.now() + 7 * 86400000).toISOString() })}>1 week</button>
-                {isMuted && <button type="button" className="btn btn-primary" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: null })}>Unmute</button>}
               </div>
-            </div>
 
             <div style={{ background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb', padding: 16 }}>
               <h3 style={{ margin: '0 0 8px', fontSize: '0.95em' }}>Quiet Hours</h3>
@@ -8685,7 +8687,8 @@ const AdminUsersPage = () => {
             </form>
           </div>
         )}
-      </main>
+        </main>
+      </div>
     )
   }
 
