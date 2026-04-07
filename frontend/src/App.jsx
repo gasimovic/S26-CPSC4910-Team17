@@ -2751,7 +2751,6 @@ const SponsorDriversPage = () => {
             <th style={{ minWidth: 80 }}>Driver</th>
             <th style={{ minWidth: 100 }}>Email</th>
             <th style={{ width: 60 }}>Status</th>
-            <th style={{ width: 70 }}>Login</th>
             <th className="text-right" style={{ width: 55 }}>Pts</th>
             <th style={{ width: 110 }}>Adjust</th>
             <th style={{ minWidth: 130 }}>Reason</th>
@@ -2764,9 +2763,9 @@ const SponsorDriversPage = () => {
         </thead>
         <tbody>
           {loading && list.length === 0 ? (
-            <tr><td colSpan={showRank ? 13 : 12} className="table-empty">Loading…</td></tr>
+            <tr><td colSpan={showRank ? 12 : 11} className="table-empty">Loading…</td></tr>
           ) : list.length === 0 ? (
-            <tr><td colSpan={showRank ? 13 : 12} className="table-empty">No drivers found</td></tr>
+            <tr><td colSpan={showRank ? 12 : 11} className="table-empty">No drivers found</td></tr>
           ) : (
             list.map((d, idx) => {
               const id = d.id ?? d.user_id
@@ -2793,7 +2792,6 @@ const SponsorDriversPage = () => {
                       {isActive ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  <td style={{ fontSize: '0.82em', color: '#6b7280', whiteSpace: 'nowrap' }}>{fmtDateShort(d.last_login_at)}</td>
                   <td className="text-right" style={{ fontWeight: 600 }}>{points.toLocaleString()}</td>
                   <td>
                     <input className="form-input" style={{ width: '100%', minWidth: 90, fontSize: '0.8em', padding: '4px 6px' }} type="number" placeholder="e.g. 50" value={deltaById[id] ?? ''} onChange={e => setDeltaById(p => ({ ...p, [id]: e.target.value }))} />
