@@ -697,6 +697,10 @@ app.post("/drivers/bulk/points/add", requireAuth, async (req, res) => {
         "INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)",
         [driverId, req.user.id, parsed.data.points, parsed.data.reason]
       );
+      // Notify driver
+      createNotification(driverId, 'points_added',
+        `${parsed.data.points} points added by ${sponsorCompany}`,
+        parsed.data.reason, 'sponsor', req.user.id).catch(() => {});
       results.push({ driverId, ok: true, delta: parsed.data.points });
     }
     // Log to org activity log
@@ -744,6 +748,10 @@ app.post("/drivers/bulk/points/deduct", requireAuth, async (req, res) => {
         "INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)",
         [driverId, req.user.id, delta, parsed.data.reason]
       );
+      // Notify driver
+      createNotification(driverId, 'points_deducted',
+        `${Math.abs(delta)} points deducted by ${sponsorCompany}`,
+        parsed.data.reason, 'sponsor', req.user.id).catch(() => {});
       results.push({ driverId, ok: true, delta });
     }
     // Log to org activity log

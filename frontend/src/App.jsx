@@ -2785,7 +2785,7 @@ const SponsorDriversPage = () => {
   const totalPoints = drivers.reduce((s, d) => s + Number(d.pointsBalance ?? d.points_balance ?? 0), 0)
 
   // ── Shared driver table ───────────────────────────────────────────────────
-  const DriverTable = ({ list, showRank = false }) => (
+  const renderDriverTable = (list, showRank = false) => (
     <div className="table-wrap" style={{ overflowX: 'auto' }}>
       <table className="table" style={{ fontSize: '0.82em', whiteSpace: 'nowrap' }}>
         <thead>
@@ -2968,7 +2968,7 @@ const SponsorDriversPage = () => {
                   {statusFilter !== 'all' && ` (${statusFilter})`}
                 </p>
               </div>
-              <DriverTable list={filteredBase} />
+              {renderDriverTable(filteredBase)}
             </div>
           )}
 
@@ -2978,7 +2978,7 @@ const SponsorDriversPage = () => {
               <p style={{ margin: '0 0 12px', fontSize: '0.875em', color: '#6b7280' }}>
                 Top 20 active drivers ranked by current points balance.
               </p>
-              <DriverTable list={topPerformers} showRank />
+              {renderDriverTable(topPerformers, true)}
             </div>
           )}
 
