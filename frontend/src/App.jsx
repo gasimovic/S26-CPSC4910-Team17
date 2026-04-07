@@ -268,6 +268,21 @@ function App() {
     }
   }
 
+  // Ensure requests always go to the correct role service after auth/session restore.
+  useEffect(() => {
+    if (!isLoggedIn || !currentUser?.role) return
+
+    const role = String(currentUser.role).toLowerCase()
+    const expectedBase =
+      role === 'admin' ? ADMIN_API_BASE :
+        role === 'sponsor' ? SPONSOR_API_BASE :
+          DRIVER_API_BASE
+
+    if ((apiBase || '').replace(/\/$/, '') !== expectedBase) {
+      setApiBasePersisted(expectedBase)
+    }
+  }, [isLoggedIn, currentUser?.role])
+
   // Cart sync: keep the server-side cart in sync for driver accounts.
   // (Must be declared after apiBase/inferRoleFromBase exist.)
   const cartSyncReadyRef = useRef(false)
@@ -399,10 +414,11 @@ function App() {
     const controller = new AbortController()
     const timeoutMs = Number(import.meta.env.VITE_API_TIMEOUT_MS || 12000)
     const t = setTimeout(() => controller.abort(), timeoutMs)
+    const safePath = path.startsWith('/') ? path : `/${path}`
+    const requestUrl = `${apiBase}${safePath}`
 
     try {
-      const safePath = path.startsWith('/') ? path : `/${path}`
-      res = await fetch(`${apiBase}${safePath}`,
+      res = await fetch(requestUrl,
         {
           credentials: 'include',
           headers: {
@@ -434,7 +450,9 @@ function App() {
     const rawText = typeof data?.raw === 'string' ? data.raw : ''
     if (ct.includes('text/html') || rawText.includes('<!doctype html') || rawText.includes('<html')) {
       const err = new Error(
-        'Received HTML from the server instead of API JSON. This usually means the Vite proxy for /api/* is not configured or not being loaded by the dev server.'
+        `Received HTML from the server instead of API JSON for ${requestUrl}. ` +
+        'This usually means one of: (1) the Vite /api/* proxy is not active, ' +
+        '(2) the backend service for this role is not running, or (3) the service was not restarted after route changes (for orders, restart driver service).'
       )
       err.status = res.status
       err.responseBody = rawText
