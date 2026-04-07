@@ -111,19 +111,12 @@ app.post("/auth/login", async (req, res) => {
   const email = parsed.data.email.toLowerCase();
   try {
     const rows = await query(
-      `SELECT id, email, password_hash, role,
-         COALESCE(is_active, 1) AS is_active,
-         temp_admin_expires_at
-       FROM users WHERE email = ? AND role = ? LIMIT 1`,
+      "SELECT id, email, password_hash, role FROM users WHERE email = ? AND role = ? LIMIT 1",
       [email, ROLE]
     );
     if (!rows?.length) return res.status(401).json({ error: "Invalid credentials" });
- 
+
     const user = rows[0];
-    if (user.is_active === 0) return res.status(403).json({ error: "Account is deactivated" });
-    if (user.temp_admin_expires_at && new Date(user.temp_admin_expires_at) < new Date()) {
-      return res.status(403).json({ error: "Temporary admin access has expired" });
-    }
  
     const ok = await verifyPassword(parsed.data.password, user.password_hash);
 

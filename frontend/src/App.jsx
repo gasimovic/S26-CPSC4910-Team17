@@ -734,7 +734,7 @@ function App() {
           const msg = (e?.message || '').toLowerCase()
           const looksNetworky = msg.includes('network error') || msg.includes('timed out')
           if (looksNetworky) throw e
-          if (status && ![400, 401, 404].includes(status)) throw e
+          if (status && ![400, 401, 404, 500, 502, 503].includes(status)) throw e
         }
       }
 
