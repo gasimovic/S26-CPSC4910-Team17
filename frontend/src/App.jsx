@@ -1222,7 +1222,6 @@ function App() {
 
           {/* Points are only meaningful for drivers; keep UI clean for sponsors/admin */}
           {isDriver ? <span className="nav-pts">{currentUser?.points ?? 0} pts</span> : null}
-          <span className="nav-conversion">10 pts = $1 USD</span>
           {isDriver && allowed.includes('cart') && (
             <button type="button" onClick={() => setCurrentPage('cart')} className="nav-link">
               Cart{cartCount > 0 ? ` (${cartCount})` : ''}

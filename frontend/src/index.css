@@ -555,13 +555,6 @@ body {
   margin: 0;
 }
 
-.nav-conversion {
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 0 8px;
-  white-space: nowrap;
-}
-
 .cart-pill {
   display: inline-flex;
   align-items: center;
