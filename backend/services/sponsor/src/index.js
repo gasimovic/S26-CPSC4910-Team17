@@ -104,10 +104,10 @@ async function requireAuth(req, res, next) {
       return res.status(403).json({ error: "Wrong role for this service" });
     }
 
-    // FIX #2: check is_active (graceful if column missing)
+    // FIX #2: check is_active on sponsor_profiles
     try {
       const rows = await query(
-        "SELECT COALESCE(is_active, 1) AS is_active FROM users WHERE id = ? LIMIT 1",
+        "SELECT COALESCE(is_active, 1) AS is_active FROM sponsor_profiles WHERE user_id = ? LIMIT 1",
         [payload.sub]
       );
       if (rows?.[0]?.is_active === 0) {
@@ -197,9 +197,7 @@ app.post("/auth/login", async (req, res) => {
   const email = parsed.data.email.toLowerCase();
   try {
     const rows = await query(
-      `SELECT id, email, password_hash, role,
-         COALESCE(is_active, 1) AS is_active
-       FROM users WHERE email = ? AND role = ? LIMIT 1`,
+      "SELECT id, email, password_hash, role FROM users WHERE email = ? AND role = ? LIMIT 1",
       [email, ROLE]
     );
     if (!rows?.length) {

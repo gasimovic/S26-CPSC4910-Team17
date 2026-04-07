@@ -189,9 +189,42 @@ function App() {
     if (path === '/system-monitoring') return 'system-monitoring'
     if (path === '/notifications') return 'notifications'
 
+    const validPages = new Set([
+      'landing',
+      'login',
+      'account-type',
+      'create-account',
+      'reset-password',
+      'dashboard',
+      'log-trip',
+      'applications',
+      'drivers',
+      'catalog',
+      'shop',
+      'cart',
+      'order-confirmation',
+      'order-history',
+      'order-detail',
+      'messages',
+      'sponsor-preview',
+      'rewards',
+      'leaderboard',
+      'achievements',
+      'profile',
+      'account-details',
+      'change-password',
+      'sponsor-affiliation',
+      'admin-users',
+      'about',
+      'point-management',
+      'organization',
+      'system-monitoring',
+      'notifications',
+    ])
+
     // Back-compat: if the path is unknown, fall back to any legacy ?page= value.
     const pageFromQuery = (searchParams.get('page') || '').toLowerCase()
-    if (pageFromQuery) return pageFromQuery
+    if (pageFromQuery && validPages.has(pageFromQuery)) return pageFromQuery
 
     return 'landing'
   }
@@ -269,7 +302,7 @@ function App() {
   }
 
   // Ensure requests always go to the correct role service after auth/session restore.
-  useEffect(() => {
+    useEffect(() => {
     if (!isLoggedIn || !currentUser?.role) return
 
     const role = String(currentUser.role).toLowerCase()
@@ -283,12 +316,17 @@ function App() {
     }
   }, [isLoggedIn, currentUser?.role])
 
-  // Cart sync: keep the server-side cart in sync for driver accounts.
-  // (Must be declared after apiBase/inferRoleFromBase exist.)
-  const cartSyncReadyRef = useRef(false)
-  const cartSyncTimerRef = useRef(null)
-  const cartPendingSaveRef = useRef(false)
-  const [cartHydrated, setCartHydrated] = useState(false)
+    // Cart sync: keep the server-side cart in sync for driver accounts.
+    // (Must be declared after apiBase/inferRoleFromBase exist.)
+    const cartSyncReadyRef = useRef(false)
+    const cartSyncTimerRef = useRef(null)
+    const cartPendingSaveRef = useRef(false)
+    const cartRef = useRef(cart)
+    const [cartHydrated, setCartHydrated] = useState(false)
+
+    useEffect(() => {
+      cartRef.current = cart
+    }, [cart])
 
   const saveCartToServer = async (cartToSave) => {
     await api('/cart', {
@@ -319,11 +357,12 @@ function App() {
 
         if (serverItems.length) {
           setCart(serverItems)
-        } else if (cart.length) {
+        } else if (cartRef.current.length) {
           // If the server has no cart yet, seed it from the cached local cart.
-          await saveCartToServer(cart)
-        }
-      } catch {
+          await saveCartToServer(cartRef.current)
+        } 
+      }
+      catch {
         // If the server cart can't be loaded, keep local cart.
       } finally {
         cartSyncReadyRef.current = true
@@ -368,7 +407,7 @@ function App() {
     cartPendingSaveRef.current = false
 
     // Fire-and-forget; if it fails we still have local cart.
-    saveCartToServer(cart).catch(() => {})
+    saveCartToServer(cartRef.current).catch(() => {})
   }, [cartHydrated, isLoggedIn, currentUser?.id, apiBase])
 
   // Allow a single override (VITE_API_PREFIX), but if it points at localhost and
@@ -470,46 +509,42 @@ function App() {
     return data
   }
 
-  const normalizeMe = (me) => {
-    // Supports either:
-    // 1) { user: { id,email,role }, profile: {...} }
-    // 2) flat combined object
-    const userObj = me?.user || me || {}
-    const profileObj = me?.profile || me?.profileData || me || {}
+  const normalizeMe = (me, base = apiBase) => {
+  const userObj = me?.user || me || {}
+  const profileObj = me?.profile || me?.profileData || me || {}
 
-    const firstName = profileObj.first_name || ''
-    const lastName = profileObj.last_name || ''
-    const displayName = profileObj.display_name || ''
+  const firstName = profileObj.first_name || ''
+  const lastName = profileObj.last_name || ''
+  const displayName = profileObj.display_name || ''
+  const name = displayName || [firstName, lastName].filter(Boolean).join(' ') || userObj.email || 'User'
 
-    const name = displayName || [firstName, lastName].filter(Boolean).join(' ') || userObj.email || 'User'
-
-    return {
-      id: userObj.id || userObj.userId || userObj.user_id || null,
-      name,
-      email: userObj.email || null,
-      role: (userObj.role || inferRoleFromBase(apiBase)),
-      points: Number(userObj.points ?? 0),
-      totalEarned: Number(userObj.points_earned ?? userObj.total_points_earned ?? 0),
-      miles: Number(userObj.miles ?? 0),
-      streak: Number(userObj.streak ?? 0),
-      rank: Number(userObj.rank ?? 0),
-      profile: {
-        first_name: profileObj.first_name || '',
-        last_name: profileObj.last_name || '',
-        dob: profileObj.dob || '',
-        phone: profileObj.phone || '',
-        address_line1: profileObj.address_line1 || '',
-        address_line2: profileObj.address_line2 || '',
-        city: profileObj.city || '',
-        state: profileObj.state || '',
-        postal_code: profileObj.postal_code || '',
-        country: profileObj.country || '',
-        sponsor_org: profileObj.sponsor_org || '',
-        company_name: profileObj.company_name || '',
-        display_name: profileObj.display_name || ''
-      }
+  return {
+    id: userObj.id || userObj.userId || userObj.user_id || null,
+    name,
+    email: userObj.email || null,
+    role: userObj.role || inferRoleFromBase(base),
+    points: Number(userObj.points ?? 0),
+    totalEarned: Number(userObj.points_earned ?? userObj.total_points_earned ?? 0),
+    miles: Number(userObj.miles ?? 0),
+    streak: Number(userObj.streak ?? 0),
+    rank: Number(userObj.rank ?? 0),
+    profile: {
+      first_name: profileObj.first_name || '',
+      last_name: profileObj.last_name || '',
+      dob: profileObj.dob || '',
+      phone: profileObj.phone || '',
+      address_line1: profileObj.address_line1 || '',
+      address_line2: profileObj.address_line2 || '',
+      city: profileObj.city || '',
+      state: profileObj.state || '',
+      postal_code: profileObj.postal_code || '',
+      country: profileObj.country || '',
+      sponsor_org: profileObj.sponsor_org || '',
+      company_name: profileObj.company_name || '',
+      display_name: profileObj.display_name || ''
     }
   }
+}
 
   const loadMe = async () => {
     const me = await api('/me', { method: 'GET' })
@@ -529,7 +564,6 @@ function App() {
         const u = await loadMe()
         if (cancelled) return
         setIsLoggedIn(true)
-        setCurrentUser(u)
       } catch (err) {
         // If the user is not authenticated (401/403), stay logged out.
         const status = err?.status
@@ -635,7 +669,7 @@ function App() {
   useEffect(() => {
     // Only enforce allowed pages when the user is logged in to avoid
     // changing the login/create-account flow for unauthenticated users.
-    if (!isLoggedIn) return
+    if (sessionLoading || !isLoggedIn) return
 
     const allowed = getAllowedPages(currentUser)
     if (!allowed.includes(currentPage)) {
@@ -853,11 +887,8 @@ function App() {
       setApiBasePersisted(roleBase)
       setStatusMsg('Account created. Loading your profile…')
 
-      // Load the user profile using the explicit base (React state may not
-      // have flushed yet, so `api()` / `loadMe()` could still point at the
-      // old apiBase, causing a 401).
       const me = await apiWithBase(roleBase, '/me', { method: 'GET' })
-      const u = normalizeMe(me)
+      const u = normalizeMe(me, roleBase)
       setCurrentUser(u)
 
       // Batch isLoggedIn + currentPage in one render to avoid white screen
@@ -873,20 +904,29 @@ function App() {
   }
 
   const handleLogout = async () => {
-    setAuthError('')
-    setStatusMsg('')
+  setAuthError('')
+  setStatusMsg('')
 
-    try {
-      await api('/auth/logout', { method: 'POST' })
-    } catch {
-      // Even if backend logout fails, clear locally
-    }
-
-    setIsLoggedIn(false)
-    setCurrentPage('login')
-    setCurrentUser(null)
-    try { window.localStorage.removeItem('gdip_api_base') } catch { }
+  try {
+    await api('/auth/logout', { method: 'POST' })
+  } catch {
+    // Even if backend logout fails, clear locally
   }
+
+  if (cartSyncTimerRef.current) clearTimeout(cartSyncTimerRef.current)
+  cartSyncReadyRef.current = false
+  cartPendingSaveRef.current = false
+
+  setCart([])
+  setLastOrder(null)
+  setOrderToView(null)
+  setIsLoggedIn(false)
+  setCurrentPage('login')
+  setCurrentUser(null)
+
+  try { window.localStorage.removeItem('gdip_api_base') } catch {}
+  try { window.localStorage.removeItem('gdip_cart_v1') } catch {}
+}
 
   // Keep the current page in sync with the URL when the user
   // uses the browser back/forward buttons or loads a deep link.
@@ -1126,7 +1166,7 @@ function App() {
 
           <form onSubmit={onSubmit}>
             <div className="form-group">
-              <label className="form-label">Email or Driver ID</label>
+              <label className="form-label">Email</label>
               <input
                 type="text"
                 value={email}
@@ -1898,6 +1938,14 @@ function App() {
   // analytics (#2862, #2863, #2864)
   const PointManagementPage = () => {
     const [activeTab, setActiveTab] = useState(pointMgmtInitialTab || 'analytics')
+
+    useEffect(() => {
+    if (pointMgmtInitialTab) {
+      setActiveTab(pointMgmtInitialTab)
+      setPointMgmtInitialTab(null)
+    }
+   }, [pointMgmtInitialTab])
+
     const [drivers, setDrivers] = useState([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
@@ -1983,7 +2031,6 @@ function App() {
     }
 
     useEffect(() => {
-      if (pointMgmtInitialTab) setPointMgmtInitialTab(null)
       setLoading(true)
       Promise.all([loadDrivers(), loadAwards(), loadExpiration(), loadAnalytics(), loadConversionRate()])
         .finally(() => setLoading(false))
@@ -2002,7 +2049,7 @@ function App() {
       if (bulkSelectedIds.size === drivers.length) {
         setBulkSelectedIds(new Set())
       } else {
-        setBulkSelectedIds(new Set(drivers.map(d => d.id)))
+        setBulkSelectedIds(new Set(drivers.map(d => d.id ?? d.user_id)))
       }
     }
 
@@ -6431,36 +6478,29 @@ const AdminUsersPage = () => {
     const [rewardsLoading, setRewardsLoading] = useState(true)
     const [rewardsError, setRewardsError] = useState('')
 
-    useEffect(() => {
-      let cancelled = false
+      useEffect(() => {
+    let cancelled = false
 
-      const fetchRewards = async () => {
-        setRewardsLoading(true)
-        setRewardsError('')
-
-        try {
-          const res = await api('/catalog', { method: 'GET' })
-          if (!cancelled) {
-            setRewardItems(res.items || [])
-          }
-        } catch (err) {
-          if (!cancelled) {
-            setRewardItems([])
-            setRewardsError(err.message || 'Could not load rewards.')
-          }
-        } finally {
-          if (!cancelled) {
-            setRewardsLoading(false)
-          }
+    const restoreSession = async () => {
+      try {
+        await loadMe()
+        if (cancelled) return
+        setIsLoggedIn(true)
+      } catch (err) {
+        const status = err?.status
+        if (status !== 401 && status !== 403) {
+          console.error('Failed to restore session on load:', err)
         }
+      } finally {
+        if (!cancelled) setSessionLoading(false)
       }
+    }
 
-      fetchRewards()
-
-      return () => {
-        cancelled = true
-      }
-    }, [])
+    restoreSession()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
     return (
       <div>
