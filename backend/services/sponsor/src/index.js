@@ -1285,8 +1285,38 @@ app.put("/me/language", requireAuth, async (req, res) => {
 
 const fakestoreRoutes = require("../../../routes/sponsor/fakestore");
 const sponsorCatalogRoutes = require("../../../routes/sponsor/catalog");
+const sponsorOrderRoutes = require("../../../routes/sponsor/orders");
 app.use("/fakestore", requireAuth, fakestoreRoutes);
 app.use("/catalog", requireAuth, sponsorCatalogRoutes);
+app.use("/orders", requireAuth, sponsorOrderRoutes);
+
+app.get("/preview-catalog", requireAuth, async (req, res) => {
+  try {
+    const companyName = await getSponsorCompanyName(req.user.id);
+    if (!companyName) return res.json({ items: [] });
+
+    const sponsorRows = await query(
+      "SELECT user_id AS sponsor_id FROM sponsor_profiles WHERE TRIM(company_name) = ?",
+      [companyName]
+    );
+    const sponsorIds = (sponsorRows || []).map((r) => Number(r.sponsor_id)).filter(Number.isFinite);
+    if (!sponsorIds.length) return res.json({ items: [] });
+
+    const placeholders = sponsorIds.map(() => '?').join(',');
+    const items = await query(
+      `SELECT id, sponsor_id, title, description, image_url, point_cost, category, is_available, created_at
+       FROM catalog_items
+       WHERE sponsor_id IN (${placeholders}) AND is_available = 1
+       ORDER BY created_at DESC`,
+      sponsorIds
+    );
+
+    return res.json({ items: items || [] });
+  } catch (err) {
+    console.error('GET /preview-catalog error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
 
 // ============================================================
 // ORGANIZATION MANAGEMENT

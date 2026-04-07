@@ -914,7 +914,9 @@ app.put('/me/language', requireAuth, async (req, res) => {
 });
 
 const driverCatalogRoutes = require('../../../routes/driver/catalog');
+const driverOrderRoutes = require('../../../routes/driver/orders');
 app.use('/catalog', requireAuth, driverCatalogRoutes);
+app.use('/orders', requireAuth, driverOrderRoutes);
 
 // ─── Cart (driver) ───────────────────────────────────────────────────────────
 

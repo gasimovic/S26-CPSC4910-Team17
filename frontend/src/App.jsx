@@ -80,6 +80,8 @@ function App() {
   }
 
   const clearCart = () => setCart([])
+  const [lastOrder, setLastOrder] = useState(null)
+  const [orderToView, setOrderToView] = useState(null)
 
   // Tracks when navigation came from the browser's back/forward
   // buttons so we don't immediately push another history entry.
@@ -111,8 +113,16 @@ function App() {
         return '/shop'
       case 'cart':
         return '/cart'
+      case 'order-confirmation':
+        return '/order-confirmation'
+      case 'order-history':
+        return '/order-history'
+      case 'order-detail':
+        return '/order-detail'
       case 'messages':
         return '/messages'
+      case 'sponsor-preview':
+        return '/sponsor-preview'
       case 'rewards':
         return '/rewards'
       case 'leaderboard':
@@ -160,7 +170,11 @@ function App() {
     if (path === '/catalog') return 'catalog'
     if (path === '/shop') return 'shop'
     if (path === '/cart') return 'cart'
+    if (path === '/order-confirmation') return 'order-confirmation'
+    if (path === '/order-history') return 'order-history'
+    if (path === '/order-detail') return 'order-detail'
     if (path === '/messages') return 'messages'
+    if (path === '/sponsor-preview') return 'sponsor-preview'
     if (path === '/rewards') return 'rewards'
     if (path === '/leaderboard') return 'leaderboard'
     if (path === '/achievements') return 'achievements'
@@ -578,6 +592,7 @@ function App() {
       'organization',
       'applications',
       'catalog',
+      'sponsor-preview',
       'messages',
       'notifications',
       'profile',
@@ -587,8 +602,8 @@ function App() {
     ];
 
     const driverPages = hasSponsor
-      ? ['dashboard', 'log-trip', 'shop', 'cart', 'rewards', 'leaderboard', 'achievements', 'messages', 'notifications', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
-      : ['dashboard', 'shop', 'cart', 'messages', 'notifications', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
+      ? ['dashboard', 'log-trip', 'shop', 'cart', 'order-confirmation', 'order-history', 'order-detail', 'rewards', 'leaderboard', 'achievements', 'messages', 'notifications', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
+      : ['dashboard', 'shop', 'cart', 'order-confirmation', 'order-history', 'order-detail', 'messages', 'notifications', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
 
     // 3. RETURN BASED ON ROLE:
     if (role === 'admin') return adminPages;
@@ -1245,6 +1260,11 @@ function App() {
               Catalog
             </button>
           )}
+          {isSponsor && allowed.includes('sponsor-preview') && (
+            <button type="button" onClick={() => setCurrentPage('sponsor-preview')} className="nav-link">
+              Preview Catalog
+            </button>
+          )}
 
           {/* Messages — sponsors and drivers */}
           {(isSponsor || isDriver) && allowed.includes('messages') && (
@@ -1313,6 +1333,11 @@ function App() {
           {isDriver && allowed.includes('cart') && (
             <button type="button" onClick={() => setCurrentPage('cart')} className="nav-link">
               Cart{cartCount > 0 ? ` (${cartCount})` : ''}
+            </button>
+          )}
+          {isDriver && allowed.includes('order-history') && (
+            <button type="button" onClick={() => setCurrentPage('order-history')} className="nav-link">
+              Orders
             </button>
           )}
 
@@ -5881,6 +5906,8 @@ const AdminUsersPage = () => {
   const CartPage = () => {
     const role = ((currentUser?.role || inferRoleFromBase(apiBase) || 'driver') + '').toLowerCase().trim()
     const isDriver = role === 'driver'
+    const [checkoutLoading, setCheckoutLoading] = React.useState(false)
+    const [checkoutError, setCheckoutError] = React.useState('')
     const totalItems = cart.reduce((sum, x) => sum + Number(x.qty || 1), 0)
     const totalPoints = cart.reduce((sum, x) => sum + (Number(x.point_cost || 0) * Number(x.qty || 1)), 0)
     const balance = Number(currentUser?.points ?? 0)
@@ -5995,7 +6022,7 @@ const AdminUsersPage = () => {
                 <button
                   type="button"
                   className="btn btn-success"
-                  disabled={!canCheckout}
+                  disabled={!canCheckout || checkoutLoading}
                   title={
                     hasUnavailable
                       ? 'Remove unavailable items before checkout.'
@@ -6003,16 +6030,353 @@ const AdminUsersPage = () => {
                         ? 'Cart total must be greater than 0.'
                         : balance < totalPoints
                           ? 'You do not have enough points for this cart.'
-                          : 'Checkout flow not implemented yet.'
+                          : 'Place your order.'
                   }
-                  onClick={() => {
-                    // Placeholder for future checkout
-                    // eslint-disable-next-line no-alert
-                    window.alert('Checkout is coming soon. For now, items stay in your cart.')
+                  onClick={async () => {
+                    setCheckoutLoading(true)
+                    setCheckoutError('')
+                    try {
+                      const result = await api('/orders', { method: 'POST' })
+                      setLastOrder(result.order)
+                      clearCart()
+                      setCurrentPage('order-confirmation')
+                    } catch (err) {
+                      setCheckoutError(err?.message || 'Checkout failed. Please try again.')
+                    } finally {
+                      setCheckoutLoading(false)
+                    }
                   }}
                 >
-                  Checkout
+                  {checkoutLoading ? 'Placing order...' : 'Checkout'}
                 </button>
+              </div>
+              {checkoutError && <p style={{ color: 'var(--danger)', marginTop: 8 }}>{checkoutError}</p>}
+            </div>
+          )}
+        </main>
+      </div>
+    )
+  }
+
+  const OrderConfirmationPage = () => {
+    const order = lastOrder
+
+    if (!order) {
+      return (
+        <div>
+          <Navigation />
+          <main className="app-main">
+            <h1 className="page-title">Order Confirmed</h1>
+            <div className="card">
+              <p>No order data available.</p>
+              <button className="btn btn-primary" onClick={() => setCurrentPage('order-history')}>
+                View Order History
+              </button>
+            </div>
+          </main>
+        </div>
+      )
+    }
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Order Placed</h1>
+          <div className="card">
+            <p><strong>Confirmation #:</strong> {order.confirmation_number}</p>
+            <p><strong>Status:</strong> {order.status}</p>
+            <p><strong>Total Points:</strong> {Number(order.total_points).toLocaleString()}</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85em' }}>
+              Points will be deducted when the sponsor marks your order as delivered.
+            </p>
+            <table className="table">
+              <thead>
+                <tr><th>Item</th><th>Qty</th><th>Points</th></tr>
+              </thead>
+              <tbody>
+                {(order.items || []).map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.item_title_snapshot}</td>
+                    <td>{item.qty}</td>
+                    <td>{(item.points_cost_snapshot * item.qty).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button className="btn btn-primary" onClick={() => setCurrentPage('order-history')}>
+                View Order History
+              </button>
+              <button className="btn btn-ghost" onClick={() => setCurrentPage('shop')}>
+                Continue Shopping
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  const OrderHistoryPage = () => {
+    const [orders, setOrders] = React.useState([])
+    const [loading, setLoading] = React.useState(true)
+    const [error, setError] = React.useState('')
+    const [statusFilter, setStatusFilter] = React.useState('all')
+    const STATUS_TABS = ['all', 'pending', 'confirmed', 'delivered', 'cancelled']
+    const STATUS_COLORS = { pending: '#d97706', confirmed: '#2563eb', delivered: '#16a34a', cancelled: '#dc2626' }
+
+    React.useEffect(() => {
+      let cancelled = false
+
+      const fetchOrders = async () => {
+        setLoading(true)
+        setError('')
+        try {
+          const params = new URLSearchParams()
+          if (statusFilter !== 'all') params.set('status', statusFilter)
+          const data = await api(`/orders?${params.toString()}`, { method: 'GET' })
+          if (!cancelled) setOrders(data.orders || [])
+        } catch (e) {
+          if (!cancelled) setError(e?.message || 'Failed to load orders')
+        } finally {
+          if (!cancelled) setLoading(false)
+        }
+      }
+
+      fetchOrders()
+      return () => { cancelled = true }
+    }, [statusFilter])
+
+    const handleExportAll = () => {
+      window.open(`${apiBase}/orders/export`, '_blank')
+    }
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h1 className="page-title">Order History</h1>
+            <button className="btn btn-ghost" onClick={handleExportAll}>Export All (PDF)</button>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            {STATUS_TABS.map((s) => (
+              <button
+                key={s}
+                className={`btn ${statusFilter === s ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setStatusFilter(s)}
+                style={{ textTransform: 'capitalize' }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+
+          {loading ? <p>Loading...</p> : error ? (
+            <p style={{ color: 'var(--danger)' }}>{error}</p>
+          ) : orders.length === 0 ? (
+            <div className="card"><p className="activity-empty">No orders found.</p></div>
+          ) : (
+            <div className="card">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Confirmation #</th><th>Date</th><th>Status</th><th>Points</th><th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.map((o) => (
+                    <tr key={o.id}>
+                      <td>{o.confirmation_number}</td>
+                      <td>{new Date(o.created_at).toLocaleDateString()}</td>
+                      <td>
+                        <span style={{ color: STATUS_COLORS[o.status] || '#374151', fontWeight: 600, textTransform: 'capitalize' }}>
+                          {o.status}
+                        </span>
+                      </td>
+                      <td>{Number(o.total_points).toLocaleString()}</td>
+                      <td>
+                        <button className="btn btn-ghost" onClick={() => { setOrderToView(o.id); setCurrentPage('order-detail') }}>
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </main>
+      </div>
+    )
+  }
+
+  const OrderDetailPage = () => {
+    const [order, setOrder] = React.useState(null)
+    const [loading, setLoading] = React.useState(true)
+    const [error, setError] = React.useState('')
+    const [cancelLoading, setCancelLoading] = React.useState(false)
+    const [cancelError, setCancelError] = React.useState('')
+    const STATUS_COLORS = { pending: '#d97706', confirmed: '#2563eb', delivered: '#16a34a', cancelled: '#dc2626' }
+
+    React.useEffect(() => {
+      if (!orderToView) {
+        setLoading(false)
+        return
+      }
+
+      let cancelled = false
+      const fetchOrder = async () => {
+        setLoading(true)
+        setError('')
+        try {
+          const data = await api(`/orders/${orderToView}`, { method: 'GET' })
+          if (!cancelled) setOrder(data.order)
+        } catch (e) {
+          if (!cancelled) setError(e?.message || 'Failed to load order')
+        } finally {
+          if (!cancelled) setLoading(false)
+        }
+      }
+
+      fetchOrder()
+      return () => { cancelled = true }
+    }, [orderToView])
+
+    const handleCancel = async () => {
+      if (!window.confirm('Cancel this order?')) return
+      setCancelLoading(true)
+      setCancelError('')
+      try {
+        const data = await api(`/orders/${order.id}/cancel`, {
+          method: 'POST',
+          body: JSON.stringify({ reason: 'Cancelled by driver' })
+        })
+        setOrder(data.order)
+      } catch (e) {
+        setCancelError(e?.message || 'Failed to cancel order')
+      } finally {
+        setCancelLoading(false)
+      }
+    }
+
+    const handleExport = () => {
+      window.open(`${apiBase}/orders/${order?.id}/export`, '_blank')
+    }
+
+    if (loading) return <div><Navigation /><main className="app-main"><p>Loading...</p></main></div>
+    if (error) return <div><Navigation /><main className="app-main"><p style={{ color: 'var(--danger)' }}>{error}</p></main></div>
+    if (!order) return <div><Navigation /><main className="app-main"><p>Order not found.</p></main></div>
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h1 className="page-title">Order {order.confirmation_number}</h1>
+            <button className="btn btn-ghost" onClick={handleExport}>Export Receipt (PDF)</button>
+          </div>
+          <div className="card">
+            <p><strong>Status:</strong>{' '}<span style={{ color: STATUS_COLORS[order.status], fontWeight: 600, textTransform: 'capitalize' }}>{order.status}</span></p>
+            <p><strong>Placed:</strong> {new Date(order.created_at).toLocaleString()}</p>
+            {order.confirmed_at && <p><strong>Confirmed:</strong> {new Date(order.confirmed_at).toLocaleString()}</p>}
+            {order.status === 'cancelled' && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, padding: '10px 14px', margin: '8px 0' }}>
+                <strong style={{ color: '#dc2626' }}>Cancelled</strong>
+                {order.cancellation_reason && <p style={{ margin: '4px 0 0', color: '#dc2626' }}>Reason: {order.cancellation_reason}</p>}
+                {order.cancelled_at && <p style={{ margin: '2px 0 0', fontSize: '0.8em', color: '#6b7280' }}>{new Date(order.cancelled_at).toLocaleString()}</p>}
+              </div>
+            )}
+            <p><strong>Total Points:</strong> {Number(order.total_points).toLocaleString()}</p>
+            {order.status !== 'delivered' && order.status !== 'cancelled' && (
+              <p style={{ fontSize: '0.85em', color: 'var(--text-muted)' }}>Points will be deducted when sponsor marks order delivered.</p>
+            )}
+            <table className="table" style={{ marginTop: 12 }}>
+              <thead><tr><th>Item</th><th>Qty</th><th>Points each</th><th>Subtotal</th></tr></thead>
+              <tbody>
+                {(order.items || []).map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.item_title_snapshot}</td>
+                    <td>{item.qty}</td>
+                    <td>{Number(item.points_cost_snapshot).toLocaleString()}</td>
+                    <td>{(item.points_cost_snapshot * item.qty).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <button className="btn btn-ghost" onClick={() => setCurrentPage('order-history')}>Back to History</button>
+              {order.status === 'pending' && (
+                <button
+                  className="btn btn-secondary"
+                  style={{ color: '#dc2626', borderColor: '#dc2626' }}
+                  disabled={cancelLoading}
+                  onClick={handleCancel}
+                >
+                  {cancelLoading ? 'Cancelling...' : 'Cancel Order'}
+                </button>
+              )}
+            </div>
+            {cancelError && <p style={{ color: 'var(--danger)', marginTop: 8 }}>{cancelError}</p>}
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  const SponsorPreviewPage = () => {
+    const [items, setItems] = React.useState([])
+    const [loading, setLoading] = React.useState(true)
+    const [error, setError] = React.useState('')
+
+    React.useEffect(() => {
+      let cancelled = false
+      const fetchPreview = async () => {
+        setLoading(true)
+        setError('')
+        try {
+          const data = await api('/preview-catalog', { method: 'GET' })
+          if (!cancelled) setItems(data.items || [])
+        } catch (e) {
+          if (!cancelled) setError(e?.message || 'Failed to load preview')
+        } finally {
+          if (!cancelled) setLoading(false)
+        }
+      }
+
+      fetchPreview()
+      return () => { cancelled = true }
+    }, [])
+
+    return (
+      <div>
+        <Navigation />
+        <main className="app-main">
+          <h1 className="page-title">Catalog Preview</h1>
+          <p className="page-subtitle">This is how your catalog appears to affiliated drivers (read-only).</p>
+          {loading ? <p>Loading...</p> : error ? (
+            <p style={{ color: 'var(--danger)' }}>{error}</p>
+          ) : items.length === 0 ? (
+            <div className="card"><p className="activity-empty">No available items found.</p></div>
+          ) : (
+            <div className="card">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))', gap: 16 }}>
+                {items.map((item) => (
+                  <div key={item.id} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+                    {item.image_url && (
+                      <img
+                        src={item.image_url}
+                        alt={item.title}
+                        style={{ width: '100%', height: 120, objectFit: 'contain' }}
+                      />
+                    )}
+                    <p style={{ fontWeight: 600, margin: '8px 0 4px' }}>{item.title}</p>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85em' }}>
+                      {Number(item.point_cost).toLocaleString()} pts
+                    </p>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -8802,6 +9166,9 @@ const AdminUsersPage = () => {
       {isLoggedIn && currentPage === 'log-trip' && <LogTripPage />}
       {isLoggedIn && currentPage === 'shop' && <DriverShopPage />}
       {isLoggedIn && currentPage === 'cart' && <CartPage />}
+      {isLoggedIn && currentPage === 'order-confirmation' && <OrderConfirmationPage />}
+      {isLoggedIn && currentPage === 'order-history' && <OrderHistoryPage />}
+      {isLoggedIn && currentPage === 'order-detail' && <OrderDetailPage />}
       {isLoggedIn && currentPage === 'rewards' && <RewardsPage />}
       {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
       {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}
@@ -8815,6 +9182,7 @@ const AdminUsersPage = () => {
       {isLoggedIn && currentPage === 'applications' && currentUser?.role !== 'admin' && <ApplicationsPage />}
       {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
       {isLoggedIn && currentPage === 'catalog' && currentUser?.role === 'sponsor' && <SponsorCatalogPage />}
+      {isLoggedIn && currentPage === 'sponsor-preview' && currentUser?.role === 'sponsor' && <SponsorPreviewPage />}
       {isLoggedIn && currentPage === 'messages' && <MessagesPage />}
       {isLoggedIn && currentPage === 'notifications' && <NotificationsPage />}
 
