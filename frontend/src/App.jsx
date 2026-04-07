@@ -12,6 +12,7 @@ function App() {
   // Prefill for reset-password deep links (?page=reset-password&email=...&token=...)
   const [resetPrefill, setResetPrefill] = useState({ email: '', token: '' })
   const [pointMgmtInitialTab, setPointMgmtInitialTab] = useState(null)
+  const [sessionLoading, setSessionLoading] = useState(true)
 
   // Driver cart (client-side for now)
   const [cart, setCart] = useState(() => {
