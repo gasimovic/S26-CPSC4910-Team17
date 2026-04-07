@@ -2753,7 +2753,7 @@ const SponsorDriversPage = () => {
             <th style={{ width: 60 }}>Status</th>
             <th style={{ width: 70 }}>Login</th>
             <th className="text-right" style={{ width: 55 }}>Pts</th>
-            <th style={{ width: 90 }}>Adjust</th>
+            <th style={{ width: 110 }}>Adjust</th>
             <th style={{ minWidth: 130 }}>Reason</th>
             <th style={{ width: 55 }}>Apply</th>
             <th style={{ width: 55 }}>Ledger</th>
@@ -2796,7 +2796,7 @@ const SponsorDriversPage = () => {
                   <td style={{ fontSize: '0.82em', color: '#6b7280', whiteSpace: 'nowrap' }}>{fmtDateShort(d.last_login_at)}</td>
                   <td className="text-right" style={{ fontWeight: 600 }}>{points.toLocaleString()}</td>
                   <td>
-                    <input className="form-input" style={{ width: '100%', fontSize: '0.8em', padding: '4px 6px' }} type="number" placeholder="±pts" value={deltaById[id] ?? ''} onChange={e => setDeltaById(p => ({ ...p, [id]: e.target.value }))} />
+                    <input className="form-input" style={{ width: '100%', minWidth: 90, fontSize: '0.8em', padding: '4px 6px' }} type="number" placeholder="e.g. 50" value={deltaById[id] ?? ''} onChange={e => setDeltaById(p => ({ ...p, [id]: e.target.value }))} />
                   </td>
                   <td>
                     <input className="form-input" style={{ width: '100%', fontSize: '0.8em', padding: '4px 6px' }} type="text" placeholder="Reason required" value={reasonById[id] ?? ''} onChange={e => setReasonById(p => ({ ...p, [id]: e.target.value }))} />
