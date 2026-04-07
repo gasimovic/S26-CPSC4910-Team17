@@ -329,6 +329,8 @@ router.get('/', async (req, res) => {
     }
 
     const whereSql = where.join(' AND ');
+    const safeLimit = Math.trunc(limit);
+    const safeOffset = Math.trunc(offset);
 
     const orders = await query(
       `SELECT id, status, total_points, confirmation_number, confirmed_at,
@@ -336,8 +338,8 @@ router.get('/', async (req, res) => {
        FROM orders
        WHERE ${whereSql}
        ORDER BY created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+       LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params
     );
 
     const countRows = await query(
