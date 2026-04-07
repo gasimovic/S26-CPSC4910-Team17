@@ -164,14 +164,6 @@ router.patch('/:id/status', async (req, res) => {
           [reason, req.user.id, orderId]
         );
       } else {
-        const [sponsorSubtotalRows] = await conn.execute(
-          `SELECT COALESCE(SUM(points_cost_snapshot * qty), 0) AS sponsor_total
-           FROM order_items
-           WHERE order_id = ? AND sponsor_id = ?`,
-          [orderId, req.user.id]
-        );
-        const sponsorTotal = Number(sponsorSubtotalRows?.[0]?.sponsor_total || 0);
-
         await conn.execute(
           `UPDATE orders
            SET status = 'delivered', updated_at = NOW()
@@ -185,7 +177,7 @@ router.patch('/:id/status', async (req, res) => {
           [
             order.driver_id,
             req.user.id,
-            -sponsorTotal,
+            -Number(order.total_points || 0),
             `Order #${order.confirmation_number} delivered`
           ]
         );

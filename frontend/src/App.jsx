@@ -5975,9 +5975,7 @@ const AdminUsersPage = () => {
     const [checkoutError, setCheckoutError] = React.useState('')
     const totalItems = cart.reduce((sum, x) => sum + Number(x.qty || 1), 0)
     const totalPoints = cart.reduce((sum, x) => sum + (Number(x.point_cost || 0) * Number(x.qty || 1)), 0)
-    const balance = Number(currentUser?.available_points ?? currentUser?.points ?? 0)
-    const grossBalance = Number(currentUser?.points ?? 0)
-    const reservedPoints = Number(currentUser?.reserved_points ?? 0)
+    const balance = Number(currentUser?.points ?? 0)
     const pointsRemaining = balance - totalPoints
     const hasUnavailable = cart.some((x) => x.is_available === 0 || x.is_available === false)
     const canCheckout = !hasUnavailable && totalPoints > 0 && balance >= totalPoints
@@ -6003,19 +6001,7 @@ const AdminUsersPage = () => {
 
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
                 <div className="cart-pill">
-                  Balance: <strong>{grossBalance.toLocaleString()}</strong> pts
-                </div>
-                {reservedPoints > 0 && (
-                  <div className="cart-pill" style={{ borderColor: 'var(--warning)', color: '#d97706' }}>
-                    Reserved (pending orders): <strong>{reservedPoints.toLocaleString()}</strong> pts
-                  </div>
-                )}
-                <div className="cart-pill">
-                  Spendable:{' '}
-                  <strong style={{ color: balance >= totalPoints ? 'var(--success)' : 'var(--danger)' }}>
-                    {balance.toLocaleString()}
-                  </strong>{' '}
-                  pts
+                  Balance: <strong>{balance.toLocaleString()}</strong> pts
                 </div>
                 <div className="cart-pill">
                   Remaining after checkout:{' '}
@@ -6108,7 +6094,7 @@ const AdminUsersPage = () => {
                       : totalPoints <= 0
                         ? 'Cart total must be greater than 0.'
                         : balance < totalPoints
-                          ? `You only have ${balance.toLocaleString()} spendable points (${reservedPoints > 0 ? `${reservedPoints.toLocaleString()} reserved by pending orders` : 'check your balance'}).`
+                          ? 'You do not have enough points for this cart.'
                           : 'Place your order.'
                   }
                   onClick={async () => {
@@ -6118,10 +6104,6 @@ const AdminUsersPage = () => {
                       const result = await api('/orders', { method: 'POST' })
                       setLastOrder(result.order)
                       clearCart()
-                      try {
-                        const me = await api('/me', { method: 'GET' })
-                        setCurrentUser(prev => ({ ...prev, ...me.user }))
-                      } catch (_) {}
                       setCurrentPage('order-confirmation')
                     } catch (err) {
                       setCheckoutError(err?.message || 'Checkout failed. Please try again.')
@@ -6337,10 +6319,6 @@ const AdminUsersPage = () => {
           body: JSON.stringify({ reason: 'Cancelled by driver' })
         })
         setOrder(data.order)
-        try {
-          const me = await api('/me', { method: 'GET' })
-          setCurrentUser(prev => ({ ...prev, ...me.user }))
-        } catch (_) {}
       } catch (e) {
         setCancelError(e?.message || 'Failed to cancel order')
       } finally {

@@ -106,23 +106,6 @@ router.get('/export', async (req, res) => {
       [req.user.id]
     );
 
-    const orderIds = (orders || []).map((o) => Number(o.id)).filter(Number.isFinite);
-    const itemsByOrderId = {};
-    if (orderIds.length > 0) {
-      const allItems = await query(
-        `SELECT order_id, item_title_snapshot, qty, points_cost_snapshot
-         FROM order_items
-         WHERE order_id IN (${orderIds.map(() => '?').join(',')})
-         ORDER BY id ASC`,
-        orderIds
-      );
-      for (const item of allItems || []) {
-        const oid = Number(item.order_id);
-        if (!itemsByOrderId[oid]) itemsByOrderId[oid] = [];
-        itemsByOrderId[oid].push(item);
-      }
-    }
-
     const doc = startPdf(res, 'order-history.pdf');
     doc.fontSize(18).text('Order History', { align: 'left' });
     doc.moveDown(0.3);
@@ -131,7 +114,13 @@ router.get('/export', async (req, res) => {
     doc.moveDown();
 
     for (const order of orders || []) {
-      const items = itemsByOrderId[Number(order.id)] || [];
+      const items = await query(
+        `SELECT item_title_snapshot, qty, points_cost_snapshot
+         FROM order_items
+         WHERE order_id = ?
+         ORDER BY id ASC`,
+        [order.id]
+      );
       const itemSummary = (items || [])
         .map((it) => `${it.item_title_snapshot} x${it.qty}`)
         .join(', ');
@@ -148,9 +137,7 @@ router.get('/export', async (req, res) => {
     doc.end();
   } catch (err) {
     console.error('GET /orders/export error:', err);
-    if (!res.headersSent) {
-      return res.status(500).json({ error: 'Server error' });
-    }
+    return res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -189,65 +176,35 @@ router.post('/', async (req, res) => {
       0
     );
 
+    const actualBalanceRows = await query(
+      'SELECT COALESCE(SUM(delta), 0) AS b FROM driver_points_ledger WHERE driver_id = ?',
+      [req.user.id]
+    );
+    const reservedRows = await query(
+      `SELECT COALESCE(SUM(total_points), 0) AS r
+       FROM orders
+       WHERE driver_id = ? AND status IN ('pending','confirmed')`,
+      [req.user.id]
+    );
+
+    const actualBalance = Number(actualBalanceRows?.[0]?.b || 0);
+    const reserved = Number(reservedRows?.[0]?.r || 0);
+    const available = actualBalance - reserved;
+
+    if (available < totalPoints) {
+      return res.status(402).json({
+        error: 'Insufficient available points',
+        available,
+        required: totalPoints
+      });
+    }
+
     const confirmationNumber = generateConfirmationNumber();
     const conn = await pool.getConnection();
     let orderId;
 
     try {
       await conn.beginTransaction();
-
-      const sponsorTotals = {};
-      for (const row of rows) {
-        const sid = Number(row.sponsor_id);
-        sponsorTotals[sid] = (sponsorTotals[sid] || 0) + (Number(row.point_cost || 0) * Number(row.qty || 1));
-      }
-
-      const sponsorIds = Object.keys(sponsorTotals).map(Number).filter(Number.isFinite);
-      if (!sponsorIds.length) {
-        await conn.rollback();
-        return res.status(400).json({ error: 'Cart contains invalid sponsor data' });
-      }
-
-      const sidPlaceholders = sponsorIds.map(() => '?').join(',');
-
-      const [ledgerRows] = await conn.execute(
-        `SELECT sponsor_id, COALESCE(SUM(delta), 0) AS balance
-         FROM driver_points_ledger
-         WHERE driver_id = ? AND sponsor_id IN (${sidPlaceholders})
-         GROUP BY sponsor_id`,
-        [req.user.id, ...sponsorIds]
-      );
-
-      const [reservedItemRows] = await conn.execute(
-        `SELECT oi.sponsor_id, COALESCE(SUM(oi.points_cost_snapshot * oi.qty), 0) AS reserved
-         FROM order_items oi
-         JOIN orders o ON oi.order_id = o.id
-         WHERE o.driver_id = ? AND o.status IN ('pending','confirmed') AND oi.sponsor_id IN (${sidPlaceholders})
-         GROUP BY oi.sponsor_id`,
-        [req.user.id, ...sponsorIds]
-      );
-
-      const ledgerMap = {};
-      for (const r of ledgerRows || []) ledgerMap[Number(r.sponsor_id)] = Number(r.balance || 0);
-      const reservedMap = {};
-      for (const r of reservedItemRows || []) reservedMap[Number(r.sponsor_id)] = Number(r.reserved || 0);
-
-      const deficits = [];
-      for (const sid of sponsorIds) {
-        const gross = ledgerMap[sid] || 0;
-        const reservedForSponsor = reservedMap[sid] || 0;
-        const available = gross - reservedForSponsor;
-        const needed = sponsorTotals[sid];
-        if (available < needed) deficits.push({ sponsor_id: sid, available, needed });
-      }
-
-      if (deficits.length > 0) {
-        await conn.rollback();
-        return res.status(402).json({
-          error: 'Insufficient available points',
-          deficits
-        });
-      }
 
       const [orderResult] = await conn.execute(
         `INSERT INTO orders (driver_id, status, total_points, confirmation_number)
@@ -415,9 +372,7 @@ router.get('/:id/export', async (req, res) => {
     doc.end();
   } catch (err) {
     console.error('GET /orders/:id/export error:', err);
-    if (!res.headersSent) {
-      return res.status(500).json({ error: 'Server error' });
-    }
+    return res.status(500).json({ error: 'Server error' });
   }
 });
 
