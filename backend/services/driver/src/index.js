@@ -329,7 +329,7 @@ app.get("/me", requireAuth, async (req, res) => {
     const user = userRows[0];
 
     // Compute current points and lifetime earned points from the ledger
-    const [pointsRows, earnedRows] = await Promise.all([
+    const [pointsRows, earnedRows, reservedRows] = await Promise.all([
       query(
         "SELECT COALESCE(SUM(delta), 0) AS balance FROM driver_points_ledger WHERE driver_id = ?",
         [req.user.id]
@@ -337,16 +337,25 @@ app.get("/me", requireAuth, async (req, res) => {
       query(
         "SELECT COALESCE(SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END), 0) AS earned FROM driver_points_ledger WHERE driver_id = ?",
         [req.user.id]
+      ),
+      query(
+        `SELECT COALESCE(SUM(total_points), 0) AS reserved
+         FROM orders
+         WHERE driver_id = ? AND status IN ('pending','confirmed')`,
+        [req.user.id]
       )
     ]);
 
     const pointsBalance = Number(pointsRows?.[0]?.balance || 0);
     const lifetimeEarned = Number(earnedRows?.[0]?.earned || 0);
+    const reservedPoints = Number(reservedRows?.[0]?.reserved || 0);
 
     // Attach as fields on the user object; the frontend's login
     // normalization reads user.points (current) and user.points_earned (lifetime) from /me.
     user.points = pointsBalance;
     user.points_earned = lifetimeEarned;
+    user.reserved_points = reservedPoints;
+    user.available_points = Math.max(0, pointsBalance - reservedPoints);
 
     const profileRows = await query("SELECT * FROM driver_profiles WHERE user_id = ?", [req.user.id]);
     const profile = profileRows[0] || null;
