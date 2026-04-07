@@ -1571,6 +1571,204 @@ app.get('/system/login-attempts', requireAuth, async (req, res) => {
   }
 });
 
+// ─── Helper: createNotification ─────────────────────────────────────────────
+
+async function createNotification(userId, type, title, body, refType, refId, isMandatory = false) {
+  try {
+    // Check user preference
+    if (!isMandatory) {
+      const prefs = await query('SELECT is_enabled FROM notification_preferences WHERE user_id = ? AND notif_type = ?', [userId, type]);
+      if (prefs.length && !prefs[0].is_enabled) return null;
+      // Check mute
+      const mute = await query('SELECT muted_until FROM notification_mute WHERE user_id = ? LIMIT 1', [userId]);
+      if (mute.length && mute[0].muted_until && new Date(mute[0].muted_until) > new Date()) return null;
+    }
+    const result = await exec(
+      `INSERT INTO notifications (user_id, type, title, body, ref_type, ref_id, is_mandatory) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, type, title, body || null, refType || null, refId || null, isMandatory ? 1 : 0]
+    );
+    return result.insertId;
+  } catch (err) {
+    console.error('createNotification error:', err);
+    return null;
+  }
+}
+
+// ─── Admin Notifications ────────────────────────────────────────────────────
+
+app.get('/notifications', requireAuth, async (req, res) => {
+  try {
+    const conditions = ['n.user_id = ?'];
+    const params = [req.user.id];
+    if (req.query.type) { conditions.push('n.type = ?'); params.push(req.query.type); }
+    if (req.query.read === '0') conditions.push('n.is_read = 0');
+    else if (req.query.read === '1') conditions.push('n.is_read = 1');
+    if (req.query.from) { conditions.push('n.created_at >= ?'); params.push(req.query.from); }
+    if (req.query.to) { conditions.push('n.created_at <= ?'); params.push(req.query.to); }
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const rows = await query(
+      `SELECT n.* FROM notifications n WHERE ${conditions.join(' AND ')} ORDER BY n.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+    return res.json({ notifications: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ notifications: [] });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/notifications/unread-count', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0', [req.user.id]);
+    return res.json({ count: Number(rows?.[0]?.count || 0) });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ count: 0 });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/notifications/read-all', requireAuth, async (req, res) => {
+  try {
+    await exec('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0', [req.user.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/notifications/:id/read', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    await exec('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/notifications/old', requireAuth, async (req, res) => {
+  const days = Math.max(Number(req.query.days) || 90, 1);
+  try {
+    const result = await exec(
+      'DELETE FROM notifications WHERE user_id = ? AND is_mandatory = 0 AND created_at < DATE_SUB(NOW(), INTERVAL ? DAY)',
+      [req.user.id, days]
+    );
+    return res.json({ ok: true, deleted: result.affectedRows || 0 });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/notifications/:id', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    await exec('DELETE FROM notifications WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/notifications/preferences', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT notif_type, is_enabled FROM notification_preferences WHERE user_id = ?', [req.user.id]);
+    return res.json({ preferences: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ preferences: [] });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/notifications/preferences', requireAuth, async (req, res) => {
+  const schema = z.object({ type: z.string().min(1), enabled: z.boolean() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  try {
+    await exec(
+      `INSERT INTO notification_preferences (user_id, notif_type, is_enabled) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE is_enabled = VALUES(is_enabled)`,
+      [req.user.id, parsed.data.type, parsed.data.enabled ? 1 : 0]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/notifications/mute', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT muted_until, quiet_start, quiet_end FROM notification_mute WHERE user_id = ? LIMIT 1', [req.user.id]);
+    return res.json(rows[0] || { muted_until: null, quiet_start: null, quiet_end: null });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ muted_until: null, quiet_start: null, quiet_end: null });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/notifications/mute', requireAuth, async (req, res) => {
+  const schema = z.object({
+    muted_until: z.string().nullable().optional(),
+    quiet_start: z.string().nullable().optional(),
+    quiet_end: z.string().nullable().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  try {
+    await exec(
+      `INSERT INTO notification_mute (user_id, muted_until, quiet_start, quiet_end) VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE muted_until = VALUES(muted_until), quiet_start = VALUES(quiet_start), quiet_end = VALUES(quiet_end)`,
+      [req.user.id, parsed.data.muted_until || null, parsed.data.quiet_start || null, parsed.data.quiet_end || null]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ─── Admin: system-wide announcements (#3096) ───────────────────────────────
+
+app.post('/notifications/announce', requireAuth, async (req, res) => {
+  const schema = z.object({
+    title: z.string().min(1).max(255),
+    body: z.string().max(2000).optional(),
+    type: z.enum(['system_announcement', 'system_maintenance', 'critical_error']).optional(),
+    target_role: z.enum(['all', 'driver', 'sponsor', 'admin']).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    const role = parsed.data.target_role || 'all';
+    const condition = role === 'all' ? '' : 'AND role = ?';
+    const params = role === 'all' ? [] : [role];
+    const users = await query(`SELECT id FROM users WHERE 1=1 ${condition}`, params);
+
+    const notifType = parsed.data.type || 'system_announcement';
+    let created = 0;
+    for (const u of users) {
+      const nid = await createNotification(u.id, notifType, parsed.data.title, parsed.data.body || null, 'admin', req.user.id, true);
+      if (nid) created++;
+    }
+    return res.json({ ok: true, notified: created, total_users: users.length });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`[admin] listening on :${PORT}`);
 });

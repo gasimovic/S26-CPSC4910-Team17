@@ -27,6 +27,34 @@ function requireAuth(req, res, next) {
   }
 }
 
+// ─── Notification helper ───
+async function createNotification(userId, type, title, body, refType, refId, isMandatory = false) {
+  if (!isMandatory) {
+    const prefs = await query(
+      'SELECT is_enabled FROM notification_preferences WHERE user_id = ? AND notif_type = ? LIMIT 1',
+      [userId, type]
+    );
+    if (prefs.length && prefs[0].is_enabled === 0) return null;
+    // Check mute
+    const mute = await query('SELECT is_muted, mute_until FROM notification_mute WHERE user_id = ? LIMIT 1', [userId]);
+    if (mute.length) {
+      const m = mute[0];
+      if (m.is_muted && (!m.mute_until || new Date(m.mute_until) > new Date())) return null;
+    }
+  }
+  try {
+    const result = await exec(
+      `INSERT INTO notifications (user_id, type, title, body, is_mandatory, ref_type, ref_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, type, title, body || null, isMandatory ? 1 : 0, refType || null, refId || null]
+    );
+    return result.insertId;
+  } catch (err) {
+    console.error('createNotification error:', err);
+    return null;
+  }
+}
+
 app.get("/healthz", async (_req, res) => {
   let dbStatus = 'disconnected'
   try {
@@ -887,6 +915,154 @@ app.put('/me/language', requireAuth, async (req, res) => {
 
 const driverCatalogRoutes = require('../../../routes/driver/catalog');
 app.use('/catalog', requireAuth, driverCatalogRoutes);
+
+// ─── Notifications ──────────────────────────────────────────────────────────
+
+app.get('/notifications', requireAuth, async (req, res) => {
+  try {
+    const conditions = ['n.user_id = ?'];
+    const params = [req.user.id];
+    if (req.query.type) { conditions.push('n.type = ?'); params.push(req.query.type); }
+    if (req.query.read === '0') conditions.push('n.is_read = 0');
+    else if (req.query.read === '1') conditions.push('n.is_read = 1');
+    if (req.query.from) { conditions.push('n.created_at >= ?'); params.push(req.query.from); }
+    if (req.query.to) { conditions.push('n.created_at <= ?'); params.push(req.query.to); }
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const rows = await query(
+      `SELECT n.* FROM notifications n WHERE ${conditions.join(' AND ')} ORDER BY n.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+    return res.json({ notifications: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ notifications: [] });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/notifications/unread-count', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0', [req.user.id]);
+    return res.json({ count: Number(rows?.[0]?.count || 0) });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ count: 0 });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/notifications/read-all', requireAuth, async (req, res) => {
+  try {
+    await exec('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0', [req.user.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/notifications/:id/read', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    await exec('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/notifications/old', requireAuth, async (req, res) => {
+  const days = Math.max(Number(req.query.days) || 90, 1);
+  try {
+    const result = await exec(
+      'DELETE FROM notifications WHERE user_id = ? AND is_mandatory = 0 AND created_at < DATE_SUB(NOW(), INTERVAL ? DAY)',
+      [req.user.id, days]
+    );
+    return res.json({ ok: true, deleted: result.affectedRows || 0 });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/notifications/:id', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    await exec('DELETE FROM notifications WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/notifications/preferences', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT notif_type, is_enabled FROM notification_preferences WHERE user_id = ?', [req.user.id]);
+    return res.json({ preferences: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ preferences: [] });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/notifications/preferences', requireAuth, async (req, res) => {
+  const schema = z.object({ type: z.string().min(1), enabled: z.boolean() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  try {
+    await exec(
+      `INSERT INTO notification_preferences (user_id, notif_type, is_enabled) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE is_enabled = VALUES(is_enabled)`,
+      [req.user.id, parsed.data.type, parsed.data.enabled ? 1 : 0]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/notifications/mute', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT is_muted, mute_until, quiet_start, quiet_end FROM notification_mute WHERE user_id = ? LIMIT 1', [req.user.id]);
+    return res.json(rows?.[0] || { is_muted: false, mute_until: null, quiet_start: null, quiet_end: null });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ is_muted: false, mute_until: null, quiet_start: null, quiet_end: null });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/notifications/mute', requireAuth, async (req, res) => {
+  const schema = z.object({
+    is_muted: z.boolean().optional(),
+    mute_until: z.string().nullable().optional(),
+    quiet_start: z.string().nullable().optional(),
+    quiet_end: z.string().nullable().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  try {
+    const d = parsed.data;
+    await exec(
+      `INSERT INTO notification_mute (user_id, is_muted, mute_until, quiet_start, quiet_end)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE is_muted = VALUES(is_muted), mute_until = VALUES(mute_until),
+         quiet_start = VALUES(quiet_start), quiet_end = VALUES(quiet_end)`,
+      [req.user.id, d.is_muted ? 1 : 0, d.mute_until || null, d.quiet_start || null, d.quiet_end || null]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
 
 app.get('/sprint-info', async (_req, res) => {
   try {

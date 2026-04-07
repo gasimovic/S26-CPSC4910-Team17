@@ -61,6 +61,33 @@ async function getDriverPointsBalance(driverId) {
   return Number(rows?.[0]?.balance || 0);
 }
 
+// ─── Notification helper ───
+async function createNotification(userId, type, title, body, refType, refId, isMandatory = false) {
+  if (!isMandatory) {
+    const prefs = await query(
+      'SELECT is_enabled FROM notification_preferences WHERE user_id = ? AND notif_type = ? LIMIT 1',
+      [userId, type]
+    );
+    if (prefs.length && prefs[0].is_enabled === 0) return null;
+    const mute = await query('SELECT is_muted, mute_until FROM notification_mute WHERE user_id = ? LIMIT 1', [userId]);
+    if (mute.length) {
+      const m = mute[0];
+      if (m.is_muted && (!m.mute_until || new Date(m.mute_until) > new Date())) return null;
+    }
+  }
+  try {
+    const result = await exec(
+      `INSERT INTO notifications (user_id, type, title, body, is_mandatory, ref_type, ref_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, type, title, body || null, isMandatory ? 1 : 0, refType || null, refId || null]
+    );
+    return result.insertId;
+  } catch (err) {
+    console.error('createNotification error:', err);
+    return null;
+  }
+}
+
 // ─── Auth Middleware ──────────────────────────────────────────────────────────
 // FIX: only allow role === 'sponsor' (removed admin passthrough)
 // FIX: check is_active so deactivated sponsors are locked out
@@ -758,6 +785,11 @@ app.post("/drivers/:driverId/points/add", requireAuth, async (req, res) => {
       logAction(sp.org_id, req.user.id, 'add_points', driverId,
         `Added ${parsed.data.points} points to driver #${driverId}: ${parsed.data.reason}`);
     }
+    // Notify driver (#3065)
+    createNotification(driverId, 'points_added',
+      `${parsed.data.points} points added by ${sponsorCompany}`,
+      parsed.data.reason, 'sponsor', req.user.id).catch(() => {});
+
     return res.json({ ok: true, driverId, delta: parsed.data.points, balance: await getDriverPointsBalance(driverId) });
   } catch (err) {
     console.error(err);
@@ -789,6 +821,11 @@ app.post("/drivers/:driverId/points/deduct", requireAuth, async (req, res) => {
       logAction(sp.org_id, req.user.id, 'deduct_points', driverId,
         `Deducted ${Math.abs(delta)} points from driver #${driverId}: ${parsed.data.reason}`);
     }
+    // Notify driver (#3066)
+    createNotification(driverId, 'points_deducted',
+      `${Math.abs(delta)} points deducted by ${sponsorCompany}`,
+      parsed.data.reason, 'sponsor', req.user.id).catch(() => {});
+
     return res.json({ ok: true, driverId, delta, balance: await getDriverPointsBalance(driverId) });
   } catch (err) {
     console.error(err);
@@ -817,6 +854,12 @@ app.delete("/drivers/:driverId", requireAuth, async (req, res) => {
        WHERE driver_id = ? AND sponsor_id = ? AND status = 'accepted'`,
       [req.user.id, driverId, req.user.id]
     );
+
+    // Mandatory notification: driver dropped by sponsor (#3070)
+    createNotification(driverId, 'sponsor_dropped',
+      `You have been removed from ${sponsorCompany}'s program`,
+      null, 'sponsor', req.user.id, true).catch(() => {});
+
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -1902,6 +1945,238 @@ app.get('/drivers/:driverId/login-history', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'Server error' })
   }
 })
+
+// ─── Sponsor Notifications ──────────────────────────────────────────────────
+
+app.get('/notifications', requireAuth, async (req, res) => {
+  try {
+    const conditions = ['n.user_id = ?'];
+    const params = [req.user.id];
+    if (req.query.type) { conditions.push('n.type = ?'); params.push(req.query.type); }
+    if (req.query.read === '0') conditions.push('n.is_read = 0');
+    else if (req.query.read === '1') conditions.push('n.is_read = 1');
+    if (req.query.from) { conditions.push('n.created_at >= ?'); params.push(req.query.from); }
+    if (req.query.to) { conditions.push('n.created_at <= ?'); params.push(req.query.to); }
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const rows = await query(
+      `SELECT n.* FROM notifications n WHERE ${conditions.join(' AND ')} ORDER BY n.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+    return res.json({ notifications: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ notifications: [] });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/notifications/unread-count', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0', [req.user.id]);
+    return res.json({ count: Number(rows?.[0]?.count || 0) });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ count: 0 });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/notifications/read-all', requireAuth, async (req, res) => {
+  try {
+    await exec('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0', [req.user.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/notifications/:id/read', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    await exec('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/notifications/old', requireAuth, async (req, res) => {
+  const days = Math.max(Number(req.query.days) || 90, 1);
+  try {
+    const result = await exec(
+      'DELETE FROM notifications WHERE user_id = ? AND is_mandatory = 0 AND created_at < DATE_SUB(NOW(), INTERVAL ? DAY)',
+      [req.user.id, days]
+    );
+    return res.json({ ok: true, deleted: result.affectedRows || 0 });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/notifications/:id', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    await exec('DELETE FROM notifications WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/notifications/preferences', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT notif_type, is_enabled FROM notification_preferences WHERE user_id = ?', [req.user.id]);
+    return res.json({ preferences: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ preferences: [] });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/notifications/preferences', requireAuth, async (req, res) => {
+  const schema = z.object({ type: z.string().min(1), enabled: z.boolean() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  try {
+    await exec(
+      `INSERT INTO notification_preferences (user_id, notif_type, is_enabled) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE is_enabled = VALUES(is_enabled)`,
+      [req.user.id, parsed.data.type, parsed.data.enabled ? 1 : 0]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/notifications/mute', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT muted_until, quiet_start, quiet_end FROM notification_mute WHERE user_id = ? LIMIT 1', [req.user.id]);
+    return res.json(rows[0] || { muted_until: null, quiet_start: null, quiet_end: null });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ muted_until: null, quiet_start: null, quiet_end: null });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/notifications/mute', requireAuth, async (req, res) => {
+  const schema = z.object({
+    muted_until: z.string().nullable().optional(),
+    quiet_start: z.string().nullable().optional(),
+    quiet_end: z.string().nullable().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  try {
+    await exec(
+      `INSERT INTO notification_mute (user_id, muted_until, quiet_start, quiet_end) VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE muted_until = VALUES(muted_until), quiet_start = VALUES(quiet_start), quiet_end = VALUES(quiet_end)`,
+      [req.user.id, parsed.data.muted_until || null, parsed.data.quiet_start || null, parsed.data.quiet_end || null]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ─── Sponsor: announce to all drivers in program (#3083, #3085) ──
+
+app.post('/notifications/announce', requireAuth, async (req, res) => {
+  const schema = z.object({
+    title: z.string().min(1).max(255),
+    body: z.string().max(2000).optional(),
+    type: z.enum(['sponsor_announcement', 'program_rules_update', 'congratulations']).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) return res.status(400).json({ error: 'Sponsor company_name is not set.' });
+
+    // Get all drivers in this sponsor's program
+    const drivers = await query(
+      `SELECT DISTINCT u.id FROM users u
+       JOIN driver_profiles dp ON u.id = dp.user_id
+       WHERE u.role = 'driver'
+         AND (dp.sponsor_org = ? OR EXISTS (
+           SELECT 1 FROM applications a WHERE a.driver_id = u.id AND a.sponsor_id = ? AND a.status = 'accepted'
+         ))`,
+      [sponsorCompany, req.user.id]
+    );
+
+    const notifType = parsed.data.type || 'sponsor_announcement';
+    let created = 0;
+    for (const d of drivers) {
+      const nid = await createNotification(d.id, notifType, parsed.data.title, parsed.data.body || null, 'sponsor', req.user.id);
+      if (nid) created++;
+    }
+    return res.json({ ok: true, notified: created, total_drivers: drivers.length });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ─── Sponsor: update driver information (#2965) ──
+
+app.put('/drivers/:driverId/profile', requireAuth, async (req, res) => {
+  const driverId = toInt(req.params.driverId);
+  if (!Number.isFinite(driverId)) return res.status(400).json({ error: 'Invalid driverId' });
+
+  const schema = z.object({
+    first_name: z.string().max(100).optional(),
+    last_name: z.string().max(100).optional(),
+    phone: z.string().max(50).optional(),
+    address_line1: z.string().max(255).optional(),
+    address_line2: z.string().max(255).optional(),
+    city: z.string().max(100).optional(),
+    state: z.string().max(100).optional(),
+    postal_code: z.string().max(20).optional(),
+    country: z.string().max(100).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  try {
+    const sponsorCompany = await getSponsorCompanyName(req.user.id);
+    if (!sponsorCompany) return res.status(400).json({ error: 'Sponsor company_name is not set.' });
+    const driver = await driverBelongsToSponsorOr404(res, req.user.id, sponsorCompany, driverId);
+    if (!driver) return;
+
+    const d = parsed.data;
+    const sets = [];
+    const vals = [];
+    for (const [col, val] of Object.entries(d)) {
+      if (val !== undefined) { sets.push(`${col} = ?`); vals.push(val); }
+    }
+    if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+    vals.push(driverId);
+    await exec(`UPDATE driver_profiles SET ${sets.join(', ')} WHERE user_id = ?`, vals);
+
+    // Notify the driver
+    createNotification(driverId, 'sponsor_announcement',
+      `Your profile was updated by ${sponsorCompany}`,
+      `Fields updated: ${Object.keys(d).filter(k => d[k] !== undefined).join(', ')}`,
+      'sponsor', req.user.id).catch(() => {});
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`[sponsor] listening on :${PORT}`);

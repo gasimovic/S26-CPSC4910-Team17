@@ -137,6 +137,8 @@ function App() {
         return '/organization'
       case 'system-monitoring':
         return '/system-monitoring'
+      case 'notifications':
+        return '/notifications'
       default:
         return '/'
     }
@@ -171,6 +173,7 @@ function App() {
     if (path === '/point-management') return 'point-management'
     if (path === '/organization') return 'organization'
     if (path === '/system-monitoring') return 'system-monitoring'
+    if (path === '/notifications') return 'notifications'
 
     // Back-compat: if the path is unknown, fall back to any legacy ?page= value.
     const pageFromQuery = (searchParams.get('page') || '').toLowerCase()
@@ -473,6 +476,7 @@ function App() {
       'dashboard',
       'admin-users',
       'system-monitoring',
+      'notifications',
       'profile',
       'account-details',
       'change-password',
@@ -487,6 +491,7 @@ function App() {
       'applications',
       'catalog',
       'messages',
+      'notifications',
       'profile',
       'account-details',
       'change-password',
@@ -494,8 +499,8 @@ function App() {
     ];
 
     const driverPages = hasSponsor
-      ? ['dashboard', 'log-trip', 'shop', 'cart', 'rewards', 'leaderboard', 'achievements', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
-      : ['dashboard', 'shop', 'cart', 'messages', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
+      ? ['dashboard', 'log-trip', 'shop', 'cart', 'rewards', 'leaderboard', 'achievements', 'messages', 'notifications', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
+      : ['dashboard', 'shop', 'cart', 'messages', 'notifications', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
 
     // 3. RETURN BASED ON ROLE:
     if (role === 'admin') return adminPages;
@@ -1157,6 +1162,13 @@ function App() {
           {(isSponsor || isDriver) && allowed.includes('messages') && (
             <button type="button" onClick={() => setCurrentPage('messages')} className="nav-link">
               Messages
+            </button>
+          )}
+
+          {/* Notifications — all roles */}
+          {allowed.includes('notifications') && (
+            <button type="button" onClick={() => setCurrentPage('notifications')} className="nav-link">
+              Notifications
             </button>
           )}
 
@@ -8307,6 +8319,377 @@ const AdminUsersPage = () => {
   }
 
 
+  // ─── NotificationsPage ──────────────────────────────────────────────────────
+  const NotificationsPage = () => {
+    const role = ((currentUser?.role || inferRoleFromBase(apiBase) || 'driver') + '').toLowerCase().trim()
+    const [activeTab, setActiveTab] = useState('history')
+    const [notifications, setNotifications] = useState([])
+    const [unreadCount, setUnreadCount] = useState(0)
+    const [preferences, setPreferences] = useState([])
+    const [muteSettings, setMuteSettings] = useState({ muted_until: null, quiet_start: null, quiet_end: null })
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState('')
+    const [success, setSuccess] = useState('')
+    const [filterType, setFilterType] = useState('')
+    const [filterRead, setFilterRead] = useState('')
+    const [filterFrom, setFilterFrom] = useState('')
+    const [filterTo, setFilterTo] = useState('')
+
+    // Admin announcement form
+    const [announceTitle, setAnnounceTitle] = useState('')
+    const [announceBody, setAnnounceBody] = useState('')
+    const [announceType, setAnnounceType] = useState('system_announcement')
+    const [announceTarget, setAnnounceTarget] = useState('all')
+
+    // Sponsor announcement form
+    const [sponsorAnnounceTitle, setSponsorAnnounceTitle] = useState('')
+    const [sponsorAnnounceBody, setSponsorAnnounceBody] = useState('')
+    const [sponsorAnnounceType, setSponsorAnnounceType] = useState('sponsor_announcement')
+
+    const notifTypes = role === 'driver'
+      ? ['points_added', 'points_deducted', 'order_placed', 'order_shipped', 'order_delivered',
+         'sponsor_dropped', 'sponsor_announcement', 'program_rules_update', 'congratulations',
+         'new_catalog_item', 'wishlist_sale', 'point_milestone', 'system_announcement', 'system_maintenance']
+      : role === 'sponsor'
+        ? ['system_announcement', 'system_maintenance', 'sponsor_announcement']
+        : ['system_announcement', 'system_maintenance', 'critical_error']
+
+    const fetchNotifications = async () => {
+      setLoading(true)
+      try {
+        const params = new URLSearchParams()
+        if (filterType) params.set('type', filterType)
+        if (filterRead) params.set('read', filterRead)
+        if (filterFrom) params.set('from', filterFrom)
+        if (filterTo) params.set('to', filterTo)
+        params.set('limit', '100')
+        const data = await api(`/notifications?${params}`)
+        setNotifications(data.notifications || [])
+      } catch (e) { setError(e.message) }
+      setLoading(false)
+    }
+
+    const fetchUnread = async () => {
+      try {
+        const data = await api('/notifications/unread-count')
+        setUnreadCount(data.count || 0)
+      } catch { /* ignore */ }
+    }
+
+    const fetchPreferences = async () => {
+      try {
+        const data = await api('/notifications/preferences')
+        setPreferences(data.preferences || [])
+      } catch { /* ignore */ }
+    }
+
+    const fetchMute = async () => {
+      try {
+        const data = await api('/notifications/mute')
+        setMuteSettings(data || { muted_until: null, quiet_start: null, quiet_end: null })
+      } catch { /* ignore */ }
+    }
+
+    useEffect(() => {
+      fetchNotifications()
+      fetchUnread()
+      fetchPreferences()
+      fetchMute()
+    }, [])
+
+    const markRead = async (id) => {
+      try {
+        await api(`/notifications/${id}/read`, { method: 'PUT' })
+        setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: 1 } : n))
+        setUnreadCount(prev => Math.max(0, prev - 1))
+      } catch (e) { setError(e.message) }
+    }
+
+    const markAllRead = async () => {
+      try {
+        await api('/notifications/read-all', { method: 'PUT' })
+        setNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })))
+        setUnreadCount(0)
+        setSuccess('All notifications marked as read.')
+      } catch (e) { setError(e.message) }
+    }
+
+    const deleteNotification = async (id) => {
+      try {
+        await api(`/notifications/${id}`, { method: 'DELETE' })
+        setNotifications(prev => prev.filter(n => n.id !== id))
+        setSuccess('Notification deleted.')
+      } catch (e) { setError(e.message) }
+    }
+
+    const deleteOld = async () => {
+      try {
+        const data = await api('/notifications/old?days=30', { method: 'DELETE' })
+        setSuccess(`Deleted ${data.deleted || 0} old notifications.`)
+        fetchNotifications()
+      } catch (e) { setError(e.message) }
+    }
+
+    const togglePreference = async (type, current) => {
+      try {
+        await api('/notifications/preferences', { method: 'PUT', body: JSON.stringify({ type, enabled: !current }) })
+        setPreferences(prev => {
+          const existing = prev.find(p => p.notif_type === type)
+          if (existing) return prev.map(p => p.notif_type === type ? { ...p, is_enabled: !current ? 1 : 0 } : p)
+          return [...prev, { notif_type: type, is_enabled: !current ? 1 : 0 }]
+        })
+        setSuccess(`Preference updated for ${type.replace(/_/g, ' ')}.`)
+      } catch (e) { setError(e.message) }
+    }
+
+    const saveMute = async (updates) => {
+      const newSettings = { ...muteSettings, ...updates }
+      try {
+        await api('/notifications/mute', { method: 'PUT', body: JSON.stringify(newSettings) })
+        setMuteSettings(newSettings)
+        setSuccess('Mute settings updated.')
+      } catch (e) { setError(e.message) }
+    }
+
+    const sendAdminAnnouncement = async (e) => {
+      e.preventDefault()
+      setError(''); setSuccess('')
+      try {
+        const data = await api('/notifications/announce', {
+          method: 'POST',
+          body: JSON.stringify({ title: announceTitle, body: announceBody || undefined, type: announceType, target_role: announceTarget })
+        })
+        setSuccess(`Announcement sent to ${data.notified} of ${data.total_users} users.`)
+        setAnnounceTitle(''); setAnnounceBody('')
+      } catch (e) { setError(e.message) }
+    }
+
+    const sendSponsorAnnouncement = async (e) => {
+      e.preventDefault()
+      setError(''); setSuccess('')
+      try {
+        const data = await api('/notifications/announce', {
+          method: 'POST',
+          body: JSON.stringify({ title: sponsorAnnounceTitle, body: sponsorAnnounceBody || undefined, type: sponsorAnnounceType })
+        })
+        setSuccess(`Announcement sent to ${data.notified} of ${data.total_drivers} drivers.`)
+        setSponsorAnnounceTitle(''); setSponsorAnnounceBody('')
+      } catch (e) { setError(e.message) }
+    }
+
+    const isEnabled = (type) => {
+      const pref = preferences.find(p => p.notif_type === type)
+      return pref ? Boolean(pref.is_enabled) : true
+    }
+
+    const isMuted = muteSettings.muted_until && new Date(muteSettings.muted_until) > new Date()
+
+    const tabStyle = (tab) => ({
+      padding: '8px 16px', border: 'none', borderBottom: activeTab === tab ? '2px solid #2563eb' : '2px solid transparent',
+      background: 'none', color: activeTab === tab ? '#2563eb' : '#6b7280', fontWeight: activeTab === tab ? 700 : 500,
+      cursor: 'pointer', fontSize: '0.85em'
+    })
+
+    const tabs = ['history', 'preferences']
+    if (role === 'driver') tabs.push('mute')
+    if (role === 'admin') tabs.push('announce')
+    if (role === 'sponsor') tabs.push('announce')
+
+    return (
+      <main style={{ maxWidth: 900, margin: '0 auto', padding: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h1 className="page-title" style={{ margin: 0 }}>Notifications</h1>
+          {unreadCount > 0 && (
+            <span style={{ background: '#dc2626', color: '#fff', borderRadius: 12, padding: '2px 10px', fontSize: '0.8em', fontWeight: 700 }}>
+              {unreadCount} unread
+            </span>
+          )}
+        </div>
+
+        {error && <div className="status-msg error" style={{ marginBottom: 12 }}>{error}</div>}
+        {success && <div className="status-msg success" style={{ marginBottom: 12 }}>{success}</div>}
+        {isMuted && <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '8px 14px', marginBottom: 12, fontSize: '0.85em' }}>Notifications muted until {new Date(muteSettings.muted_until).toLocaleString()}</div>}
+
+        <div style={{ borderBottom: '1px solid #e5e7eb', marginBottom: 16, display: 'flex', gap: 4 }}>
+          {tabs.map(t => <button key={t} type="button" style={tabStyle(t)} onClick={() => setActiveTab(t)}>{t === 'history' ? `History (${notifications.length})` : t === 'preferences' ? 'Preferences' : t === 'mute' ? 'Mute / Quiet Hours' : 'Announcements'}</button>)}
+        </div>
+
+        {/* ─── HISTORY TAB ────────────────────────────────── */}
+        {activeTab === 'history' && (
+          <div>
+            {/* Filters */}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+              <select className="form-input" style={{ width: 'auto', fontSize: '0.8em' }} value={filterType} onChange={e => setFilterType(e.target.value)}>
+                <option value="">All types</option>
+                {notifTypes.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
+              </select>
+              <select className="form-input" style={{ width: 'auto', fontSize: '0.8em' }} value={filterRead} onChange={e => setFilterRead(e.target.value)}>
+                <option value="">All</option>
+                <option value="0">Unread</option>
+                <option value="1">Read</option>
+              </select>
+              <input type="date" className="form-input" style={{ width: 'auto', fontSize: '0.8em' }} value={filterFrom} onChange={e => setFilterFrom(e.target.value)} placeholder="From" />
+              <input type="date" className="form-input" style={{ width: 'auto', fontSize: '0.8em' }} value={filterTo} onChange={e => setFilterTo(e.target.value)} placeholder="To" />
+              <button type="button" className="btn btn-primary" style={{ fontSize: '0.8em' }} onClick={fetchNotifications}>Filter</button>
+              {unreadCount > 0 && <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={markAllRead}>Mark all read</button>}
+              <button type="button" className="btn" style={{ fontSize: '0.8em', color: '#dc2626' }} onClick={deleteOld}>Delete old (30d+)</button>
+            </div>
+
+            {loading ? <p>Loading...</p> : notifications.length === 0 ? <p style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>No notifications yet.</p> : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {notifications.map(n => (
+                  <div key={n.id} style={{
+                    background: n.is_read ? '#f9fafb' : '#eff6ff', border: `1px solid ${n.is_read ? '#e5e7eb' : '#93c5fd'}`,
+                    borderRadius: 8, padding: '12px 16px', position: 'relative',
+                    borderLeft: n.is_mandatory ? '4px solid #dc2626' : undefined
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <span style={{ fontWeight: 700, fontSize: '0.9em' }}>{n.title}</span>
+                        <span style={{ marginLeft: 8, fontSize: '0.7em', color: '#6b7280', background: '#f3f4f6', borderRadius: 4, padding: '1px 6px' }}>
+                          {(n.type || '').replace(/_/g, ' ')}
+                        </span>
+                        {n.is_mandatory ? <span style={{ marginLeft: 6, fontSize: '0.65em', color: '#dc2626', fontWeight: 700 }}>MANDATORY</span> : null}
+                      </div>
+                      <span style={{ fontSize: '0.7em', color: '#9ca3af', whiteSpace: 'nowrap' }}>
+                        {n.created_at ? new Date(n.created_at).toLocaleString() : ''}
+                      </span>
+                    </div>
+                    {n.body && <p style={{ margin: '6px 0 0', fontSize: '0.82em', color: '#374151' }}>{n.body}</p>}
+                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                      {!n.is_read && <button type="button" className="btn" style={{ fontSize: '0.72em', padding: '2px 10px' }} onClick={() => markRead(n.id)}>Mark read</button>}
+                      {!n.is_mandatory && <button type="button" style={{ fontSize: '0.72em', padding: '2px 10px', background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer' }} onClick={() => deleteNotification(n.id)}>Delete</button>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── PREFERENCES TAB ────────────────────────────── */}
+        {activeTab === 'preferences' && (
+          <div>
+            <p style={{ fontSize: '0.85em', color: '#6b7280', marginBottom: 16 }}>Toggle notification types on or off. Mandatory notifications (like being dropped by a sponsor) cannot be disabled.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {notifTypes.map(type => (
+                <div key={type} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+                  <span style={{ fontSize: '0.85em', fontWeight: 600 }}>{type.replace(/_/g, ' ')}</span>
+                  {type === 'sponsor_dropped' ? (
+                    <span style={{ fontSize: '0.75em', color: '#9ca3af' }}>Always on (mandatory)</span>
+                  ) : (
+                    <button type="button" onClick={() => togglePreference(type, isEnabled(type))}
+                      style={{ padding: '4px 14px', borderRadius: 6, border: 'none', fontSize: '0.8em', fontWeight: 600, cursor: 'pointer',
+                        background: isEnabled(type) ? '#dcfce7' : '#fee2e2', color: isEnabled(type) ? '#166534' : '#991b1b' }}>
+                      {isEnabled(type) ? 'Enabled' : 'Disabled'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ─── MUTE / QUIET HOURS TAB (driver only) ───────── */}
+        {activeTab === 'mute' && role === 'driver' && (
+          <div>
+            <div style={{ background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb', padding: 16, marginBottom: 16 }}>
+              <h3 style={{ margin: '0 0 8px', fontSize: '0.95em' }}>Temporary Mute</h3>
+              <p style={{ fontSize: '0.82em', color: '#6b7280', marginBottom: 10 }}>Mute all non-mandatory notifications for a period of time.</p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: new Date(Date.now() + 1 * 3600000).toISOString() })}>1 hour</button>
+                <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: new Date(Date.now() + 4 * 3600000).toISOString() })}>4 hours</button>
+                <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: new Date(Date.now() + 24 * 3600000).toISOString() })}>24 hours</button>
+                <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: new Date(Date.now() + 7 * 86400000).toISOString() })}>1 week</button>
+                {isMuted && <button type="button" className="btn btn-primary" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ muted_until: null })}>Unmute</button>}
+              </div>
+            </div>
+
+            <div style={{ background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb', padding: 16 }}>
+              <h3 style={{ margin: '0 0 8px', fontSize: '0.95em' }}>Quiet Hours</h3>
+              <p style={{ fontSize: '0.82em', color: '#6b7280', marginBottom: 10 }}>Set hours when non-mandatory notifications are silenced.</p>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <label style={{ fontSize: '0.82em' }}>Start:
+                  <input type="time" className="form-input" style={{ marginLeft: 6, width: 'auto' }} value={muteSettings.quiet_start || ''} onChange={e => setMuteSettings(prev => ({ ...prev, quiet_start: e.target.value || null }))} />
+                </label>
+                <label style={{ fontSize: '0.82em' }}>End:
+                  <input type="time" className="form-input" style={{ marginLeft: 6, width: 'auto' }} value={muteSettings.quiet_end || ''} onChange={e => setMuteSettings(prev => ({ ...prev, quiet_end: e.target.value || null }))} />
+                </label>
+                <button type="button" className="btn btn-primary" style={{ fontSize: '0.8em' }} onClick={() => saveMute({ quiet_start: muteSettings.quiet_start, quiet_end: muteSettings.quiet_end })}>Save</button>
+                {(muteSettings.quiet_start || muteSettings.quiet_end) && (
+                  <button type="button" className="btn" style={{ fontSize: '0.8em', color: '#dc2626' }} onClick={() => saveMute({ quiet_start: null, quiet_end: null })}>Clear</button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ─── ANNOUNCEMENTS TAB (admin) ──────────────────── */}
+        {activeTab === 'announce' && role === 'admin' && (
+          <div>
+            <h3 style={{ fontSize: '0.95em', marginBottom: 12 }}>Send System-Wide Announcement</h3>
+            <form onSubmit={sendAdminAnnouncement} style={{ background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb', padding: 16 }}>
+              <div className="form-group">
+                <label className="form-label">Title</label>
+                <input type="text" className="form-input" required value={announceTitle} onChange={e => setAnnounceTitle(e.target.value)} placeholder="Announcement title" maxLength={255} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Body (optional)</label>
+                <textarea className="form-input" rows={3} value={announceBody} onChange={e => setAnnounceBody(e.target.value)} placeholder="Details..." maxLength={2000} />
+              </div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                <div className="form-group" style={{ flex: 1 }}>
+                  <label className="form-label">Type</label>
+                  <select className="form-input" value={announceType} onChange={e => setAnnounceType(e.target.value)}>
+                    <option value="system_announcement">System Announcement</option>
+                    <option value="system_maintenance">System Maintenance</option>
+                    <option value="critical_error">Critical Error</option>
+                  </select>
+                </div>
+                <div className="form-group" style={{ flex: 1 }}>
+                  <label className="form-label">Target</label>
+                  <select className="form-input" value={announceTarget} onChange={e => setAnnounceTarget(e.target.value)}>
+                    <option value="all">All Users</option>
+                    <option value="driver">Drivers Only</option>
+                    <option value="sponsor">Sponsors Only</option>
+                    <option value="admin">Admins Only</option>
+                  </select>
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary">Send Announcement</button>
+            </form>
+          </div>
+        )}
+
+        {/* ─── ANNOUNCEMENTS TAB (sponsor) ────────────────── */}
+        {activeTab === 'announce' && role === 'sponsor' && (
+          <div>
+            <h3 style={{ fontSize: '0.95em', marginBottom: 12 }}>Send Announcement to Your Drivers</h3>
+            <form onSubmit={sendSponsorAnnouncement} style={{ background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb', padding: 16 }}>
+              <div className="form-group">
+                <label className="form-label">Title</label>
+                <input type="text" className="form-input" required value={sponsorAnnounceTitle} onChange={e => setSponsorAnnounceTitle(e.target.value)} placeholder="Announcement title" maxLength={255} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Body (optional)</label>
+                <textarea className="form-input" rows={3} value={sponsorAnnounceBody} onChange={e => setSponsorAnnounceBody(e.target.value)} placeholder="Details..." maxLength={2000} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Type</label>
+                <select className="form-input" value={sponsorAnnounceType} onChange={e => setSponsorAnnounceType(e.target.value)}>
+                  <option value="sponsor_announcement">Program Announcement</option>
+                  <option value="program_rules_update">Program Rules Update</option>
+                  <option value="congratulations">Congratulations / Recognition</option>
+                </select>
+              </div>
+              <button type="submit" className="btn btn-primary">Send to All Drivers</button>
+            </form>
+          </div>
+        )}
+      </main>
+    )
+  }
+
   // ============ MAIN RENDER ============
   return (
     <div>
@@ -8342,6 +8725,7 @@ const AdminUsersPage = () => {
       {isLoggedIn && currentPage === 'drivers' && <SponsorDriversPage />}
       {isLoggedIn && currentPage === 'catalog' && currentUser?.role === 'sponsor' && <SponsorCatalogPage />}
       {isLoggedIn && currentPage === 'messages' && <MessagesPage />}
+      {isLoggedIn && currentPage === 'notifications' && <NotificationsPage />}
 
       {/* Admin ONLY Pages */}
       {isLoggedIn && currentPage === 'admin-users' && <AdminUsersPage />}
