@@ -624,7 +624,7 @@ app.get("/drivers", requireAuth, async (req, res) => {
       [sponsorCompany, req.user.id]
     );
 
-    return res.json(rows);
+    return res.json({ drivers: rows });
   } catch (err) {
     console.error("GET /drivers failed:", err);
     return res.status(500).json({ error: "Failed to load drivers." });
