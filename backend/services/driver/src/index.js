@@ -916,6 +916,79 @@ app.put('/me/language', requireAuth, async (req, res) => {
 const driverCatalogRoutes = require('../../../routes/driver/catalog');
 app.use('/catalog', requireAuth, driverCatalogRoutes);
 
+// ─── Cart (driver) ───────────────────────────────────────────────────────────
+
+app.get('/cart', requireAuth, async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT
+         ci.id,
+         ci.title,
+         ci.image_url,
+         ci.point_cost,
+         ci.sponsor_id,
+         ci.is_available,
+         dci.qty
+       FROM driver_cart_items dci
+       JOIN catalog_items ci ON ci.id = dci.catalog_item_id
+       WHERE dci.driver_id = ?
+       ORDER BY dci.updated_at DESC, dci.created_at DESC`,
+      [req.user.id]
+    );
+    return res.json({ items: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ items: [] });
+    console.error('GET /cart failed:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/cart', requireAuth, async (req, res) => {
+  const schema = z.object({
+    items: z.array(z.object({
+      id: z.coerce.number().int().positive(),
+      qty: z.coerce.number().int().min(1).max(99),
+    })).max(200),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const driverId = req.user.id;
+  const items = parsed.data.items || [];
+
+  try {
+    await exec('DELETE FROM driver_cart_items WHERE driver_id = ?', [driverId]);
+
+    if (items.length) {
+      const placeholders = items.map(() => '(?, ?, ?)').join(', ');
+      const values = [];
+      for (const it of items) {
+        values.push(driverId, Number(it.id), Number(it.qty));
+      }
+      await exec(
+        `INSERT INTO driver_cart_items (driver_id, catalog_item_id, qty) VALUES ${placeholders}`,
+        values
+      );
+    }
+
+    return res.json({ ok: true, count: items.length });
+  } catch (err) {
+    console.error('PUT /cart failed:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/cart', requireAuth, async (req, res) => {
+  try {
+    await exec('DELETE FROM driver_cart_items WHERE driver_id = ?', [req.user.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /cart failed:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ─── Notifications ──────────────────────────────────────────────────────────
 
 app.get('/notifications', requireAuth, async (req, res) => {

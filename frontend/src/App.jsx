@@ -254,6 +254,94 @@ function App() {
     }
   }
 
+  // Cart sync: keep the server-side cart in sync for driver accounts.
+  // (Must be declared after apiBase/inferRoleFromBase exist.)
+  const cartSyncReadyRef = useRef(false)
+  const cartSyncTimerRef = useRef(null)
+  const cartPendingSaveRef = useRef(false)
+  const [cartHydrated, setCartHydrated] = useState(false)
+
+  const saveCartToServer = async (cartToSave) => {
+    await api('/cart', {
+      method: 'PUT',
+      body: JSON.stringify({ items: (cartToSave || []).map(x => ({ id: x.id, qty: x.qty || 1 })) })
+    })
+  }
+
+  // Bootstrap cart from the server after login.
+  useEffect(() => {
+    let cancelled = false
+
+    const bootstrap = async () => {
+      cartSyncReadyRef.current = false
+      setCartHydrated(false)
+
+      const role = ((currentUser?.role || inferRoleFromBase(apiBase) || 'driver') + '').toLowerCase().trim()
+      if (!isLoggedIn || role !== 'driver') {
+        cartSyncReadyRef.current = true
+        setCartHydrated(true)
+        return
+      }
+
+      try {
+        const data = await api('/cart', { method: 'GET' })
+        const serverItems = Array.isArray(data?.items) ? data.items : []
+        if (cancelled) return
+
+        if (serverItems.length) {
+          setCart(serverItems)
+        } else if (cart.length) {
+          // If the server has no cart yet, seed it from the cached local cart.
+          await saveCartToServer(cart)
+        }
+      } catch {
+        // If the server cart can't be loaded, keep local cart.
+      } finally {
+        cartSyncReadyRef.current = true
+        setCartHydrated(true)
+      }
+    }
+
+    bootstrap()
+    return () => { cancelled = true }
+    // intentionally omit `cart` dependency: we only want to bootstrap once per login/user/base change
+  }, [isLoggedIn, currentUser?.id, apiBase])
+
+  // Persist cart changes to the server (debounced).
+  useEffect(() => {
+    const role = ((currentUser?.role || inferRoleFromBase(apiBase) || 'driver') + '').toLowerCase().trim()
+    if (!isLoggedIn || role !== 'driver') return
+    if (!cartSyncReadyRef.current || !cartHydrated) {
+      cartPendingSaveRef.current = true
+      return
+    }
+
+    if (cartSyncTimerRef.current) clearTimeout(cartSyncTimerRef.current)
+    cartSyncTimerRef.current = setTimeout(async () => {
+      try {
+        await saveCartToServer(cart)
+      } catch {
+        // best-effort; cart remains usable locally even if persistence fails
+      }
+    }, 400)
+
+    return () => {
+      if (cartSyncTimerRef.current) clearTimeout(cartSyncTimerRef.current)
+    }
+  }, [cart, isLoggedIn, currentUser?.id, apiBase])
+
+  // If the user edited the cart before hydration finished, flush once hydration completes.
+  useEffect(() => {
+    const role = ((currentUser?.role || inferRoleFromBase(apiBase) || 'driver') + '').toLowerCase().trim()
+    if (!isLoggedIn || role !== 'driver') return
+    if (!cartHydrated) return
+    if (!cartPendingSaveRef.current) return
+    cartPendingSaveRef.current = false
+
+    // Fire-and-forget; if it fails we still have local cart.
+    saveCartToServer(cart).catch(() => {})
+  }, [cartHydrated, isLoggedIn, currentUser?.id, apiBase])
+
   // Allow a single override (VITE_API_PREFIX), but if it points at localhost and
   // we're not actually browsing from localhost, ignore it and use the proxy paths.
   useEffect(() => {
