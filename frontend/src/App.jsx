@@ -470,7 +470,7 @@ function App() {
     return data
   }
 
-  const normalizeMe = (me) => {
+  const normalizeMe = (me, base = apiBase) => {
     // Supports either:
     // 1) { user: { id,email,role }, profile: {...} }
     // 2) flat combined object
@@ -487,7 +487,7 @@ function App() {
       id: userObj.id || userObj.userId || userObj.user_id || null,
       name,
       email: userObj.email || null,
-      role: (userObj.role || inferRoleFromBase(apiBase)),
+      role: (userObj.role || inferRoleFromBase(base)),
       points: Number(userObj.points ?? 0),
       totalEarned: Number(userObj.points_earned ?? userObj.total_points_earned ?? 0),
       miles: Number(userObj.miles ?? 0),
@@ -529,7 +529,6 @@ function App() {
         const u = await loadMe()
         if (cancelled) return
         setIsLoggedIn(true)
-        setCurrentUser(u)
       } catch (err) {
         // If the user is not authenticated (401/403), stay logged out.
         const status = err?.status
@@ -734,7 +733,7 @@ function App() {
           const msg = (e?.message || '').toLowerCase()
           const looksNetworky = msg.includes('network error') || msg.includes('timed out')
           if (looksNetworky) throw e
-          if (status && ![400, 401, 404, 500, 502, 503].includes(status)) throw e
+          if (status && ![400, 401, 404].includes(status)) throw e
         }
       }
 
@@ -886,6 +885,7 @@ function App() {
     setCurrentPage('login')
     setCurrentUser(null)
     try { window.localStorage.removeItem('gdip_api_base') } catch { }
+    try { window.localStorage.removeItem('gdip_cart_v1') } catch {} 
   }
 
   // Keep the current page in sync with the URL when the user
@@ -2002,7 +2002,7 @@ function App() {
       if (bulkSelectedIds.size === drivers.length) {
         setBulkSelectedIds(new Set())
       } else {
-        setBulkSelectedIds(new Set(drivers.map(d => d.id)))
+        setBulkSelectedIds(new Set(drivers.map(d => d.id ?? d.user_id)))
       }
     }
 
