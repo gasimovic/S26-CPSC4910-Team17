@@ -150,6 +150,8 @@ function App() {
         return '/system-monitoring'
       case 'notifications':
         return '/notifications'
+      case 'reports':
+        return '/reports'
       default:
         return '/'
     }
@@ -189,6 +191,7 @@ function App() {
     if (path === '/organization') return 'organization'
     if (path === '/system-monitoring') return 'system-monitoring'
     if (path === '/notifications') return 'notifications'
+    if (path === '/reports') return 'reports'
 
     const validPages = new Set([
       'landing',
@@ -221,6 +224,7 @@ function App() {
       'organization',
       'system-monitoring',
       'notifications',
+      'reports'
     ])
 
     // Back-compat: if the path is unknown, fall back to any legacy ?page= value.
@@ -635,7 +639,8 @@ function App() {
       'profile',
       'account-details',
       'change-password',
-      'about'
+      'about',
+      'reports',
     ];
 
     const sponsorPages = [
@@ -1385,6 +1390,11 @@ function App() {
           )}
           {isAdmin && allowed.includes('system-monitoring') && (
             <button type="button" onClick={() => setCurrentPage('system-monitoring')} className="nav-link">System</button>
+          )}
+          {isAdmin && allowed.includes('reports') && (
+            <button type="button" onClick={() => setCurrentPage('reports')} className="nav-link">
+              Reports
+            </button>
           )}
 
           {/* Points are only meaningful for drivers; keep UI clean for sponsors/admin */}
@@ -9204,6 +9214,894 @@ const AdminUsersPage = () => {
     )
   }
 
+  // ============ ADMIN REPORTS PAGE ============
+
+const AdminReportsPage = () => {
+  const ADMIN_BASE = (import.meta.env.VITE_ADMIN_API_BASE || '/api/admin').replace(/\/$/, '')
+
+  // ── Shared state ──────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState('realtime')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  // ── #20: Real-time stats ──────────────────────────────────────────────────
+  const [rtStats, setRtStats] = useState(null)
+  const [rtMetrics, setRtMetrics] = useState(null)
+  const [rtTick, setRtTick] = useState(0)
+
+  // ── #13: Active users by type ─────────────────────────────────────────────
+  const [userReport, setUserReport] = useState(null)
+
+  // ── #14: Point distribution by sponsor ───────────────────────────────────
+  const [pointDist, setPointDist] = useState([])
+
+  // ── #15: Driver enrollment trends ────────────────────────────────────────
+  const [enrollTrends, setEnrollTrends] = useState([])
+
+  // ── #16: Catalog purchases by product ────────────────────────────────────
+  const [catalogReport, setCatalogReport] = useState([])
+
+  // ── #17: Average balances by sponsor ─────────────────────────────────────
+  const [avgBalances, setAvgBalances] = useState([])
+
+  // ── #19: Inactive users ───────────────────────────────────────────────────
+  const [inactiveUsers, setInactiveUsers] = useState([])
+
+  // ── #18: Scheduled reports (local config, persisted to localStorage) ──────
+  const [schedules, setSchedules] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('gdip_report_schedules') || '[]') } catch { return [] }
+  })
+  const [newSchedule, setNewSchedule] = useState({ name: '', reportType: 'active-users', frequency: 'weekly', email: '' })
+
+  // ── #21: Saved report configs ─────────────────────────────────────────────
+  const [savedConfigs, setSavedConfigs] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('gdip_report_configs') || '[]') } catch { return [] }
+  })
+  const [configName, setConfigName] = useState('')
+
+  // ── Admin API helper ──────────────────────────────────────────────────────
+  const adminApi = async (path, opts = {}) => {
+    const res = await fetch(`${ADMIN_BASE}${path}`, {
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+      ...opts,
+    })
+    const data = await res.json().catch(() => null)
+    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+    return data
+  }
+
+  // ── Loaders ───────────────────────────────────────────────────────────────
+
+  const loadRealtime = async () => {
+    try {
+      const [s, m] = await Promise.all([adminApi('/system/stats'), adminApi('/system/metrics')])
+      setRtStats(s); setRtMetrics(m)
+    } catch (e) { setError(e.message) }
+  }
+
+  const loadActiveUsers = async () => {
+    setLoading(true); setError('')
+    try {
+      const [drivers, sponsors, admins] = await Promise.all([
+        adminApi('/users?role=driver'),
+        adminApi('/users?role=sponsor'),
+        adminApi('/users?role=admin'),
+      ])
+      const d = drivers?.users || [], s = sponsors?.users || [], a = admins?.users || []
+      setUserReport({
+        drivers: { total: d.length, active: d.filter(u => u.is_active !== 0).length, inactive: d.filter(u => u.is_active === 0).length },
+        sponsors: { total: s.length, active: s.filter(u => u.is_active !== 0).length, inactive: s.filter(u => u.is_active === 0).length },
+        admins:   { total: a.length, active: a.filter(u => u.is_active !== 0).length, inactive: a.filter(u => u.is_active === 0).length },
+        generatedAt: new Date().toLocaleString(),
+      })
+    } catch (e) { setError(e.message) }
+    setLoading(false)
+  }
+
+  const loadPointDistribution = async () => {
+    setLoading(true); setError('')
+    try {
+      const data = await adminApi('/transactions')
+      const tx = data?.transactions || []
+      const bySponsors = {}
+      for (const t of tx) {
+        const key = t.sponsor_company || (t.sponsor_id ? `Sponsor #${t.sponsor_id}` : 'Admin')
+        if (!bySponsors[key]) bySponsors[key] = { sponsor: key, awarded: 0, deducted: 0, net: 0, txCount: 0 }
+        const d = Number(t.delta || 0)
+        if (d > 0) bySponsors[key].awarded += d
+        else bySponsors[key].deducted += Math.abs(d)
+        bySponsors[key].net += d
+        bySponsors[key].txCount++
+      }
+      setPointDist(Object.values(bySponsors).sort((a, b) => b.awarded - a.awarded))
+    } catch (e) { setError(e.message) }
+    setLoading(false)
+  }
+
+  const loadEnrollmentTrends = async () => {
+    setLoading(true); setError('')
+    try {
+      const data = await adminApi('/users?role=driver')
+      const drivers = data?.users || []
+      // Group by month of created_at
+      const byMonth = {}
+      for (const d of drivers) {
+        if (!d.created_at) continue
+        const month = d.created_at.slice(0, 7)
+        byMonth[month] = (byMonth[month] || 0) + 1
+      }
+      const sorted = Object.entries(byMonth).sort(([a], [b]) => a.localeCompare(b)).slice(-12)
+      let cumulative = 0
+      setEnrollTrends(sorted.map(([month, count]) => {
+        cumulative += count
+        return { month, count, cumulative }
+      }))
+    } catch (e) { setError(e.message) }
+    setLoading(false)
+  }
+
+  const loadCatalogReport = async () => {
+    setLoading(true); setError('')
+    try {
+      const data = await adminApi('/transactions')
+      const tx = (data?.transactions || []).filter(t => Number(t.delta) < 0)
+      const byReason = {}
+      for (const t of tx) {
+        const key = t.reason || 'Order redemption'
+        if (!byReason[key]) byReason[key] = { item: key, redeemed: 0, pointsSpent: 0 }
+        byReason[key].redeemed++
+        byReason[key].pointsSpent += Math.abs(Number(t.delta))
+      }
+      setCatalogReport(Object.values(byReason).sort((a, b) => b.pointsSpent - a.pointsSpent).slice(0, 20))
+    } catch (e) { setError(e.message) }
+    setLoading(false)
+  }
+
+  const loadAvgBalances = async () => {
+    setLoading(true); setError('')
+    try {
+      const [sponsorData, txData] = await Promise.all([adminApi('/users?role=sponsor'), adminApi('/transactions')])
+      const sponsors = sponsorData?.users || []
+      const tx = txData?.transactions || []
+      const sponsorMap = {}
+      for (const s of sponsors) {
+        const key = s.company_name || `Sponsor #${s.id}`
+        sponsorMap[key] = { sponsor: key, totalAwarded: 0, driverCount: new Set(), txCount: 0 }
+      }
+      for (const t of tx) {
+        const key = t.sponsor_company || (t.sponsor_id ? `Sponsor #${t.sponsor_id}` : null)
+        if (!key) continue
+        if (!sponsorMap[key]) sponsorMap[key] = { sponsor: key, totalAwarded: 0, driverCount: new Set(), txCount: 0 }
+        if (Number(t.delta) > 0) {
+          sponsorMap[key].totalAwarded += Number(t.delta)
+          sponsorMap[key].driverCount.add(t.driver_id)
+          sponsorMap[key].txCount++
+        }
+      }
+      setAvgBalances(Object.values(sponsorMap).map(s => ({
+        ...s,
+        driverCount: s.driverCount.size,
+        avgPerDriver: s.driverCount.size ? Math.round(s.totalAwarded / s.driverCount.size) : 0,
+      })).filter(s => s.totalAwarded > 0).sort((a, b) => b.totalAwarded - a.totalAwarded))
+    } catch (e) { setError(e.message) }
+    setLoading(false)
+  }
+
+  const loadInactiveUsers = async () => {
+    setLoading(true); setError('')
+    try {
+      const [drivers, sponsors, admins] = await Promise.all([
+        adminApi('/users?role=driver'),
+        adminApi('/users?role=sponsor'),
+        adminApi('/users?role=admin'),
+      ])
+      const all = [
+        ...(drivers?.users || []).map(u => ({ ...u, roleLabel: 'Driver' })),
+        ...(sponsors?.users || []).map(u => ({ ...u, roleLabel: 'Sponsor' })),
+        ...(admins?.users || []).map(u => ({ ...u, roleLabel: 'Admin' })),
+      ].filter(u => u.is_active === 0 || u.is_active === false)
+      setInactiveUsers(all)
+    } catch (e) { setError(e.message) }
+    setLoading(false)
+  }
+
+  // ── Tab effect ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    setError('')
+    if (activeTab === 'realtime')   loadRealtime()
+    if (activeTab === 'active-users') loadActiveUsers()
+    if (activeTab === 'point-dist') loadPointDistribution()
+    if (activeTab === 'enrollment') loadEnrollmentTrends()
+    if (activeTab === 'catalog')    loadCatalogReport()
+    if (activeTab === 'avg-balance') loadAvgBalances()
+    if (activeTab === 'inactive')   loadInactiveUsers()
+  }, [activeTab])
+
+  // ── Auto-refresh realtime tab every 30s ───────────────────────────────────
+  useEffect(() => {
+    if (activeTab !== 'realtime') return
+    const iv = setInterval(() => { setRtTick(t => t + 1); loadRealtime() }, 30000)
+    return () => clearInterval(iv)
+  }, [activeTab])
+
+  // ── Simple inline SVG bar chart ───────────────────────────────────────────
+  const BarChart = ({ data, valueKey, labelKey, color = '#2563eb', height = 160 }) => {
+    if (!data?.length) return <p style={{ color: '#9ca3af', fontStyle: 'italic' }}>No data</p>
+    const max = Math.max(...data.map(d => Number(d[valueKey]) || 0), 1)
+    const W = 560, barW = Math.max(8, Math.floor((W - 20) / data.length) - 4)
+    return (
+      <svg viewBox={`0 0 ${W} ${height + 40}`} style={{ width: '100%', maxWidth: W, overflow: 'visible' }}>
+        {data.map((d, i) => {
+          const val = Number(d[valueKey]) || 0
+          const h = Math.max(2, (val / max) * height)
+          const x = 10 + i * ((W - 20) / data.length)
+          return (
+            <g key={i}>
+              <rect x={x} y={height - h} width={barW} height={h} fill={color} rx={2} opacity={0.85} />
+              <text x={x + barW / 2} y={height + 14} textAnchor="middle" fontSize={9} fill="#6b7280"
+                style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {String(d[labelKey] || '').slice(0, 8)}
+              </text>
+              <text x={x + barW / 2} y={height - h - 4} textAnchor="middle" fontSize={9} fill={color} fontWeight={600}>
+                {val.toLocaleString()}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+    )
+  }
+
+  // ── Donut chart ───────────────────────────────────────────────────────────
+  const DonutChart = ({ segments, size = 120 }) => {
+    const total = segments.reduce((s, x) => s + x.value, 0)
+    if (!total) return null
+    let offset = 0
+    const r = 40, cx = size / 2, cy = size / 2
+    const circum = 2 * Math.PI * r
+    return (
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {segments.map((seg, i) => {
+          const pct = seg.value / total
+          const dash = pct * circum
+          const gap = circum - dash
+          const rotate = offset * 360 - 90
+          offset += pct
+          return (
+            <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+              stroke={seg.color} strokeWidth={20}
+              strokeDasharray={`${dash} ${gap}`}
+              strokeDashoffset={0}
+              transform={`rotate(${rotate} ${cx} ${cy})`} />
+          )
+        })}
+        <text x={cx} y={cy + 5} textAnchor="middle" fontSize={14} fontWeight={700} fill="#374151">
+          {total.toLocaleString()}
+        </text>
+      </svg>
+    )
+  }
+
+  // ── CSV Export ─────────────────────────────────────────────────────────────
+  const exportCSV = (rows, headers, filename) => {
+    const csv = [headers, ...rows.map(r => headers.map(h => `"${String(r[h] ?? '').replace(/"/g, '""')}"`))].map(r => r.join(',')).join('\n')
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+      download: `${filename}-${new Date().toISOString().slice(0, 10)}.csv`
+    })
+    a.click(); URL.revokeObjectURL(a.href)
+  }
+
+  // ── PDF (print) export ────────────────────────────────────────────────────
+  const exportPDF = (title, contentId) => {
+    const el = document.getElementById(contentId)
+    if (!el) return
+    const w = window.open('', '_blank')
+    w.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
+      <style>body{font-family:sans-serif;padding:24px;color:#111}
+      table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:6px 10px;text-align:left;font-size:12px}
+      th{background:#f3f4f6;font-weight:600}h1{font-size:18px}h2{font-size:14px;color:#374151}
+      .stat{display:inline-block;margin:8px 16px 8px 0;padding:10px 16px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px}
+      .stat-val{font-size:22px;font-weight:700;color:#2563eb}.stat-label{font-size:11px;color:#6b7280}</style>
+      </head><body><h1>${title}</h1><p style="color:#9ca3af;font-size:12px">Generated ${new Date().toLocaleString()}</p>
+      ${el.innerHTML}</body></html>`)
+    w.document.close()
+    setTimeout(() => { w.print(); w.close() }, 400)
+  }
+
+  // ── Schedule / Config persistence ─────────────────────────────────────────
+  const saveSchedule = () => {
+    if (!newSchedule.name || !newSchedule.email) return
+    const updated = [...schedules, { ...newSchedule, id: Date.now(), createdAt: new Date().toLocaleString(), lastRun: null }]
+    setSchedules(updated)
+    localStorage.setItem('gdip_report_schedules', JSON.stringify(updated))
+    setNewSchedule({ name: '', reportType: 'active-users', frequency: 'weekly', email: '' })
+  }
+  const deleteSchedule = (id) => {
+    const updated = schedules.filter(s => s.id !== id)
+    setSchedules(updated)
+    localStorage.setItem('gdip_report_schedules', JSON.stringify(updated))
+  }
+  const saveConfig = () => {
+    if (!configName) return
+    const cfg = { id: Date.now(), name: configName, tab: activeTab, savedAt: new Date().toLocaleString() }
+    const updated = [...savedConfigs, cfg]
+    setSavedConfigs(updated)
+    localStorage.setItem('gdip_report_configs', JSON.stringify(updated))
+    setConfigName('')
+  }
+  const deleteConfig = (id) => {
+    const updated = savedConfigs.filter(c => c.id !== id)
+    setSavedConfigs(updated)
+    localStorage.setItem('gdip_report_configs', JSON.stringify(updated))
+  }
+  const loadConfig = (cfg) => setActiveTab(cfg.tab)
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const fmtBytes = (b) => !b ? '-' : b < 1048576 ? `${(b/1024).toFixed(1)} KB` : `${(b/1048576).toFixed(1)} MB`
+  const fmtUptime = (s) => { if (!s) return '-'; const h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return h?`${h}h ${m}m`:`${m}m` }
+
+  const TABS = [
+    { key: 'realtime',    label: 'Real-Time' },
+    { key: 'active-users', label: 'Active Users' },
+    { key: 'point-dist',  label: 'Point Distribution' },
+    { key: 'enrollment',  label: 'Enrollment Trends' },
+    { key: 'catalog',     label: 'Catalog Purchases' },
+    { key: 'avg-balance', label: 'Average Balances' },
+    { key: 'inactive',    label: 'Inactive Users' },
+    { key: 'scheduled',   label: 'Scheduled' },
+    { key: 'saved',       label: 'Saved Configs' },
+  ]
+
+  const statCard = (label, value, color = '#2563eb') => (
+    <div style={{ padding: '14px 18px', borderRadius: 8, border: '1px solid var(--border)', background: '#fff', flex: '1 1 140px' }}>
+      <p style={{ margin: '0 0 4px', fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af' }}>{label}</p>
+      <p style={{ margin: 0, fontSize: '1.4em', fontWeight: 800, color }}>{value}</p>
+    </div>
+  )
+
+  return (
+    <div>
+      <Navigation />
+      <main className="app-main">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <h1 className="page-title" style={{ margin: 0 }}>Admin Reports</h1>
+            <p className="page-subtitle" style={{ margin: 0 }}>System-wide analytics, trends, and data exports</p>
+          </div>
+
+          {/* #21: Save current config */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input className="form-input" style={{ width: 180 }} placeholder="Config name…" value={configName}
+              onChange={e => setConfigName(e.target.value)} />
+            <button className="btn btn-primary" type="button" style={{ fontSize: '0.85em' }} onClick={saveConfig}
+              disabled={!configName}>💾 Save View</button>
+          </div>
+        </div>
+
+        {error && <div style={{ color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>{error}</div>}
+
+        {/* Tab bar */}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 16, borderBottom: '1px solid var(--border)', paddingBottom: 0 }}>
+          {TABS.map(t => (
+            <button key={t.key} type="button" onClick={() => setActiveTab(t.key)}
+              style={{ padding: '8px 14px', border: 'none', borderBottom: activeTab === t.key ? '3px solid #2563eb' : '3px solid transparent',
+                background: 'none', color: activeTab === t.key ? '#2563eb' : '#6b7280',
+                fontWeight: activeTab === t.key ? 700 : 500, cursor: 'pointer', fontSize: '0.82em', whiteSpace: 'nowrap' }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── #20: Real-Time Dashboard ── */}
+        {activeTab === 'realtime' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Real-Time System Metrics</h2>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: '0.78em', color: '#9ca3af' }}>Auto-refreshes every 30s</span>
+                <button className="btn btn-primary" type="button" onClick={loadRealtime} style={{ fontSize: '0.82em' }}>↺ Refresh</button>
+              </div>
+            </div>
+
+            {rtStats && (
+              <>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+                  {statCard('Uptime', fmtUptime(rtStats.uptime_seconds), '#16a34a')}
+                  {statCard('Total Users', (rtStats.total_users || 0).toLocaleString(), '#2563eb')}
+                  {statCard('Database', rtStats.db_connected ? '✓ Connected' : '✕ Down', rtStats.db_connected ? '#16a34a' : '#dc2626')}
+                  {statCard('Memory (RSS)', fmtBytes(rtStats.memory?.rss), '#d97706')}
+                  {statCard('Heap Used', fmtBytes(rtStats.memory?.heapUsed), '#7c3aed')}
+                  {statCard('Node.js', rtStats.node_version || '-', '#374151')}
+                </div>
+
+                {rtMetrics && (
+                  <div className="card" style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 16 }}>
+                      {statCard('Total Requests', (rtMetrics.total_requests || 0).toLocaleString(), '#2563eb')}
+                      {statCard('Total Errors', (rtMetrics.total_errors || 0).toLocaleString(), '#dc2626')}
+                    </div>
+
+                    {rtMetrics.requests_per_minute?.length > 0 && (
+                      <>
+                        <h3 style={{ margin: '0 0 10px', fontSize: '0.9em', color: '#374151' }}>Requests / Minute (last hour)</h3>
+                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 80, marginBottom: 16 }}>
+                          {rtMetrics.requests_per_minute.slice(-60).map((m, i) => {
+                            const max = Math.max(...rtMetrics.requests_per_minute.slice(-60).map(x => x.count), 1)
+                            const h = Math.max(2, (m.count / max) * 72)
+                            return <div key={i} title={`${m.minute}: ${m.count}`} style={{
+                              flex: '1 1 0', background: '#3b82f6', borderRadius: '2px 2px 0 0', height: h, minWidth: 3 }} />
+                          })}
+                        </div>
+                      </>
+                    )}
+
+                    {rtMetrics.top_endpoints?.length > 0 && (
+                      <>
+                        <h3 style={{ margin: '0 0 8px', fontSize: '0.9em', color: '#374151' }}>Top Endpoints</h3>
+                        <div className="table-wrap">
+                          <table className="table">
+                            <thead><tr><th>Endpoint</th><th className="text-right">Hits</th></tr></thead>
+                            <tbody>
+                              {rtMetrics.top_endpoints.slice(0, 10).map((e, i) => (
+                                <tr key={i}>
+                                  <td style={{ fontFamily: 'monospace', fontSize: '0.83em' }}>{e.endpoint}</td>
+                                  <td className="text-right" style={{ fontWeight: 600 }}>{e.count.toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── #13: Active Users by Type ── */}
+        {activeTab === 'active-users' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Active Users by Type</h2>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary" type="button" onClick={loadActiveUsers} disabled={loading} style={{ fontSize: '0.85em' }}>↺ Refresh</button>
+                <button className="btn btn-success" type="button" onClick={() => exportPDF('Active Users Report', 'report-active-users')} style={{ fontSize: '0.85em' }}>⬇ PDF</button>
+              </div>
+            </div>
+
+            {loading ? <p>Loading…</p> : userReport ? (
+              <div id="report-active-users">
+                <p style={{ fontSize: '0.8em', color: '#9ca3af', marginBottom: 16 }}>Generated {userReport.generatedAt}</p>
+
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
+                  {[
+                    { label: 'Drivers', data: userReport.drivers, color: '#2563eb' },
+                    { label: 'Sponsors', data: userReport.sponsors, color: '#16a34a' },
+                    { label: 'Admins', data: userReport.admins, color: '#7c3aed' },
+                  ].map(({ label, data, color }) => (
+                    <div key={label} style={{ flex: '1 1 200px', padding: 20, borderRadius: 10, border: '1px solid var(--border)', background: '#fff' }}>
+                      <h3 style={{ margin: '0 0 12px', fontSize: '1em', color: '#374151' }}>{label}</h3>
+                      <DonutChart segments={[
+                        { value: data.active, color },
+                        { value: data.inactive, color: '#e5e7eb' },
+                      ]} />
+                      <div style={{ marginTop: 12, display: 'grid', gap: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85em' }}>
+                          <span>Total</span><strong>{data.total}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85em', color: color }}>
+                          <span>Active</span><strong>{data.active}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85em', color: '#dc2626' }}>
+                          <span>Inactive</span><strong>{data.inactive}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85em', color: '#6b7280' }}>
+                          <span>Active %</span><strong>{data.total ? Math.round(data.active / data.total * 100) : 0}%</strong>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="card">
+                  <h3 style={{ margin: '0 0 10px', fontSize: '0.9em' }}>Summary Table</h3>
+                  <table className="table">
+                    <thead><tr><th>Role</th><th className="text-right">Total</th><th className="text-right">Active</th><th className="text-right">Inactive</th><th className="text-right">Active %</th></tr></thead>
+                    <tbody>
+                      {[['Driver', userReport.drivers], ['Sponsor', userReport.sponsors], ['Admin', userReport.admins]].map(([role, d]) => (
+                        <tr key={role}>
+                          <td style={{ fontWeight: 600 }}>{role}</td>
+                          <td className="text-right">{d.total}</td>
+                          <td className="text-right" style={{ color: '#16a34a', fontWeight: 600 }}>{d.active}</td>
+                          <td className="text-right" style={{ color: '#dc2626' }}>{d.inactive}</td>
+                          <td className="text-right">{d.total ? Math.round(d.active / d.total * 100) : 0}%</td>
+                        </tr>
+                      ))}
+                      <tr style={{ fontWeight: 700, background: '#f9fafb' }}>
+                        <td>Total</td>
+                        <td className="text-right">{userReport.drivers.total + userReport.sponsors.total + userReport.admins.total}</td>
+                        <td className="text-right" style={{ color: '#16a34a' }}>{userReport.drivers.active + userReport.sponsors.active + userReport.admins.active}</td>
+                        <td className="text-right" style={{ color: '#dc2626' }}>{userReport.drivers.inactive + userReport.sponsors.inactive + userReport.admins.inactive}</td>
+                        <td className="text-right">—</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : <p className="activity-empty">Click Refresh to load the report.</p>}
+          </div>
+        )}
+
+        {/* ── #14: Point Distribution by Sponsor ── */}
+        {activeTab === 'point-dist' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Point Distribution by Sponsor</h2>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary" type="button" onClick={loadPointDistribution} disabled={loading} style={{ fontSize: '0.85em' }}>↺ Refresh</button>
+                <button className="btn btn-ghost" type="button" style={{ fontSize: '0.85em' }}
+                  onClick={() => exportCSV(pointDist, ['sponsor','awarded','deducted','net','txCount'], 'point-distribution')}>⬇ CSV</button>
+                <button className="btn btn-success" type="button" onClick={() => exportPDF('Point Distribution Report', 'report-point-dist')} style={{ fontSize: '0.85em' }}>⬇ PDF</button>
+              </div>
+            </div>
+
+            {loading ? <p>Loading…</p> : pointDist.length === 0 ? <p className="activity-empty">No transaction data found.</p> : (
+              <div id="report-point-dist">
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <h3 style={{ margin: '0 0 12px', fontSize: '0.9em' }}>Points Awarded by Sponsor</h3>
+                  <BarChart data={pointDist.slice(0, 12)} valueKey="awarded" labelKey="sponsor" color="#16a34a" />
+                </div>
+
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                  {statCard('Total Awarded', pointDist.reduce((s, x) => s + x.awarded, 0).toLocaleString(), '#16a34a')}
+                  {statCard('Total Deducted', pointDist.reduce((s, x) => s + x.deducted, 0).toLocaleString(), '#dc2626')}
+                  {statCard('Net Points', pointDist.reduce((s, x) => s + x.net, 0).toLocaleString(), '#2563eb')}
+                  {statCard('Active Sponsors', pointDist.length.toString(), '#d97706')}
+                </div>
+
+                <div className="card">
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead><tr><th>Sponsor</th><th className="text-right">Awarded</th><th className="text-right">Deducted</th><th className="text-right">Net</th><th className="text-right">Transactions</th></tr></thead>
+                      <tbody>
+                        {pointDist.map((row, i) => (
+                          <tr key={i}>
+                            <td style={{ fontWeight: 500 }}>{row.sponsor}</td>
+                            <td className="text-right" style={{ color: '#16a34a', fontWeight: 600 }}>{row.awarded.toLocaleString()}</td>
+                            <td className="text-right" style={{ color: '#dc2626' }}>{row.deducted.toLocaleString()}</td>
+                            <td className="text-right" style={{ color: row.net >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{row.net >= 0 ? '+' : ''}{row.net.toLocaleString()}</td>
+                            <td className="text-right">{row.txCount}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── #15: Driver Enrollment Trends ── */}
+        {activeTab === 'enrollment' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Driver Enrollment Trends</h2>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary" type="button" onClick={loadEnrollmentTrends} disabled={loading} style={{ fontSize: '0.85em' }}>↺ Refresh</button>
+                <button className="btn btn-ghost" type="button" style={{ fontSize: '0.85em' }}
+                  onClick={() => exportCSV(enrollTrends, ['month','count','cumulative'], 'enrollment-trends')}>⬇ CSV</button>
+              </div>
+            </div>
+
+            {loading ? <p>Loading…</p> : enrollTrends.length === 0 ? <p className="activity-empty">No enrollment data found.</p> : (
+              <div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                  {statCard('Total Drivers', enrollTrends[enrollTrends.length - 1]?.cumulative?.toLocaleString() || '0', '#2563eb')}
+                  {statCard('New This Month', (enrollTrends[enrollTrends.length - 1]?.count || 0).toLocaleString(), '#16a34a')}
+                  {statCard('Months of Data', enrollTrends.length.toString(), '#d97706')}
+                </div>
+
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <h3 style={{ margin: '0 0 12px', fontSize: '0.9em' }}>New Drivers per Month</h3>
+                  <BarChart data={enrollTrends} valueKey="count" labelKey="month" color="#2563eb" />
+                </div>
+
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <h3 style={{ margin: '0 0 12px', fontSize: '0.9em' }}>Cumulative Growth</h3>
+                  <BarChart data={enrollTrends} valueKey="cumulative" labelKey="month" color="#16a34a" height={140} />
+                </div>
+
+                <div className="card">
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead><tr><th>Month</th><th className="text-right">New Drivers</th><th className="text-right">Cumulative</th><th className="text-right">MoM Growth</th></tr></thead>
+                      <tbody>
+                        {enrollTrends.map((row, i) => {
+                          const prev = enrollTrends[i - 1]?.count || 0
+                          const growth = prev ? Math.round((row.count - prev) / prev * 100) : null
+                          return (
+                            <tr key={row.month}>
+                              <td>{row.month}</td>
+                              <td className="text-right" style={{ fontWeight: 600 }}>{row.count}</td>
+                              <td className="text-right">{row.cumulative.toLocaleString()}</td>
+                              <td className="text-right" style={{ color: growth === null ? '#9ca3af' : growth >= 0 ? '#16a34a' : '#dc2626' }}>
+                                {growth === null ? '—' : `${growth >= 0 ? '+' : ''}${growth}%`}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── #16: Catalog Purchases ── */}
+        {activeTab === 'catalog' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Catalog Purchases by Product</h2>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary" type="button" onClick={loadCatalogReport} disabled={loading} style={{ fontSize: '0.85em' }}>↺ Refresh</button>
+                <button className="btn btn-ghost" type="button" style={{ fontSize: '0.85em' }}
+                  onClick={() => exportCSV(catalogReport, ['item','redeemed','pointsSpent'], 'catalog-purchases')}>⬇ CSV</button>
+              </div>
+            </div>
+            <p style={{ fontSize: '0.82em', color: '#6b7280', marginBottom: 12 }}>
+              Derived from point deduction transactions. Each deduction with a reason is counted as a purchase/redemption event.
+            </p>
+
+            {loading ? <p>Loading…</p> : catalogReport.length === 0 ? <p className="activity-empty">No redemption data found.</p> : (
+              <div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                  {statCard('Total Redemptions', catalogReport.reduce((s, x) => s + x.redeemed, 0).toLocaleString(), '#2563eb')}
+                  {statCard('Total Points Spent', catalogReport.reduce((s, x) => s + x.pointsSpent, 0).toLocaleString(), '#dc2626')}
+                  {statCard('Unique Items', catalogReport.length.toString(), '#d97706')}
+                </div>
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <h3 style={{ margin: '0 0 12px', fontSize: '0.9em' }}>Top Items by Points Spent</h3>
+                  <BarChart data={catalogReport.slice(0, 10)} valueKey="pointsSpent" labelKey="item" color="#dc2626" />
+                </div>
+                <div className="card">
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead><tr><th>Item / Reason</th><th className="text-right">Redemptions</th><th className="text-right">Points Spent</th><th className="text-right">Avg Points</th></tr></thead>
+                      <tbody>
+                        {catalogReport.map((row, i) => (
+                          <tr key={i}>
+                            <td style={{ maxWidth: 300, fontSize: '0.88em' }}>{row.item}</td>
+                            <td className="text-right" style={{ fontWeight: 600 }}>{row.redeemed}</td>
+                            <td className="text-right" style={{ color: '#dc2626', fontWeight: 600 }}>{row.pointsSpent.toLocaleString()}</td>
+                            <td className="text-right">{Math.round(row.pointsSpent / row.redeemed).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── #17: Average Point Balances by Sponsor ── */}
+        {activeTab === 'avg-balance' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Average Point Balances by Sponsor</h2>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary" type="button" onClick={loadAvgBalances} disabled={loading} style={{ fontSize: '0.85em' }}>↺ Refresh</button>
+                <button className="btn btn-ghost" type="button" style={{ fontSize: '0.85em' }}
+                  onClick={() => exportCSV(avgBalances.map(r => ({...r, driverCount: r.driverCount})), ['sponsor','totalAwarded','driverCount','avgPerDriver','txCount'], 'avg-balances')}>⬇ CSV</button>
+                <button className="btn btn-success" type="button" onClick={() => exportPDF('Average Point Balances by Sponsor', 'report-avg-bal')} style={{ fontSize: '0.85em' }}>⬇ PDF</button>
+              </div>
+            </div>
+
+            {loading ? <p>Loading…</p> : avgBalances.length === 0 ? <p className="activity-empty">No data found.</p> : (
+              <div id="report-avg-bal">
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                  {statCard('Total Sponsors', avgBalances.length.toString(), '#2563eb')}
+                  {statCard('Total Awarded', avgBalances.reduce((s, x) => s + x.totalAwarded, 0).toLocaleString(), '#16a34a')}
+                  {statCard('Total Drivers', avgBalances.reduce((s, x) => s + x.driverCount, 0).toLocaleString(), '#d97706')}
+                </div>
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <h3 style={{ margin: '0 0 12px', fontSize: '0.9em' }}>Avg Points per Driver by Sponsor</h3>
+                  <BarChart data={avgBalances.slice(0, 12)} valueKey="avgPerDriver" labelKey="sponsor" color="#7c3aed" />
+                </div>
+                <div className="card">
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead><tr><th>Sponsor</th><th className="text-right">Drivers</th><th className="text-right">Total Awarded</th><th className="text-right">Avg / Driver</th><th className="text-right">Transactions</th></tr></thead>
+                      <tbody>
+                        {avgBalances.map((row, i) => (
+                          <tr key={i}>
+                            <td style={{ fontWeight: 500 }}>{row.sponsor}</td>
+                            <td className="text-right">{row.driverCount}</td>
+                            <td className="text-right" style={{ color: '#16a34a', fontWeight: 600 }}>{row.totalAwarded.toLocaleString()}</td>
+                            <td className="text-right" style={{ color: '#7c3aed', fontWeight: 700 }}>{row.avgPerDriver.toLocaleString()}</td>
+                            <td className="text-right">{row.txCount}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── #19: Inactive Users Report ── */}
+        {activeTab === 'inactive' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Inactive Users Report</h2>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary" type="button" onClick={loadInactiveUsers} disabled={loading} style={{ fontSize: '0.85em' }}>↺ Refresh</button>
+                <button className="btn btn-ghost" type="button" style={{ fontSize: '0.85em' }}
+                  onClick={() => exportCSV(inactiveUsers.map(u => ({ id: u.id, email: u.email, role: u.roleLabel, lastLogin: u.last_login_at || 'Never', reason: u.deactivate_reason || '' })),
+                    ['id','email','role','lastLogin','reason'], 'inactive-users')}>⬇ CSV</button>
+              </div>
+            </div>
+
+            {loading ? <p>Loading…</p> : (
+              <>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                  {statCard('Total Inactive', inactiveUsers.length.toString(), '#dc2626')}
+                  {statCard('Drivers', inactiveUsers.filter(u => u.roleLabel === 'Driver').length.toString(), '#2563eb')}
+                  {statCard('Sponsors', inactiveUsers.filter(u => u.roleLabel === 'Sponsor').length.toString(), '#16a34a')}
+                  {statCard('Admins', inactiveUsers.filter(u => u.roleLabel === 'Admin').length.toString(), '#7c3aed')}
+                </div>
+
+                {inactiveUsers.length === 0 ? <div className="card"><p className="activity-empty">No inactive accounts found.</p></div> : (
+                  <div className="card">
+                    <div className="table-wrap">
+                      <table className="table">
+                        <thead><tr><th>ID</th><th>Email</th><th>Role</th><th>Last Login</th><th>Deactivation Reason</th></tr></thead>
+                        <tbody>
+                          {inactiveUsers.map(u => (
+                            <tr key={u.id} style={{ opacity: 0.8 }}>
+                              <td style={{ fontFamily: 'monospace', fontSize: '0.82em' }}>{u.id}</td>
+                              <td>{u.email}</td>
+                              <td><span style={{ padding: '2px 8px', borderRadius: 4, fontSize: '0.78em', fontWeight: 600,
+                                background: u.roleLabel === 'Driver' ? '#dbeafe' : u.roleLabel === 'Sponsor' ? '#d1fae5' : '#ede9fe',
+                                color: u.roleLabel === 'Driver' ? '#1e40af' : u.roleLabel === 'Sponsor' ? '#065f46' : '#4c1d95' }}>{u.roleLabel}</span></td>
+                              <td style={{ fontSize: '0.82em', color: '#6b7280' }}>{u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : 'Never'}</td>
+                              <td style={{ fontSize: '0.82em', color: '#6b7280', maxWidth: 240 }}>{u.deactivate_reason || <em style={{ color: '#d1d5db' }}>No reason recorded</em>}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── #18: Scheduled Reports ── */}
+        {activeTab === 'scheduled' && (
+          <div>
+            <h2 className="section-title">Scheduled Reports</h2>
+            <p style={{ fontSize: '0.85em', color: '#6b7280', marginBottom: 16 }}>
+              Configure reports to be sent automatically. Schedules are saved locally and served as reminders — connect to a backend email service to fully automate delivery.
+            </p>
+
+            <div className="card" style={{ marginBottom: 16 }}>
+              <h3 style={{ margin: '0 0 12px', fontSize: '0.95em' }}>Create New Schedule</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: 12 }}>
+                <div>
+                  <label className="form-label">Schedule Name</label>
+                  <input className="form-input" placeholder="e.g. Weekly User Report" value={newSchedule.name}
+                    onChange={e => setNewSchedule(p => ({...p, name: e.target.value}))} />
+                </div>
+                <div>
+                  <label className="form-label">Report Type</label>
+                  <select className="form-input" value={newSchedule.reportType}
+                    onChange={e => setNewSchedule(p => ({...p, reportType: e.target.value}))}>
+                    {TABS.filter(t => !['scheduled','saved','realtime'].includes(t.key)).map(t => (
+                      <option key={t.key} value={t.key}>{t.label.replace(/^[^ ]+ /,'')}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label">Frequency</label>
+                  <select className="form-input" value={newSchedule.frequency}
+                    onChange={e => setNewSchedule(p => ({...p, frequency: e.target.value}))}>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label">Recipient Email</label>
+                  <input className="form-input" type="email" placeholder="admin@example.com" value={newSchedule.email}
+                    onChange={e => setNewSchedule(p => ({...p, email: e.target.value}))} />
+                </div>
+              </div>
+              <button className="btn btn-success" type="button" onClick={saveSchedule}
+                disabled={!newSchedule.name || !newSchedule.email}>+ Add Schedule</button>
+            </div>
+
+            {schedules.length === 0 ? <div className="card"><p className="activity-empty">No scheduled reports yet.</p></div> : (
+              <div className="card">
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead><tr><th>Name</th><th>Report</th><th>Frequency</th><th>Recipient</th><th>Created</th><th>Actions</th></tr></thead>
+                    <tbody>
+                      {schedules.map(s => (
+                        <tr key={s.id}>
+                          <td style={{ fontWeight: 600 }}>{s.name}</td>
+                          <td style={{ fontSize: '0.85em' }}>{TABS.find(t => t.key === s.reportType)?.label || s.reportType}</td>
+                          <td><span style={{ padding: '2px 8px', borderRadius: 4, fontSize: '0.78em', fontWeight: 600, background: '#e0e7ff', color: '#3730a3' }}>{s.frequency}</span></td>
+                          <td style={{ fontSize: '0.85em', color: '#6b7280' }}>{s.email}</td>
+                          <td style={{ fontSize: '0.82em', color: '#9ca3af' }}>{s.createdAt}</td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button className="btn btn-primary" type="button" style={{ fontSize: '0.78em', padding: '3px 8px' }}
+                                onClick={() => setActiveTab(s.reportType)}>View Report</button>
+                              <button className="btn btn-danger" type="button" style={{ fontSize: '0.78em', padding: '3px 8px' }}
+                                onClick={() => deleteSchedule(s.id)}>Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── #21: Saved Report Configs ── */}
+        {activeTab === 'saved' && (
+          <div>
+            <h2 className="section-title">Saved Report Configurations</h2>
+            <p style={{ fontSize: '0.85em', color: '#6b7280', marginBottom: 16 }}>
+              Bookmark frequently used report views. Use the "💾 Save View" button on any report tab to save your current configuration.
+            </p>
+
+            {savedConfigs.length === 0 ? (
+              <div className="card"><p className="activity-empty">No saved configurations yet. Open any report and click "💾 Save View" to bookmark it.</p></div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+                {savedConfigs.map(cfg => (
+                  <div key={cfg.id} style={{ padding: 18, borderRadius: 10, border: '1px solid var(--border)', background: '#fff', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div>
+                      <p style={{ margin: '0 0 4px', fontWeight: 700, fontSize: '0.95em' }}>{cfg.name}</p>
+                      <p style={{ margin: '0 0 2px', fontSize: '0.78em', color: '#6b7280' }}>
+                        Report: {TABS.find(t => t.key === cfg.tab)?.label || cfg.tab}
+                      </p>
+                      <p style={{ margin: 0, fontSize: '0.72em', color: '#9ca3af' }}>Saved {cfg.savedAt}</p>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn btn-primary" type="button" style={{ flex: 1, fontSize: '0.82em' }}
+                        onClick={() => loadConfig(cfg)}>Open Report</button>
+                      <button className="btn btn-danger" type="button" style={{ fontSize: '0.82em', padding: '6px 10px' }}
+                        onClick={() => deleteConfig(cfg.id)}>✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}
+
   // ============ MAIN RENDER ============
   return (
     <div>
@@ -9248,6 +10146,7 @@ const AdminUsersPage = () => {
       {/* Admin ONLY Pages */}
       {isLoggedIn && currentPage === 'admin-users' && <AdminUsersPage />}
       {isLoggedIn && currentPage === 'system-monitoring' && <SystemMonitoringPage />}
+      {isLoggedIn && currentPage === 'reports' && <AdminReportsPage />}
 
       {showLogoutConfirm && (
         <div className="modal-backdrop">
