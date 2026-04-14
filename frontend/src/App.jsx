@@ -124,8 +124,6 @@ function App() {
         return '/messages'
       case 'sponsor-preview':
         return '/sponsor-preview'
-      case 'rewards':
-        return '/rewards'
       case 'leaderboard':
         return '/leaderboard'
       case 'achievements':
@@ -179,7 +177,6 @@ function App() {
     if (path === '/order-detail') return 'order-detail'
     if (path === '/messages') return 'messages'
     if (path === '/sponsor-preview') return 'sponsor-preview'
-    if (path === '/rewards') return 'rewards'
     if (path === '/leaderboard') return 'leaderboard'
     if (path === '/achievements') return 'achievements'
     if (path === '/profile') return 'profile'
@@ -212,7 +209,6 @@ function App() {
       'order-detail',
       'messages',
       'sponsor-preview',
-      'rewards',
       'leaderboard',
       'achievements',
       'profile',
@@ -663,7 +659,7 @@ function App() {
     ];
 
     const driverPages = hasSponsor
-      ? ['dashboard', 'log-trip', 'shop', 'cart', 'order-confirmation', 'order-history', 'order-detail', 'rewards', 'leaderboard', 'achievements', 'messages', 'notifications', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
+      ? ['dashboard', 'log-trip', 'shop', 'cart', 'order-confirmation', 'order-history', 'order-detail', 'leaderboard', 'achievements', 'messages', 'notifications', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about']
       : ['dashboard', 'shop', 'cart', 'order-confirmation', 'order-history', 'order-detail', 'messages', 'notifications', 'profile', 'account-details', 'change-password', 'sponsor-affiliation', 'about'];
 
     // 3. RETURN BASED ON ROLE:
@@ -1358,11 +1354,6 @@ function App() {
           {isDriver && allowed.includes('shop') && (
             <button type="button" onClick={() => setCurrentPage('shop')} className="nav-link">
               Shop
-            </button>
-          )}
-          {isDriver && allowed.includes('rewards') && (
-            <button type="button" onClick={() => setCurrentPage('rewards')} className="nav-link">
-              Rewards
             </button>
           )}
           {isDriver && allowed.includes('leaderboard') && (
@@ -6547,55 +6538,6 @@ const AdminUsersPage = () => {
     )
   }
 
-  // ============ REWARDS PAGE ============
-  const RewardsPage = () => {
-    const [rewardItems, setRewardItems] = useState([])
-    const [rewardsLoading, setRewardsLoading] = useState(true)
-    const [rewardsError, setRewardsError] = useState('')
-
-    return (
-      <div>
-        <Navigation />
-        <main className="app-main">
-          <h1 className="page-title">Rewards</h1>
-          <p className="page-subtitle">Your balance: <strong>{currentUser?.points ?? 0} points</strong></p>
-          <div className="rewards-grid">
-            {rewardsLoading ? (
-              <p className="activity-empty">Loading rewards…</p>
-            ) : rewardsError ? (
-              <p style={{ color: 'crimson' }}>Could not load rewards: {rewardsError}</p>
-            ) : rewardItems.length === 0 ? (
-              <p className="activity-empty">No rewards are available in your sponsor catalog yet.</p>
-            ) : (
-              rewardItems.map(item => {
-                const pointCost = Number(item.point_cost || 0)
-                const canRedeem = Number(currentUser?.points || 0) >= pointCost && pointCost > 0
-
-                return (
-                  <div key={item.id} className="reward-card">
-                    <h3 className="reward-title">{item.title}</h3>
-                    <p className="reward-pts">{pointCost} pts</p>
-                    <p style={{ marginBottom: 12, color: '#6b7280' }}>
-                      {item.description || 'No description available.'}
-                    </p>
-                    <button
-                      type="button"
-                      className="btn btn-success"
-                      disabled
-                      title={canRedeem ? 'Reward redemption endpoint is not implemented yet.' : 'You need more points to redeem this item.'}
-                    >
-                      {canRedeem ? 'Redeem Coming Soon' : 'Not Enough Points'}
-                    </button>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </main>
-      </div>
-    )
-  }
-
   // ============ LEADERBOARD PAGE ============
   const LeaderboardPage = () => {
     return (
@@ -10197,7 +10139,6 @@ const AdminReportsPage = () => {
       {isLoggedIn && currentPage === 'order-confirmation' && <OrderConfirmationPage />}
       {isLoggedIn && currentPage === 'order-history' && <OrderHistoryPage />}
       {isLoggedIn && currentPage === 'order-detail' && <OrderDetailPage />}
-      {isLoggedIn && currentPage === 'rewards' && <RewardsPage />}
       {isLoggedIn && currentPage === 'leaderboard' && <LeaderboardPage />}
       {isLoggedIn && currentPage === 'achievements' && <AchievementsPage />}
       {isLoggedIn && currentPage === 'sponsor-affiliation' && <SponsorAffiliationPage />}
