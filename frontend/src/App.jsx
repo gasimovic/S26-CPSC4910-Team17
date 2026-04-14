@@ -6142,13 +6142,39 @@ const AdminUsersPage = () => {
               {checkoutError && <p style={{ color: 'var(--danger)', marginTop: 8 }}>{checkoutError}</p>}
               {showCheckoutConfirm && (
                 <div className="modal-backdrop">
-                  <div className="modal-card" style={{ maxWidth: 500 }}>
-                    <h2 className="page-title" style={{ marginBottom: 4 }}>Confirm checkout?</h2>
-                    <p className="page-subtitle" style={{ marginBottom: 16 }}>
-                      You are redeeming <strong>{totalItems}</strong> item(s) for <strong>{totalPoints.toLocaleString()}</strong> points.
+                  <div className="modal-card" style={{ maxWidth: 520 }}>
+                    <h2 className="page-title" style={{ marginBottom: 6 }}>Ready to place this order?</h2>
+                    <p className="page-subtitle" style={{ marginBottom: 14 }}>
+                      Review your totals before checkout.
                     </p>
-                    <p style={{ marginTop: 0, marginBottom: 20, color: 'var(--text-muted)', fontSize: '0.92em' }}>
-                      Remaining balance after checkout: <strong>{pointsRemaining.toLocaleString()}</strong> points.
+
+                    <div
+                      style={{
+                        border: '1px solid var(--border)',
+                        borderRadius: 10,
+                        padding: 14,
+                        background: '#f8fafc',
+                        marginBottom: 16
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Items</span>
+                        <strong>{totalItems}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Total points</span>
+                        <strong>{totalPoints.toLocaleString()}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Balance after checkout</span>
+                        <strong style={{ color: pointsRemaining >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                          {pointsRemaining.toLocaleString()}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <p style={{ marginTop: 0, marginBottom: 20, color: 'var(--text-muted)', fontSize: '0.9em' }}>
+                      This creates your order in pending status and updates your points balance now.
                     </p>
                     <div className="modal-actions">
                       <button
@@ -6204,11 +6230,13 @@ const AdminUsersPage = () => {
         <main className="app-main">
           <h1 className="page-title">Order Placed</h1>
           <div className="card">
-            <p><strong>Confirmation #:</strong> {order.confirmation_number}</p>
-            <p><strong>Status:</strong> {order.status}</p>
-            <p><strong>Total Points:</strong> {Number(order.total_points).toLocaleString()}</p>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85em' }}>
-              Points will be deducted when the sponsor marks your order as delivered.
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+              <p style={{ margin: 0 }}><strong>Confirmation #:</strong> {order.confirmation_number}</p>
+              <p style={{ margin: 0 }}><strong>Status:</strong> {order.status}</p>
+            </div>
+            <p style={{ marginTop: 0, marginBottom: 12 }}><strong>Total Points:</strong> {Number(order.total_points).toLocaleString()}</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85em', marginTop: 0 }}>
+              Your order is pending sponsor review. Points are reflected in your balance after checkout.
             </p>
             <table className="table">
               <thead>
