@@ -6059,7 +6059,7 @@ const AdminUsersPage = () => {
                       <th className="text-right">Points</th>
                       <th className="text-right">Qty</th>
                       <th className="text-right">Subtotal</th>
-                      <th style={{ width: 110 }}>Action</th>
+                      <th className="text-right" style={{ width: 120 }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -6096,8 +6096,13 @@ const AdminUsersPage = () => {
                           </div>
                         </td>
                         <td className="text-right">{(Number(x.point_cost || 0) * Number(x.qty || 1)).toLocaleString()}</td>
-                        <td>
-                          <button type="button" className="btn btn-secondary" style={{ color:'#dc2626', borderColor:'#dc2626' }} onClick={() => removeFromCart(x.id)}>
+                        <td className="text-right">
+                          <button
+                            type="button"
+                            className="btn btn-danger"
+                            style={{ minWidth: 86 }}
+                            onClick={() => removeFromCart(x.id)}
+                          >
                             Remove
                           </button>
                         </td>
@@ -6107,10 +6112,11 @@ const AdminUsersPage = () => {
                 </table>
               </div>
 
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   className="btn btn-ghost"
+                  style={{ minWidth: 108 }}
                   onClick={() => {
                     if (!window.confirm('Clear all items from your cart?')) return
                     clearCart()
@@ -6121,6 +6127,7 @@ const AdminUsersPage = () => {
                 <button
                   type="button"
                   className="btn btn-success"
+                  style={{ minWidth: 108 }}
                   disabled={!canCheckout || checkoutLoading}
                   title={
                     hasUnavailable
