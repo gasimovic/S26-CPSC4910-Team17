@@ -5987,12 +5987,29 @@ const AdminUsersPage = () => {
     const isDriver = role === 'driver'
     const [checkoutLoading, setCheckoutLoading] = React.useState(false)
     const [checkoutError, setCheckoutError] = React.useState('')
+    const [showCheckoutConfirm, setShowCheckoutConfirm] = React.useState(false)
     const totalItems = cart.reduce((sum, x) => sum + Number(x.qty || 1), 0)
     const totalPoints = cart.reduce((sum, x) => sum + (Number(x.point_cost || 0) * Number(x.qty || 1)), 0)
     const balance = Number(currentUser?.points ?? 0)
     const pointsRemaining = balance - totalPoints
     const hasUnavailable = cart.some((x) => x.is_available === 0 || x.is_available === false)
     const canCheckout = !hasUnavailable && totalPoints > 0 && balance >= totalPoints
+
+    const submitCheckout = async () => {
+      setCheckoutLoading(true)
+      setCheckoutError('')
+      try {
+        const result = await api('/orders', { method: 'POST' })
+        setLastOrder(result.order)
+        clearCart()
+        setShowCheckoutConfirm(false)
+        setCurrentPage('order-confirmation')
+      } catch (err) {
+        setCheckoutError(err?.message || 'Checkout failed. Please try again.')
+      } finally {
+        setCheckoutLoading(false)
+      }
+    }
 
     return (
       <div>
@@ -6112,25 +6129,46 @@ const AdminUsersPage = () => {
                           ? 'You do not have enough points for this cart.'
                           : 'Place your order.'
                   }
-                  onClick={async () => {
-                    setCheckoutLoading(true)
+                  onClick={() => {
                     setCheckoutError('')
-                    try {
-                      const result = await api('/orders', { method: 'POST' })
-                      setLastOrder(result.order)
-                      clearCart()
-                      setCurrentPage('order-confirmation')
-                    } catch (err) {
-                      setCheckoutError(err?.message || 'Checkout failed. Please try again.')
-                    } finally {
-                      setCheckoutLoading(false)
-                    }
+                    setShowCheckoutConfirm(true)
                   }}
                 >
                   {checkoutLoading ? 'Placing order...' : 'Checkout'}
                 </button>
               </div>
               {checkoutError && <p style={{ color: 'var(--danger)', marginTop: 8 }}>{checkoutError}</p>}
+              {showCheckoutConfirm && (
+                <div className="modal-backdrop">
+                  <div className="modal-card" style={{ maxWidth: 500 }}>
+                    <h2 className="page-title" style={{ marginBottom: 4 }}>Confirm checkout?</h2>
+                    <p className="page-subtitle" style={{ marginBottom: 16 }}>
+                      You are redeeming <strong>{totalItems}</strong> item(s) for <strong>{totalPoints.toLocaleString()}</strong> points.
+                    </p>
+                    <p style={{ marginTop: 0, marginBottom: 20, color: 'var(--text-muted)', fontSize: '0.92em' }}>
+                      Remaining balance after checkout: <strong>{pointsRemaining.toLocaleString()}</strong> points.
+                    </p>
+                    <div className="modal-actions">
+                      <button
+                        type="button"
+                        className="btn btn-success"
+                        disabled={checkoutLoading}
+                        onClick={submitCheckout}
+                      >
+                        {checkoutLoading ? 'Placing order...' : 'Yes, place order'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        disabled={checkoutLoading}
+                        onClick={() => setShowCheckoutConfirm(false)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </main>
