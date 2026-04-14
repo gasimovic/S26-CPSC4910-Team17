@@ -159,7 +159,8 @@ function App() {
 
   const pathToPage = (pathname, searchParams) => {
     const rawPath = (pathname || '/').toLowerCase()
-    const path = rawPath.replace(/\/+$/, '') || '/'
+    const withLeadingSlash = rawPath.startsWith('/') ? rawPath : `/${rawPath}`
+    const path = withLeadingSlash.replace(/\/+$/, '') || '/'
 
     if (path === '/' || path === '') return 'landing'
     if (path === '/login') return 'login'
@@ -5993,12 +5994,32 @@ const AdminUsersPage = () => {
     const isDriver = role === 'driver'
     const [checkoutLoading, setCheckoutLoading] = React.useState(false)
     const [checkoutError, setCheckoutError] = React.useState('')
+    const [showCheckoutConfirm, setShowCheckoutConfirm] = React.useState(false)
     const totalItems = cart.reduce((sum, x) => sum + Number(x.qty || 1), 0)
     const totalPoints = cart.reduce((sum, x) => sum + (Number(x.point_cost || 0) * Number(x.qty || 1)), 0)
     const balance = Number(currentUser?.points ?? 0)
     const pointsRemaining = balance - totalPoints
     const hasUnavailable = cart.some((x) => x.is_available === 0 || x.is_available === false)
     const canCheckout = !hasUnavailable && totalPoints > 0 && balance >= totalPoints
+
+    const submitCheckout = async () => {
+      setCheckoutLoading(true)
+      setCheckoutError('')
+      try {
+        const result = await api('/orders', { method: 'POST' })
+        setLastOrder(result.order)
+        clearCart()
+        // Refresh profile so point balance updates immediately after checkout.
+        await loadMe()
+        setShowCheckoutConfirm(false)
+        setCurrentPage('order-confirmation')
+      } catch (err) {
+        setCheckoutError(err?.message || 'Checkout failed. Please try again.')
+      } finally {
+        setCheckoutLoading(false)
+      }
+    }
+
     return (
       <div>
         <Navigation />
@@ -6045,7 +6066,7 @@ const AdminUsersPage = () => {
                       <th className="text-right">Points</th>
                       <th className="text-right">Qty</th>
                       <th className="text-right">Subtotal</th>
-                      <th style={{ width: 110 }}>Action</th>
+                      <th className="text-right" style={{ width: 120 }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -6082,8 +6103,13 @@ const AdminUsersPage = () => {
                           </div>
                         </td>
                         <td className="text-right">{(Number(x.point_cost || 0) * Number(x.qty || 1)).toLocaleString()}</td>
-                        <td>
-                          <button type="button" className="btn btn-secondary" style={{ color:'#dc2626', borderColor:'#dc2626' }} onClick={() => removeFromCart(x.id)}>
+                        <td className="text-right">
+                          <button
+                            type="button"
+                            className="btn btn-danger"
+                            style={{ minWidth: 86 }}
+                            onClick={() => removeFromCart(x.id)}
+                          >
                             Remove
                           </button>
                         </td>
@@ -6093,10 +6119,11 @@ const AdminUsersPage = () => {
                 </table>
               </div>
 
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   className="btn btn-ghost"
+                  style={{ minWidth: 108 }}
                   onClick={() => {
                     if (!window.confirm('Clear all items from your cart?')) return
                     clearCart()
@@ -6107,6 +6134,7 @@ const AdminUsersPage = () => {
                 <button
                   type="button"
                   className="btn btn-success"
+                  style={{ minWidth: 108 }}
                   disabled={!canCheckout || checkoutLoading}
                   title={
                     hasUnavailable
@@ -6117,25 +6145,72 @@ const AdminUsersPage = () => {
                           ? 'You do not have enough points for this cart.'
                           : 'Place your order.'
                   }
-                  onClick={async () => {
-                    setCheckoutLoading(true)
+                  onClick={() => {
                     setCheckoutError('')
-                    try {
-                      const result = await api('/orders', { method: 'POST' })
-                      setLastOrder(result.order)
-                      clearCart()
-                      setCurrentPage('order-confirmation')
-                    } catch (err) {
-                      setCheckoutError(err?.message || 'Checkout failed. Please try again.')
-                    } finally {
-                      setCheckoutLoading(false)
-                    }
+                    setShowCheckoutConfirm(true)
                   }}
                 >
                   {checkoutLoading ? 'Placing order...' : 'Checkout'}
                 </button>
               </div>
               {checkoutError && <p style={{ color: 'var(--danger)', marginTop: 8 }}>{checkoutError}</p>}
+              {showCheckoutConfirm && (
+                <div className="modal-backdrop">
+                  <div className="modal-card" style={{ maxWidth: 520 }}>
+                    <h2 className="page-title" style={{ marginBottom: 6 }}>Ready to place this order?</h2>
+                    <p className="page-subtitle" style={{ marginBottom: 14 }}>
+                      Review your totals before checkout.
+                    </p>
+
+                    <div
+                      style={{
+                        border: '1px solid var(--border)',
+                        borderRadius: 10,
+                        padding: 14,
+                        background: '#f8fafc',
+                        marginBottom: 16
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Items</span>
+                        <strong>{totalItems}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Total points</span>
+                        <strong>{totalPoints.toLocaleString()}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Balance after checkout</span>
+                        <strong style={{ color: pointsRemaining >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                          {pointsRemaining.toLocaleString()}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <p style={{ marginTop: 0, marginBottom: 20, color: 'var(--text-muted)', fontSize: '0.9em' }}>
+                      This creates your order in pending status and updates your points balance now.
+                    </p>
+                    <div className="modal-actions">
+                      <button
+                        type="button"
+                        className="btn btn-success"
+                        disabled={checkoutLoading}
+                        onClick={submitCheckout}
+                      >
+                        {checkoutLoading ? 'Placing order...' : 'Yes, place order'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        disabled={checkoutLoading}
+                        onClick={() => setShowCheckoutConfirm(false)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -6169,11 +6244,13 @@ const AdminUsersPage = () => {
         <main className="app-main">
           <h1 className="page-title">Order Placed</h1>
           <div className="card">
-            <p><strong>Confirmation #:</strong> {order.confirmation_number}</p>
-            <p><strong>Status:</strong> {order.status}</p>
-            <p><strong>Total Points:</strong> {Number(order.total_points).toLocaleString()}</p>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85em' }}>
-              Points will be deducted when the sponsor marks your order as delivered.
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+              <p style={{ margin: 0 }}><strong>Confirmation #:</strong> {order.confirmation_number}</p>
+              <p style={{ margin: 0 }}><strong>Status:</strong> {order.status}</p>
+            </div>
+            <p style={{ marginTop: 0, marginBottom: 12 }}><strong>Total Points:</strong> {Number(order.total_points).toLocaleString()}</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85em', marginTop: 0 }}>
+              Your order is pending sponsor review. Points are reflected in your balance after checkout.
             </p>
             <table className="table">
               <thead>

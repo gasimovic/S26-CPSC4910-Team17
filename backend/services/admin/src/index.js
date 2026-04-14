@@ -126,7 +126,12 @@ app.post("/auth/login", async (req, res) => {
     ).catch(() => {});
 
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
- 
+    
+    await exec(
+      'UPDATE users SET last_login_at = NOW() WHERE id = ?',
+      [user.id]
+    ).catch(() => {});
+
     const token = signToken({ sub: user.id, role: user.role });
     res.cookie(COOKIE_NAME, token, {
       httpOnly: true,
@@ -141,6 +146,8 @@ app.post("/auth/login", async (req, res) => {
     return res.status(500).json({ error: "Server error" });
   }
 });
+
+
  
 // ─── Auth: Logout ─────────────────────────────────────────────────────────────
  
@@ -1364,6 +1371,38 @@ app.post('/system/config', requireAuth, async (req, res) => {
   }
 });
 
+// GET /system/config/changelog  — #35: view config change history
+app.get('/system/config/changelog', requireAuth, async (req, res) => {
+  const { config_key, limit = 200 } = req.query;
+  const conditions = [];
+  const params = [];
+
+  if (config_key) { conditions.push('c.config_key = ?'); params.push(config_key); }
+
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 200, 1000));
+
+  try {
+    const rows = await query(
+      `SELECT c.id, c.config_key, c.old_value, c.new_value, c.change_reason,
+              c.changed_at, c.changed_by,
+              COALESCE(ap.display_name, CONCAT(COALESCE(ap.first_name,''), ' ', COALESCE(ap.last_name,'')), u.email) AS changed_by_name
+       FROM system_config_changelog c
+       LEFT JOIN users u ON c.changed_by = u.id
+       LEFT JOIN admin_profiles ap ON c.changed_by = ap.user_id
+       ${where}
+       ORDER BY c.changed_at DESC
+       LIMIT ${safeLimit}`,
+      params
+    );
+    return res.json({ changelog: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ changelog: [] });
+    console.error('config-changelog error:', err);
+    return res.status(500).json({ error: err?.message || 'Server error' });
+  }
+});
+
 // PUT /system/config/:key  — update a config value (records changelog)
 app.put('/system/config/:key', requireAuth, async (req, res) => {
   const schema = z.object({
@@ -1417,38 +1456,6 @@ app.delete('/system/config/:key', requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// GET /system/config/changelog  — #35: view config change history
-app.get('/system/config/changelog', requireAuth, async (req, res) => {
-  const { config_key, limit = 200 } = req.query;
-  const conditions = [];
-  const params = [];
-
-  if (config_key) { conditions.push('c.config_key = ?'); params.push(config_key); }
-
-  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-  const safeLimit = Math.max(1, Math.min(Number(limit) || 200, 1000));
-
-  try {
-    const rows = await query(
-      `SELECT c.id, c.config_key, c.old_value, c.new_value, c.change_reason,
-              c.changed_at, c.changed_by,
-              COALESCE(ap.display_name, CONCAT(COALESCE(ap.first_name,''), ' ', COALESCE(ap.last_name,'')), u.email) AS changed_by_name
-       FROM system_config_changelog c
-       LEFT JOIN users u ON c.changed_by = u.id
-       LEFT JOIN admin_profiles ap ON c.changed_by = ap.user_id
-       ${where}
-       ORDER BY c.changed_at DESC
-       LIMIT ${safeLimit}`,
-      params
-    );
-    return res.json({ changelog: rows || [] });
-  } catch (err) {
-    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ changelog: [] });
-    console.error('config-changelog error:', err);
-    return res.status(500).json({ error: err?.message || 'Server error' });
   }
 });
 
@@ -1761,6 +1768,33 @@ app.post('/notifications/announce', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 });
+
+app.patch('/sponsors/:sponsorId/catalog/:itemId/availability', requireAuth, async (req, res) => {
+  const sponsorId = Number(req.params.sponsorId)
+  const itemId    = Number(req.params.itemId)
+  if (!Number.isFinite(sponsorId) || !Number.isFinite(itemId))
+    return res.status(400).json({ error: 'Invalid id' })
+
+  const schema = z.object({ isAvailable: z.boolean() })
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' })
+
+  try {
+    const rows = await query(
+      'SELECT id FROM catalog_items WHERE id = ? AND sponsor_id = ? LIMIT 1',
+      [itemId, sponsorId]
+    )
+    if (!rows?.length) return res.status(404).json({ error: 'Item not found' })
+    await exec(
+      'UPDATE catalog_items SET is_available = ? WHERE id = ?',
+      [parsed.data.isAvailable ? 1 : 0, itemId]
+    )
+    return res.json({ ok: true })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
 
 app.listen(PORT, () => {
   console.log(`[admin] listening on :${PORT}`);
