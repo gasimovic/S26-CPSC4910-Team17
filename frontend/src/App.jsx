@@ -159,7 +159,8 @@ function App() {
 
   const pathToPage = (pathname, searchParams) => {
     const rawPath = (pathname || '/').toLowerCase()
-    const path = rawPath.replace(/\/+$/, '') || '/'
+    const withLeadingSlash = rawPath.startsWith('/') ? rawPath : `/${rawPath}`
+    const path = withLeadingSlash.replace(/\/+$/, '') || '/'
 
     if (path === '/' || path === '') return 'landing'
     if (path === '/login') return 'login'
@@ -576,6 +577,8 @@ function App() {
         // For other errors (network, server issues), just log to console
         // so the UI doesn't get stuck in an error state on load.
         console.error('Failed to restore session on load:', err)
+      } finally {
+        if (!cancelled) setSessionLoading(false)
       }
     }
 
@@ -5990,6 +5993,7 @@ const AdminUsersPage = () => {
     const pointsRemaining = balance - totalPoints
     const hasUnavailable = cart.some((x) => x.is_available === 0 || x.is_available === false)
     const canCheckout = !hasUnavailable && totalPoints > 0 && balance >= totalPoints
+
     return (
       <div>
         <Navigation />
@@ -6466,30 +6470,6 @@ const AdminUsersPage = () => {
     const [rewardItems, setRewardItems] = useState([])
     const [rewardsLoading, setRewardsLoading] = useState(true)
     const [rewardsError, setRewardsError] = useState('')
-
-      useEffect(() => {
-    let cancelled = false
-
-    const restoreSession = async () => {
-      try {
-        await loadMe()
-        if (cancelled) return
-        setIsLoggedIn(true)
-      } catch (err) {
-        const status = err?.status
-        if (status !== 401 && status !== 403) {
-          console.error('Failed to restore session on load:', err)
-        }
-      } finally {
-        if (!cancelled) setSessionLoading(false)
-      }
-    }
-
-    restoreSession()
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
     return (
       <div>
