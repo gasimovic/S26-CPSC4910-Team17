@@ -163,23 +163,31 @@ router.patch('/:id/status', async (req, res) => {
            WHERE id = ?`,
           [reason, req.user.id, orderId]
         );
+
+        const [items] = await conn.execute(
+          `SELECT sponsor_id, points_cost_snapshot, qty FROM order_items WHERE order_id = ?`,
+          [orderId]
+        );
+        
+        const sponsorTotals = {};
+        for (const item of items) {
+          const sid = Number(item.sponsor_id);
+          if (!sponsorTotals[sid]) sponsorTotals[sid] = 0;
+          sponsorTotals[sid] += Number(item.points_cost_snapshot || 0) * Number(item.qty || 1);
+        }
+        
+        for (const sid of Object.keys(sponsorTotals)) {
+          await conn.execute(
+            `INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)`,
+            [order.driver_id, sid, sponsorTotals[sid], `Refund for cancelled order #${order.confirmation_number}`]
+          );
+        }
       } else {
         await conn.execute(
           `UPDATE orders
            SET status = 'delivered', updated_at = NOW()
            WHERE id = ?`,
           [orderId]
-        );
-
-        await conn.execute(
-          `INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason)
-           VALUES (?, ?, ?, ?)`,
-          [
-            order.driver_id,
-            req.user.id,
-            -Number(order.total_points || 0),
-            `Order #${order.confirmation_number} delivered`
-          ]
         );
       }
 

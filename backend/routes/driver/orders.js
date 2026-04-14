@@ -180,16 +180,8 @@ router.post('/', async (req, res) => {
       'SELECT COALESCE(SUM(delta), 0) AS b FROM driver_points_ledger WHERE driver_id = ?',
       [req.user.id]
     );
-    const reservedRows = await query(
-      `SELECT COALESCE(SUM(total_points), 0) AS r
-       FROM orders
-       WHERE driver_id = ? AND status IN ('pending','confirmed')`,
-      [req.user.id]
-    );
 
-    const actualBalance = Number(actualBalanceRows?.[0]?.b || 0);
-    const reserved = Number(reservedRows?.[0]?.r || 0);
-    const available = actualBalance - reserved;
+    const available = Number(actualBalanceRows?.[0]?.b || 0);
 
     if (available < totalPoints) {
       return res.status(402).json({
@@ -234,6 +226,19 @@ router.post('/', async (req, res) => {
         ) VALUES ${placeholders}`,
         values
       );
+
+      const sponsorTotals = {};
+      for (const row of rows) {
+        const sid = Number(row.sponsor_id);
+        if (!sponsorTotals[sid]) sponsorTotals[sid] = 0;
+        sponsorTotals[sid] += Number(row.point_cost || 0) * Number(row.qty || 1);
+      }
+      for (const sid of Object.keys(sponsorTotals)) {
+        await conn.execute(
+          `INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)`,
+          [req.user.id, sid, -sponsorTotals[sid], `Checkout order #${confirmationNumber}`]
+        );
+      }
 
       await conn.execute('DELETE FROM driver_cart_items WHERE driver_id = ?', [req.user.id]);
       await conn.commit();
@@ -389,7 +394,7 @@ router.post('/:id/cancel', async (req, res) => {
       : null;
 
     const rows = await query(
-      'SELECT id, status FROM orders WHERE id = ? AND driver_id = ? LIMIT 1',
+      'SELECT id, status, confirmation_number FROM orders WHERE id = ? AND driver_id = ? LIMIT 1',
       [orderId, req.user.id]
     );
     const order = rows?.[0];
@@ -399,16 +404,47 @@ router.post('/:id/cancel', async (req, res) => {
       return res.status(409).json({ error: 'Only pending orders can be cancelled by the driver' });
     }
 
-    await query(
-      `UPDATE orders
-       SET status = 'cancelled',
-           cancelled_at = NOW(),
-           cancellation_reason = ?,
-           cancelled_by_user_id = ?,
-           updated_at = NOW()
-       WHERE id = ?`,
-      [reason, req.user.id, orderId]
-    );
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      await conn.execute(
+        `UPDATE orders
+         SET status = 'cancelled',
+             cancelled_at = NOW(),
+             cancellation_reason = ?,
+             cancelled_by_user_id = ?,
+             updated_at = NOW()
+         WHERE id = ?`,
+        [reason, req.user.id, orderId]
+      );
+
+      const [items] = await conn.execute(
+        `SELECT sponsor_id, points_cost_snapshot, qty FROM order_items WHERE order_id = ?`,
+        [orderId]
+      );
+      
+      const sponsorTotals = {};
+      for (const item of items) {
+        const sid = Number(item.sponsor_id);
+        if (!sponsorTotals[sid]) sponsorTotals[sid] = 0;
+        sponsorTotals[sid] += Number(item.points_cost_snapshot || 0) * Number(item.qty || 1);
+      }
+      
+      for (const sid of Object.keys(sponsorTotals)) {
+        await conn.execute(
+          `INSERT INTO driver_points_ledger (driver_id, sponsor_id, delta, reason) VALUES (?, ?, ?, ?)`,
+          [req.user.id, sid, sponsorTotals[sid], `Refund for cancelled order #${order.confirmation_number}`]
+        );
+      }
+
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
 
     const updated = await fetchOrderDetailForDriver(orderId, req.user.id);
     return res.json({ order: updated });
