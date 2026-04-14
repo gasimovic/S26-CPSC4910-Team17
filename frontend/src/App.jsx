@@ -6002,6 +6002,8 @@ const AdminUsersPage = () => {
         const result = await api('/orders', { method: 'POST' })
         setLastOrder(result.order)
         clearCart()
+        // Refresh profile so point balance updates immediately after checkout.
+        await loadMe()
         setShowCheckoutConfirm(false)
         setCurrentPage('order-confirmation')
       } catch (err) {
