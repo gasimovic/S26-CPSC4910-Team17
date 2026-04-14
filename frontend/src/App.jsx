@@ -576,6 +576,8 @@ function App() {
         // For other errors (network, server issues), just log to console
         // so the UI doesn't get stuck in an error state on load.
         console.error('Failed to restore session on load:', err)
+      } finally {
+        if (!cancelled) setSessionLoading(false)
       }
     }
 
@@ -673,15 +675,22 @@ function App() {
   }
   // Ensure currentPage is valid for the current user
   useEffect(() => {
-    // Only enforce allowed pages when the user is logged in to avoid
-    // changing the login/create-account flow for unauthenticated users.
-    if (sessionLoading || !isLoggedIn) return
+    if (sessionLoading) return
+
+    if (!isLoggedIn) {
+      // Prevent unauthenticated users from being stranded on protected routes (Blank Screen Bug)
+      const publicPages = ['landing', 'login', 'account-type', 'create-account', 'reset-password']
+      if (!publicPages.includes(currentPage)) {
+        setCurrentPage('login')
+      }
+      return
+    }
 
     const allowed = getAllowedPages(currentUser)
     if (!allowed.includes(currentPage)) {
       setCurrentPage(allowed[0] || 'dashboard')
     }
-  }, [currentUser, isLoggedIn, currentPage])
+  }, [currentUser, isLoggedIn, currentPage, sessionLoading])
 
   const apiWithBase = async (base, path, options = {}) => {
     // Same behavior as `api`, but lets us try different services during login.
@@ -6467,30 +6476,6 @@ const AdminUsersPage = () => {
     const [rewardsLoading, setRewardsLoading] = useState(true)
     const [rewardsError, setRewardsError] = useState('')
 
-      useEffect(() => {
-    let cancelled = false
-
-    const restoreSession = async () => {
-      try {
-        await loadMe()
-        if (cancelled) return
-        setIsLoggedIn(true)
-      } catch (err) {
-        const status = err?.status
-        if (status !== 401 && status !== 403) {
-          console.error('Failed to restore session on load:', err)
-        }
-      } finally {
-        if (!cancelled) setSessionLoading(false)
-      }
-    }
-
-    restoreSession()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
     return (
       <div>
         <Navigation />
@@ -10103,6 +10088,15 @@ const AdminReportsPage = () => {
 }
 
   // ============ MAIN RENDER ============
+  if (sessionLoading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', flexDirection: 'column' }}>
+        <h2 style={{ color: 'var(--text-main)', marginBottom: '8px' }}>Loading SafeMiles...</h2>
+        <p style={{ color: 'var(--text-muted)' }}>Restoring your session</p>
+      </div>
+    )
+  }
+
   return (
     <div>
       {/* Public Pages */}
