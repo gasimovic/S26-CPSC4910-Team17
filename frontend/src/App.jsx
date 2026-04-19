@@ -533,7 +533,7 @@ function App() {
     profile: {
       first_name: profileObj.first_name || '',
       last_name: profileObj.last_name || '',
-      dob: profileObj.dob || '',
+      dob: (profileObj.dob || '').toString().slice(0, 10),
       phone: profileObj.phone || '',
       address_line1: profileObj.address_line1 || '',
       address_line2: profileObj.address_line2 || '',
@@ -1684,6 +1684,36 @@ function App() {
                   <button className="btn btn-primary" type="button" onClick={() => { loadOrg(); loadStats() }} style={{ marginTop: 12 }}>
                     Refresh
                   </button>
+
+                  {/* Personal profile — lets the sponsor verify their DOB etc. saved */}
+                  {(() => {
+                    const p = currentUser?.profile || {}
+                    const fields = [
+                      { label: 'First Name', value: p.first_name },
+                      { label: 'Last Name',  value: p.last_name },
+                      { label: 'Date of Birth', value: p.dob ? p.dob.slice(0, 10) : null },
+                      { label: 'Phone', value: p.phone },
+                      { label: 'City',  value: p.city },
+                      { label: 'State', value: p.state },
+                    ].filter(f => f.value)
+                    if (!fields.length) return null
+                    return (
+                      <div className="card" style={{ marginTop: 16 }}>
+                        <h2 className="section-title" style={{ marginTop: 0 }}>My Profile</h2>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+                          {fields.map(({ label, value }) => (
+                            <div key={label} style={{ padding: '10px 14px', borderRadius: 6, background: '#fff', border: '1px solid var(--border)' }}>
+                              <p style={{ margin: '0 0 2px', fontSize: '0.72em', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af' }}>{label}</p>
+                              <p style={{ margin: 0, fontSize: '0.875em', fontWeight: 500, color: '#374151' }}>{value}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <p style={{ margin: '10px 0 0', fontSize: '0.78em', color: '#9ca3af' }}>
+                          Edit personal details via Profile → Edit profile.
+                        </p>
+                      </div>
+                    )
+                  })()}
                 </>
               )}
             </div>
@@ -2626,6 +2656,15 @@ const SponsorDriversPage = () => {
   const [success, setSuccess] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Bulk import
+  const [showBulkImport, setShowBulkImport] = useState(false)
+  const [bulkCsvText, setBulkCsvText] = useState('')
+  const [bulkPreview, setBulkPreview] = useState([])
+  const [bulkParseError, setBulkParseError] = useState('')
+  const [bulkImporting, setBulkImporting] = useState(false)
+  const [bulkResults, setBulkResults] = useState(null)
+  const [showFormatHelp, setShowFormatHelp] = useState(false)
+
   // ── Active tab ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState('all')
 
@@ -2801,6 +2840,60 @@ const SponsorDriversPage = () => {
     a.download = `drivers-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const BULK_TEMPLATE = `email,password,first_name,last_name,dob
+john.doe@example.com,TempPass123!,John,Doe,1985-06-15
+jane.smith@example.com,TempPass456!,Jane,Smith,1990-11-22`
+
+  const downloadBulkTemplate = () => {
+    const blob = new Blob([BULK_TEMPLATE], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'driver-import-template.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const parseBulkCsv = () => {
+    setBulkParseError(''); setBulkPreview([]); setBulkResults(null)
+    const lines = bulkCsvText.trim().split('\n').map(l => l.trim()).filter(Boolean)
+    if (lines.length < 2) { setBulkParseError('Need a header row and at least one data row.'); return }
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/[^a-z_]/g, ''))
+    if (!headers.includes('email')) { setBulkParseError('CSV must include an "email" column.'); return }
+    const preview = []
+    for (let i = 1; i < lines.length; i++) {
+      const vals = []; let cur = '', inQuote = false
+      for (const ch of lines[i]) {
+        if (ch === '"') { inQuote = !inQuote }
+        else if (ch === ',' && !inQuote) { vals.push(cur.trim()); cur = '' }
+        else cur += ch
+      }
+      vals.push(cur.trim())
+      const row = {}; headers.forEach((h, j) => { row[h] = vals[j] || '' }); preview.push(row)
+    }
+    setBulkPreview(preview)
+  }
+
+  const submitBulkImport = async () => {
+    setBulkImporting(true); setBulkResults(null); setError('')
+    try {
+      const data = await api('/drivers/bulk-import', {
+        method: 'POST',
+        body: JSON.stringify({
+          drivers: bulkPreview.map(r => ({
+            email: r.email,
+            ...(r.password && { password: r.password }),
+            ...(r.first_name && { first_name: r.first_name }),
+            ...(r.last_name && { last_name: r.last_name }),
+            ...(r.dob && /^\d{4}-\d{2}-\d{2}$/.test(r.dob) && { dob: r.dob }),
+          }))
+        })
+      })
+      setBulkResults(data)
+      setSuccess(`Bulk import: ${data.successCount} created/affiliated, ${data.failCount} failed.`)
+      await loadDrivers()
+    } catch (e) { setError(e?.message || 'Bulk import failed') }
+    finally { setBulkImporting(false) }
   }
 
   useEffect(() => {
@@ -2986,7 +3079,6 @@ const SponsorDriversPage = () => {
               {loading ? 'Refreshing…' : '↺ Refresh'}
             </button>
 
-            {/* #2970: Export CSV */}
             <button
               className="btn btn-success"
               type="button"
@@ -2995,11 +3087,178 @@ const SponsorDriversPage = () => {
             >
               ⬇ Export CSV
             </button>
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={() => { setShowBulkImport(v => !v); setBulkCsvText(''); setBulkPreview([]); setBulkResults(null); setBulkParseError('') }}
+            >
+              {showBulkImport ? 'Close Import' : '⬆ Bulk Import'}
+            </button>
           </div>
         </div>
 
         {error && <p className="form-footer" style={{ color: 'crimson', marginBottom: 8 }}>{error}</p>}
         {success && <p className="form-footer" style={{ color: '#16a34a', marginBottom: 8 }}>{success}</p>}
+
+        {/* ── Bulk Import Panel ── */}
+        {showBulkImport && (
+          <div className="card" style={{ marginBottom: 12, border: '2px solid #3b82f6' }}>
+
+            {/* Format help */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Bulk Import Drivers</h2>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="btn btn-ghost" style={{ fontSize: '0.82em' }}
+                  onClick={() => setShowFormatHelp(v => !v)}>
+                  {showFormatHelp ? 'Hide format guide' : '? Format guide'}
+                </button>
+                <button type="button" className="btn btn-secondary" style={{ fontSize: '0.82em' }}
+                  onClick={downloadBulkTemplate}>
+                  ⬇ Download Template
+                </button>
+              </div>
+            </div>
+
+            {showFormatHelp && (
+              <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 8, background: '#f0f9ff', border: '1px solid #bae6fd', fontSize: '0.85em' }}>
+                <p style={{ margin: '0 0 10px', fontWeight: 700, color: '#0369a1' }}>CSV Format Guide</p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
+                  {[
+                    { col: 'email', required: true, desc: 'Driver\'s email address. If already registered, they will be affiliated to your org instead of re-created.' },
+                    { col: 'password', required: false, desc: 'If omitted, a secure temp password is auto-generated and returned in the results.' },
+                    { col: 'first_name', required: false, desc: 'Driver\'s first name.' },
+                    { col: 'last_name', required: false, desc: 'Driver\'s last name.' },
+                    { col: 'dob', required: false, desc: 'Date of birth. Must be YYYY-MM-DD format (e.g. 1985-06-15).' },
+                  ].map(({ col, required, desc }) => (
+                    <div key={col} style={{ padding: '10px 12px', borderRadius: 6, background: '#fff', border: '1px solid #e0f2fe' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <code style={{ fontWeight: 700, color: '#0369a1', fontSize: '0.9em' }}>{col}</code>
+                        {required && <span style={{ fontSize: '0.65em', fontWeight: 700, background: '#fef2f2', color: '#dc2626', borderRadius: 3, padding: '1px 5px' }}>REQUIRED</span>}
+                      </div>
+                      <p style={{ margin: 0, color: '#374151', fontSize: '0.82em', lineHeight: 1.4 }}>{desc}</p>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ margin: '8px 0 0', fontWeight: 600, color: '#0369a1' }}>Example row:</p>
+                <pre style={{ margin: '4px 0 0', padding: '8px 12px', borderRadius: 6, background: '#fff', border: '1px solid #bae6fd', fontSize: '0.8em', overflowX: 'auto', color: '#0c4a6e' }}>{`email,password,first_name,last_name,dob\njohn.doe@example.com,TempPass123!,John,Doe,1985-06-15`}</pre>
+                <p style={{ margin: '8px 0 0', fontSize: '0.78em', color: '#6b7280' }}>
+                  Max 500 rows per import. Drivers with existing accounts are affiliated to your org without creating a new account.
+                </p>
+              </div>
+            )}
+
+            {!bulkResults && (
+              <>
+                <textarea
+                  value={bulkCsvText}
+                  onChange={e => { setBulkCsvText(e.target.value); setBulkPreview([]); setBulkParseError('') }}
+                  placeholder={`Paste CSV here:\n${BULK_TEMPLATE}`}
+                  rows={7}
+                  style={{ width: '100%', resize: 'vertical', padding: '10px 12px', borderRadius: 8,
+                    border: '1px solid var(--border)', fontSize: '0.85em', fontFamily: 'monospace',
+                    boxSizing: 'border-box', marginBottom: 10 }}
+                />
+                {bulkParseError && <p style={{ color: '#dc2626', fontSize: '0.85em', marginBottom: 8 }}>{bulkParseError}</p>}
+                <button type="button" className="btn btn-primary" onClick={parseBulkCsv} disabled={!bulkCsvText.trim()}>
+                  Preview ({Math.max(0, bulkCsvText.trim().split('\n').filter(Boolean).length - 1)} rows)
+                </button>
+              </>
+            )}
+
+            {bulkPreview.length > 0 && !bulkResults && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, marginBottom: 12 }}>
+                  <table className="table" style={{ fontSize: '0.82em' }}>
+                    <thead>
+                      <tr>
+                        <th>#</th><th>Email</th><th>First</th><th>Last</th><th>DOB</th>
+                        <th>Password</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bulkPreview.map((row, i) => (
+                        <tr key={i} style={{ background: !row.email ? '#fef2f2' : undefined }}>
+                          <td style={{ color: '#9ca3af' }}>{i + 1}</td>
+                          <td>{row.email || <em style={{ color: '#dc2626' }}>missing</em>}</td>
+                          <td>{row.first_name || '—'}</td>
+                          <td>{row.last_name || '—'}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.9em' }}>{row.dob || '—'}</td>
+                          <td>{row.password ? '••••••••' : <em style={{ color: '#9ca3af' }}>auto-generate</em>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button type="button" className="btn btn-success" onClick={submitBulkImport} disabled={bulkImporting}>
+                    {bulkImporting ? 'Importing…' : `Import ${bulkPreview.length} Driver${bulkPreview.length !== 1 ? 's' : ''}`}
+                  </button>
+                  <button type="button" className="btn btn-ghost" onClick={() => { setBulkPreview([]); setBulkCsvText('') }}>
+                    Back
+                  </button>
+                  <p style={{ margin: 0, fontSize: '0.8em', color: '#6b7280' }}>
+                    Existing accounts will be affiliated to your org, not re-created.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {bulkResults && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                  <div style={{ flex: 1, padding: '12px 16px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #86efac', textAlign: 'center' }}>
+                    <p style={{ margin: 0, fontSize: '1.5em', fontWeight: 800, color: '#16a34a' }}>{bulkResults.successCount}</p>
+                    <p style={{ margin: 0, fontSize: '0.8em', color: '#16a34a' }}>Created / Affiliated</p>
+                  </div>
+                  {bulkResults.failCount > 0 && (
+                    <div style={{ flex: 1, padding: '12px 16px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fca5a5', textAlign: 'center' }}>
+                      <p style={{ margin: 0, fontSize: '1.5em', fontWeight: 800, color: '#dc2626' }}>{bulkResults.failCount}</p>
+                      <p style={{ margin: 0, fontSize: '0.8em', color: '#dc2626' }}>Failed</p>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
+                  <table className="table" style={{ fontSize: '0.82em' }}>
+                    <thead>
+                      <tr><th>Email</th><th>Result</th><th>Action</th><th>Temp Password</th></tr>
+                    </thead>
+                    <tbody>
+                      {bulkResults.results.map((r, i) => (
+                        <tr key={i}>
+                          <td>{r.email}</td>
+                          <td>
+                            <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: '0.78em', fontWeight: 700,
+                              background: r.ok ? '#d1fae5' : '#fee2e2', color: r.ok ? '#065f46' : '#991b1b' }}>
+                              {r.ok ? '✓ Success' : `✕ ${r.error}`}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '0.85em', color: '#6b7280' }}>
+                            {r.action === 'created' ? 'New account' : r.action === 'affiliated' ? 'Existing — affiliated' : '—'}
+                          </td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.82em', color: r.tempPassword ? '#d97706' : '#9ca3af' }}>
+                            {r.tempPassword || '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {bulkResults.results.some(r => r.tempPassword) && (
+                  <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fcd34d', fontSize: '0.82em', color: '#92400e' }}>
+                    ⚠ <strong>Save these temp passwords now</strong> — they will not be shown again. Share them securely with your drivers.
+                  </div>
+                )}
+
+                <button type="button" className="btn btn-primary" style={{ marginTop: 12 }}
+                  onClick={() => { setShowBulkImport(false); setBulkResults(null); setBulkCsvText(''); setBulkPreview([]) }}>
+                  Done
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Tabs ── */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 0, flexWrap: 'wrap' }}>
@@ -3309,7 +3568,7 @@ const SponsorDriversPage = () => {
           <h1 className="page-title">Welcome back, {currentUser?.name || 'User'}</h1>
           <p className="page-subtitle">Here’s your overview</p>
 
-          <div style={{ marginBottom: 24 }}>
+          {isDriver && <div style={{ marginBottom: 24 }}>
             <div style={{ display: 'inline-block' }}>
               <div className="pts-hero">
                 <p className="pts-hero-label">Your points</p>
@@ -3334,7 +3593,7 @@ const SponsorDriversPage = () => {
                 </div>
               )}
             </div>
-          </div>
+          </div>}
 
           {isDriver && historyOpen && (
             <section style={{ marginBottom: 24 }}>
@@ -6895,10 +7154,12 @@ const AdminUsersPage = () => {
         }
         // Only send non-empty fields for optional fields
         const payload = {
-          // required by the form (and backend accepts YYYY-MM-DD)
           first_name: parsedFirst,
           last_name: parsedLast,
-          dob: formData.dob
+        }
+        // Only send dob when it is a valid YYYY-MM-DD string
+        if (formData.dob && /^\d{4}-\d{2}-\d{2}$/.test(formData.dob)) {
+          payload.dob = formData.dob
         }
 
         // Only include optional fields if non-empty after trimming.
@@ -6997,7 +7258,6 @@ const AdminUsersPage = () => {
                   value={formData.dob}
                   onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
                   className="form-input"
-                  required
                 />
               </div>
 
@@ -8861,6 +9121,8 @@ const AdminUsersPage = () => {
     const [filterTo, setFilterTo] = useState('')
 
     // Admin announcement form
+    const [sentNotifs, setSentNotifs] = useState([])
+    const [sentLoading, setSentLoading] = useState(false)
     const [announceTitle, setAnnounceTitle] = useState('')
     const [announceBody, setAnnounceBody] = useState('')
     const [announceType, setAnnounceType] = useState('system_announcement')
@@ -8920,6 +9182,7 @@ const AdminUsersPage = () => {
       fetchUnread()
       fetchPreferences()
       fetchMute()
+      if (role === 'sponsor' || role === 'admin') fetchSentNotifications()
     }, [])
 
     const markRead = async (id) => {
@@ -8965,6 +9228,15 @@ const AdminUsersPage = () => {
         })
         setSuccess(`Preference updated for ${type.replace(/_/g, ' ')}.`)
       } catch (e) { setError(e.message) }
+    }
+
+    const fetchSentNotifications = async () => {
+      setSentLoading(true)
+      try {
+        const data = await api('/notifications/sent')
+        setSentNotifs(data.sent || [])
+      } catch { /* endpoint may not exist on all services */ }
+      setSentLoading(false)
     }
 
     const saveMute = async (updates) => {
@@ -9017,6 +9289,7 @@ const AdminUsersPage = () => {
 
     const tabs = ['history', 'preferences']
     if (role === 'driver') tabs.push('mute')
+    if (role === 'sponsor' || role === 'admin') tabs.push('sent')
     if (role === 'admin') tabs.push('announce')
     if (role === 'sponsor') tabs.push('announce')
 
@@ -9038,8 +9311,8 @@ const AdminUsersPage = () => {
           {isMuted && <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '8px 14px', marginBottom: 12, fontSize: '0.85em' }}>Notifications muted until {new Date(muteSettings.muted_until).toLocaleString()}</div>}
 
           <div style={{ borderBottom: '1px solid #e5e7eb', marginBottom: 16, display: 'flex', gap: 4 }}>
-            {tabs.map(t => <button key={t} type="button" style={tabStyle(t)} onClick={() => setActiveTab(t)}>{t === 'history' ? `History (${notifications.length})` : t === 'preferences' ? 'Preferences' : t === 'mute' ? 'Mute / Quiet Hours' : 'Announcements'}</button>)}
-          </div>
+            {tabs.map(t => <button key={t} type="button" style={tabStyle(t)} onClick={() => { setActiveTab(t); if (t === 'sent') fetchSentNotifications() }}>{t === 'history' ? `History (${notifications.length})` : t === 'preferences' ? 'Preferences' : t === 'mute' ? 'Mute / Quiet Hours' : t === 'sent' ? `Sent (${sentNotifs.length})` : 'Announcements'}</button>)}
+            </div>
 
           {/* ─── HISTORY TAB ────────────────────────────────── */}
           {activeTab === 'history' && (
@@ -9188,6 +9461,69 @@ const AdminUsersPage = () => {
           </div>
         )}
 
+        {/* ─── SENT NOTIFICATIONS TAB (sponsor + admin) ──────── */}
+        {activeTab === 'sent' && (role === 'sponsor' || role === 'admin') && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <p style={{ margin: 0, fontSize: '0.85em', color: '#6b7280' }}>
+                Notifications you have sent to drivers via announcements or system actions.
+              </p>
+              <button type="button" className="btn" style={{ fontSize: '0.8em' }} onClick={fetchSentNotifications}>
+                ↺ Refresh
+              </button>
+            </div>
+
+            {sentLoading ? (
+              <p style={{ color: '#9ca3af', textAlign: 'center', padding: 32 }}>Loading…</p>
+            ) : sentNotifs.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9ca3af' }}>
+                <p style={{ fontSize: '1.5em', margin: '0 0 8px' }}>📭</p>
+                <p style={{ margin: 0 }}>No sent notifications yet.</p>
+                <p style={{ margin: '4px 0 0', fontSize: '0.8em' }}>
+                  Send an announcement via the Announcements tab — it will appear here.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {/* Group by notification (each row = one notification to one recipient) */}
+                {(() => {
+                  // Collapse by title+created_at into groups for readability
+                  const groups = {}
+                  for (const n of sentNotifs) {
+                    const key = `${n.title}__${n.created_at?.slice(0, 16)}`
+                    if (!groups[key]) groups[key] = { ...n, recipients: [] }
+                    const name = (n.recipient_name || '').trim() || n.recipient_email
+                    if (name) groups[key].recipients.push(name)
+                  }
+                  return Object.values(groups).map(g => (
+                    <div key={g.id} style={{
+                      background: '#f9fafb', border: '1px solid #e5e7eb',
+                      borderLeft: '4px solid #3b82f6', borderRadius: 8, padding: '12px 16px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', flexWrap: 'wrap', gap: 8 }}>
+                        <div>
+                          <span style={{ fontWeight: 700, fontSize: '0.9em' }}>{g.title}</span>
+                          <span style={{ marginLeft: 8, fontSize: '0.7em', color: '#6b7280', background: '#e0e7ff', borderRadius: 4, padding: '1px 6px' }}>
+                            {(g.type || '').replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.75em', color: '#9ca3af', whiteSpace: 'nowrap' }}>
+                          {g.created_at ? new Date(g.created_at).toLocaleString() : ''}
+                        </span>
+                      </div>
+                      {g.body && <p style={{ margin: '6px 0 0', fontSize: '0.82em', color: '#374151' }}>{g.body}</p>}
+                      <p style={{ margin: '8px 0 0', fontSize: '0.78em', color: '#6b7280' }}>
+                        Sent to {sentNotifs.filter(n => n.title === g.title && n.created_at?.slice(0,16) === g.created_at?.slice(0,16)).length} driver(s)
+                        {g.recipients.length > 0 && `: ${g.recipients.slice(0, 3).join(', ')}${g.recipients.length > 3 ? ` +${g.recipients.length - 3} more` : ''}`}
+                      </p>
+                    </div>
+                  ))
+                })()}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ─── ANNOUNCEMENTS TAB (sponsor) ────────────────── */}
         {activeTab === 'announce' && role === 'sponsor' && (
           <div>
@@ -9257,11 +9593,7 @@ const AdminReportsPage = () => {
   })
   const [newSchedule, setNewSchedule] = useState({ name: '', reportType: 'active-users', frequency: 'weekly', email: '' })
 
-  // ── #21: Saved report configs ─────────────────────────────────────────────
-  const [savedConfigs, setSavedConfigs] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('gdip_report_configs') || '[]') } catch { return [] }
-  })
-  const [configName, setConfigName] = useState('')
+  const [pdfExporting, setPdfExporting] = useState(false)
 
   // ── Admin API helper ──────────────────────────────────────────────────────
   const adminApi = async (path, opts = {}) => {
@@ -9527,20 +9859,42 @@ const AdminReportsPage = () => {
     setSchedules(updated)
     localStorage.setItem('gdip_report_schedules', JSON.stringify(updated))
   }
-  const saveConfig = () => {
-    if (!configName) return
-    const cfg = { id: Date.now(), name: configName, tab: activeTab, savedAt: new Date().toLocaleString() }
-    const updated = [...savedConfigs, cfg]
-    setSavedConfigs(updated)
-    localStorage.setItem('gdip_report_configs', JSON.stringify(updated))
-    setConfigName('')
+  const exportCurrentTabPDF = () => {
+    const tabLabel = TABS.find(t => t.key === activeTab)?.label || activeTab
+    const contentEl = document.getElementById('reports-tab-content')
+    if (!contentEl) { alert('Nothing to export yet. Load a report first.'); return }
+    setPdfExporting(true)
+    const w = window.open('', '_blank')
+    w.document.write(`<!DOCTYPE html><html><head>
+      <title>SafeMiles Report — ${tabLabel}</title>
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px 32px; color: #111827; margin: 0; }
+        h1 { font-size: 20px; margin: 0 0 4px; color: #111827; }
+        .meta { font-size: 12px; color: #9ca3af; margin: 0 0 24px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+        th, td { border: 1px solid #e5e7eb; padding: 7px 12px; text-align: left; font-size: 12px; }
+        th { background: #f3f4f6; font-weight: 700; color: #374151; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .stat-grid { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+        .stat { flex: 1 1 140px; padding: 14px 18px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb; }
+        .stat-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #9ca3af; margin: 0 0 4px; }
+        .stat-value { font-size: 22px; font-weight: 800; color: #2563eb; margin: 0; }
+        .card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px; background: #fff; }
+        .section-title { font-size: 14px; font-weight: 700; color: #111827; margin: 0 0 12px; }
+        @media print {
+          body { padding: 12px 16px; }
+          button, .btn, [role="button"] { display: none !important; }
+        }
+      </style>
+    </head><body>
+      <h1>SafeMiles — ${tabLabel}</h1>
+      <p class="meta">Exported ${new Date().toLocaleString()} · SafeMiles Admin</p>
+      ${contentEl.innerHTML}
+    </body></html>`)
+    w.document.close()
+    setTimeout(() => { w.print(); setPdfExporting(false) }, 600)
   }
-  const deleteConfig = (id) => {
-    const updated = savedConfigs.filter(c => c.id !== id)
-    setSavedConfigs(updated)
-    localStorage.setItem('gdip_report_configs', JSON.stringify(updated))
-  }
-  const loadConfig = (cfg) => setActiveTab(cfg.tab)
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const fmtBytes = (b) => !b ? '-' : b < 1048576 ? `${(b/1024).toFixed(1)} KB` : `${(b/1048576).toFixed(1)} MB`
@@ -9555,7 +9909,6 @@ const AdminReportsPage = () => {
     { key: 'avg-balance', label: 'Average Balances' },
     { key: 'inactive',    label: 'Inactive Users' },
     { key: 'scheduled',   label: 'Scheduled' },
-    { key: 'saved',       label: 'Saved Configs' },
   ]
 
   const statCard = (label, value, color = '#2563eb') => (
@@ -9575,14 +9928,11 @@ const AdminReportsPage = () => {
             <p className="page-subtitle" style={{ margin: 0 }}>System-wide analytics, trends, and data exports</p>
           </div>
 
-          {/* #21: Save current config */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input className="form-input" style={{ width: 180 }} placeholder="Config name…" value={configName}
-              onChange={e => setConfigName(e.target.value)} />
-            <button className="btn btn-primary" type="button" style={{ fontSize: '0.85em' }} onClick={saveConfig}
-              disabled={!configName}>💾 Save View</button>
-          </div>
-        </div>
+          <button className="btn btn-primary" type="button" style={{ fontSize: '0.85em', minWidth: 130 }}
+          onClick={exportCurrentTabPDF} disabled={pdfExporting}>
+          {pdfExporting ? 'Opening…' : '📄 Export PDF'}
+        </button>
+        
 
         {error && <div style={{ color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>{error}</div>}
 
@@ -9597,7 +9947,7 @@ const AdminReportsPage = () => {
             </button>
           ))}
         </div>
-
+          <div id="reports-tab-content"></div>
         {/* ── #20: Real-Time Dashboard ── */}
         {activeTab === 'realtime' && (
           <div>
@@ -10101,6 +10451,7 @@ const AdminReportsPage = () => {
             )}
           </div>
         )}
+        </div>{/* end reports-tab-content */}
       </main>
     </div>
   )

@@ -573,36 +573,76 @@ app.put('/me/language', requireAuth, async (req, res) => {
  
 // ─── #29: Create Sponsor Org ──────────────────────────────────────────────────
  
-app.post('/users/create-sponsor', requireAuth, async (req, res) => {
+app.post('/users/create', requireAuth, async (req, res) => {
   const schema = z.object({
+    role: z.enum(['driver', 'sponsor', 'admin']),
     email: z.string().email(),
     password: z.string().min(8),
-    company_name: z.string().min(1).max(200),
     first_name: z.string().max(100).optional().default(''),
     last_name: z.string().max(100).optional().default(''),
+    company_name: z.string().max(200).optional().default(''),
+    display_name: z.string().max(200).optional().default(''),
+    dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    phone: z.string().max(25).optional().default(''),
   });
+
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
- 
-  const email = parsed.data.email.toLowerCase();
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+  }
+
+  const data = parsed.data;
+  if (data.role === 'sponsor' && !String(data.company_name || '').trim()) {
+    return res.status(400).json({ error: 'company_name is required for sponsor accounts' });
+  }
+
+  const email = data.email.toLowerCase();
+  const conn = await require('@gdip/db').getConnection(); // adapt to your db helper
+
   try {
-    const password_hash = await hashPassword(parsed.data.password);
-    const insert = await exec(
-      "INSERT INTO users (email, password_hash, role) VALUES (?, ?, 'sponsor')",
-      [email, password_hash]
+    await conn.beginTransaction();
+
+    const password_hash = await hashPassword(data.password);
+
+    const insert = await conn.execute(
+      'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)',
+      [email, password_hash, data.role]
     );
-    const userId = insert.insertId;
-    await exec(
-      'INSERT INTO sponsor_profiles (user_id, company_name, first_name, last_name) VALUES (?, ?, ?, ?)',
-      [userId, parsed.data.company_name, parsed.data.first_name || null, parsed.data.last_name || null]
-    );
-    return res.status(201).json({ ok: true, userId, email, company_name: parsed.data.company_name });
+    const userId = insert[0].insertId;
+
+    if (data.role === 'driver') {
+      await conn.execute(
+        `INSERT INTO driver_profiles (user_id, first_name, last_name, dob, phone)
+         VALUES (?, ?, ?, ?, ?)`,
+        [userId, data.first_name || null, data.last_name || null, data.dob || null, data.phone || null]
+      );
+    } else if (data.role === 'sponsor') {
+      await conn.execute(
+        `INSERT INTO sponsor_profiles (user_id, company_name, first_name, last_name, phone)
+         VALUES (?, ?, ?, ?, ?)`,
+        [userId, data.company_name.trim(), data.first_name || null, data.last_name || null, data.phone || null]
+      );
+    } else {
+      await conn.execute(
+        `INSERT INTO admin_profiles (user_id, display_name, first_name, last_name, phone)
+         VALUES (?, ?, ?, ?, ?)`,
+        [userId, data.display_name || null, data.first_name || null, data.last_name || null, data.phone || null]
+      );
+    }
+
+    await conn.commit();
+    return res.status(201).json({ ok: true, userId, email, role: data.role });
   } catch (err) {
+    await conn.rollback();
+
     if (err?.code === 'ER_DUP_ENTRY' || String(err?.message || '').includes('Duplicate')) {
       return res.status(409).json({ error: 'Email already in use' });
     }
+
     console.error(err);
     return res.status(500).json({ error: 'Server error' });
+  } finally {
+    conn.release();
   }
 });
 
@@ -1795,6 +1835,141 @@ app.patch('/sponsors/:sponsorId/catalog/:itemId/availability', requireAuth, asyn
     return res.status(500).json({ error: 'Server error' })
   }
 })
+
+
+app.get('/notifications/sent', requireAuth, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500)
+    const rows = await query(
+      `SELECT n.id, n.user_id, n.type, n.title, n.body, n.is_read, n.is_mandatory,
+              n.ref_type, n.ref_id, n.created_at,
+              u.email AS recipient_email,
+              TRIM(CONCAT(COALESCE(dp.first_name,''), ' ', COALESCE(dp.last_name,''))) AS recipient_name
+       FROM notifications n
+       JOIN users u ON n.user_id = u.id
+       LEFT JOIN driver_profiles dp ON n.user_id = dp.user_id
+       WHERE n.ref_type = 'sponsor' AND n.ref_id = ?
+       ORDER BY n.created_at DESC
+       LIMIT ${limit}`,
+      [req.user.id]
+    );
+    return res.json({ sent: rows || [] });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return res.json({ sent: [] });
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/drivers/bulk-import', requireAuth, async (req, res) => {
+  const schema = z.object({
+    drivers: z.array(z.object({
+      email: z.string().email(),
+      password: z.string().min(8).optional(),
+      first_name: z.string().max(100).optional(),
+      last_name: z.string().max(100).optional(),
+      dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    })).min(1).max(500),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success)
+    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const sponsorCompany = await getSponsorCompanyName(req.user.id);
+  if (!sponsorCompany)
+    return res.status(400).json({ error: 'Sponsor company_name is not set. Update your profile first.' });
+
+  const results = [];
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const driver of parsed.data.drivers) {
+    const email = driver.email.toLowerCase();
+    // Auto-generate a secure temp password if none provided
+    const tempPassword = driver.password
+      ? null
+      : Math.random().toString(36).slice(-8) + 'Aa1!';
+    const plainPassword = driver.password || tempPassword;
+
+    try {
+      // Check if user already exists
+      const existing = await query(
+        "SELECT id FROM users WHERE email = ? AND role = 'driver' LIMIT 1",
+        [email]
+      );
+
+      let userId;
+      let action;
+
+      if (existing?.length) {
+        // Driver exists — just affiliate with this sponsor
+        userId = existing[0].id;
+        action = 'affiliated';
+      } else {
+        // Create new driver account
+        const passwordHash = await hashPassword(plainPassword);
+        const userInsert = await exec(
+          "INSERT INTO users (email, password_hash, role) VALUES (?, ?, 'driver')",
+          [email, passwordHash]
+        );
+        userId = userInsert.insertId;
+
+        // Create driver profile
+        await exec(
+          `INSERT INTO driver_profiles (user_id, first_name, last_name, dob, sponsor_org)
+           VALUES (?, ?, ?, ?, ?)`,
+          [userId, driver.first_name || null, driver.last_name || null, driver.dob || null, sponsorCompany]
+        );
+        action = 'created';
+      }
+
+      // Ensure driver_profile exists for pre-existing drivers
+      await exec(
+        "INSERT INTO driver_profiles (user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id = user_id",
+        [userId]
+      );
+
+      // Affiliate with sponsor org
+      await exec(
+        "UPDATE driver_profiles SET sponsor_org = ? WHERE user_id = ?",
+        [sponsorCompany, userId]
+      );
+
+      // Notify the driver
+      createNotification(
+        userId,
+        'sponsor_announcement',
+        `You have been added to ${sponsorCompany}'s program`,
+        'Your account was created or linked by your sponsor.',
+        'sponsor', req.user.id
+      ).catch(() => {});
+
+      results.push({
+        email,
+        ok: true,
+        userId,
+        action,
+        tempPassword: action === 'created' ? tempPassword : null,
+      });
+      successCount++;
+    } catch (err) {
+      const isDup = err?.code === 'ER_DUP_ENTRY' || String(err?.message || '').includes('Duplicate');
+      results.push({ email, ok: false, error: isDup ? 'Email already registered' : (err?.message || 'Unknown error') });
+      failCount++;
+    }
+  }
+
+  // Log the bulk import action
+  try {
+    const sp = (await query("SELECT org_id FROM sponsor_profiles WHERE user_id = ? LIMIT 1", [req.user.id]))?.[0];
+    if (sp?.org_id) {
+      await logAction(sp.org_id, req.user.id, 'bulk_import_drivers', null,
+        `Bulk imported ${successCount} drivers (${failCount} failed)`);
+    }
+  } catch { /* non-critical */ }
+
+  return res.json({ ok: true, successCount, failCount, results });
+});
 
 app.listen(PORT, () => {
   console.log(`[admin] listening on :${PORT}`);
